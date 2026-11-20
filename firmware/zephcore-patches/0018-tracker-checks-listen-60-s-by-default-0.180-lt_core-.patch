@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 22:00:02 +0100
+Subject: [PATCH 18/40] tracker: checks listen 60 s by default (0..180,
+ lt_core); the receiver stays on for the whole GPS search and Bluetooth scan
+ when they outlast the window (late commands still taken; RX counted in the
+ energy estimate)
+
+---
+ zephcore/src/main_tracker.cpp | 26 +++++++++++++++++++-------
+ 1 file changed, 19 insertions(+), 7 deletions(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 0839838..1b9e995 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -216,7 +216,7 @@ struct persisted {
+ 	uint8_t pad6[2];
+ 	uint32_t energy_uah;      /* estimated charge used since the last full charge */
+ 	/* v7: checks and parked quiet (PROTOCOL.md 2.1, 0.7) */
+-	uint8_t check_s;          /* listening at a check, 0..60 s; 0 = no listening */
++	uint8_t check_s;          /* listening at a check, 0..180 s; 0 = no listening */
+ 	uint8_t still_after;      /* parked: wake-ups in a row at the same place, 0 = off */
+ 	uint8_t still_hb_h;       /* parked: one report every this many hours */
+ 	uint8_t zone_hb_h;        /* home zone heartbeat, hours */
+@@ -293,6 +293,7 @@ static uint32_t chk_off_s;        /* its offset from chk_t0 */
+ static int64_t chk_due_ms;        /* when the scheduled wake-up starts */
+ static bool chk_hb;               /* the scheduled wake-up is the heartbeat */
+ static bool check_rx;             /* the receiver window of check (n_report, chk_k) is open */
++static bool check_rx_over;        /* 0.7.2: its window is over, the receiver stays on for the search */
+ static int64_t check_rx_ms;       /* its start, for the energy estimate */
+ static uint32_t en_check_rx_ms;   /* receiver time at checks in this wake-up (in parallel with the GPS) */
+ static bool check_wait;           /* decided, waiting for the window to close (PH_CHECK) */
+@@ -1024,6 +1025,7 @@ static void check_rx_close(void)
+ {
+ 	if (check_rx) {
+ 		check_rx = false;
++		check_rx_over = false;
+ 		k_timer_stop(&check_tmr);
+ 		en_check_rx_ms += (uint32_t)(k_uptime_get() - check_rx_ms);
+ 	}
+@@ -1496,6 +1498,10 @@ static void wake_finish(bool with_fix)
+ 		ble_purpose = BLE_NONE;
+ 	}
+ #endif
++	if (check_rx && check_rx_over) {
++		/* 0.7.2: the window ended during the search, the receiver ran on until now */
++		check_rx_close();
++	}
+ 	if (check_rx) {
+ 		/* 0.7: the receiver window of a check is still open; a command there makes this wake-up
+ 		 * report (n + 1, with CMD_ACK), so decide when the window closes or a command came */
+@@ -1561,6 +1567,7 @@ static void start_report(void)
+ 			radio_home();
+ 			radio.recoverRxState();
+ 			check_rx = true;
++			check_rx_over = false;
+ 			check_rx_ms = k_uptime_get();
+ 			k_timer_start(&check_tmr, K_MSEC(left), K_NO_WAIT);
+ 			LOG_INF("check %u after n=%u: listening %lld ms", chk_k, n_report, (long long)left);
+@@ -4178,13 +4185,18 @@ int main(void)
+ 				search_done(false);
+ 			}
+ 		}
+-		if ((ev & EV_CHECK_END) && check_rx) {
++		if ((ev & EV_CHECK_END) && check_rx && !check_rx_over) {
+ 			/* the check's window is over: no command */
+-			check_rx_close();
+-			if (phase == PH_CHECK) {
+-				wake_finish(check_wait_fix);
+-			} else if (phase == PH_WAIT_FIX && !mesh_scanning) {
+-				radio.sleepRadio(); /* the GPS searches on; the receiver is not needed */
++			if (phase == PH_WAIT_FIX) {
++				/* 0.7.2: the GPS search or the Bluetooth scan runs on; the MCU is awake anyway, so
++				 * the receiver stays on until they end (RX ~8.5 mA next to GNSS ~19 mA), and a
++				 * late command is still taken. wake_finish() closes it without waiting. */
++				check_rx_over = true;
++			} else {
++				check_rx_close();
++				if (phase == PH_CHECK) {
++					wake_finish(check_wait_fix);
++				}
+ 			}
+ 		}
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)

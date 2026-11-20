@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- mining mailbox entries (NIP-13) and the backup silent-tag check run with the screen off -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <!-- 0.7.7: a waiting command goes into this phone's Bluetooth advertising, so a tag nearby takes
+         it at its next scan (PROTOCOL.md 3.1). -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <!-- 0.10.0: the tag's console over Bluetooth after a restart (PROTOCOL.md 6.2): the app scans for
+         its console advert while a screen that uses the console is open, and connects. Never for
+         location; Android 12 and newer only (older versions would need the location permission). -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
+    <queries>
+        <package android:name="com.meshcore.meshcore_open" />
+        <!-- "Open in map": any app that opens geo: (OsmAnd, CoMaps, Organic Maps, Google Maps) -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <!-- NIP-55 signers (Amber) and apps that take a nostrconnect:// link (key backup sign-in) -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="nostrsigner" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="nostrconnect" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".LibreTagApp"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
+        android:localeConfig="@xml/locales_config"
+        android:theme="@style/Theme.LibreTag"
+        tools:targetApi="33">
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity android:name=".ui.AddTagActivity" android:exported="false" android:launchMode="singleTop" />
+        <activity android:name=".ui.ServiceActivity" android:exported="false" />
+        <activity android:name=".ui.FirmwareUpdateActivity" android:exported="false" />
+        <activity android:name=".ui.ZonesActivity" android:exported="false" />
+        <activity android:name=".ui.TagSettingsActivity" android:exported="false" />
+        <activity android:name=".ui.KnownDevicesActivity" android:exported="false" />
+        <activity android:name=".ui.SettingsActivity" android:exported="false" />
+        <activity android:name=".ui.ConnectionsActivity" android:exported="false" />
+        <activity android:name=".ui.RepeaterMapActivity" android:exported="false" />
+        <activity android:name=".ui.NostrKeyActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ui.AboutActivity" android:exported="false" />
+        <activity android:name=".ui.BackupActivity" android:exported="false" android:launchMode="singleTop" />
+        <activity android:name=".ui.SignInActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <!-- the phrase lives only in this activity's memory: no recreation on rotation, no saved state -->
+        <activity android:name=".ui.PhraseActivity" android:exported="false" android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density" />
+
+        <!-- a tag plugged in: ours goes to Service, anything else to Add tag -->
+        <activity
+            android:name=".ui.UsbActivity"
+            android:exported="true"
+            android:theme="@style/Theme.LibreTag.Translucent"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_tracker" />
+        </activity>
+
+        <!-- a tag shared with us: libretag://share?... (QR or a link from a Nostr DM) -->
+        <activity
+            android:name=".ui.ShareImportActivity"
+            android:exported="true"
+            android:theme="@style/Theme.LibreTag.Translucent">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="libretag" android:host="share" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- per-app language on Android 12 and older -->
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false"
+            android:exported="false">
+            <meta-data android:name="autoStoreLocales" android:value="true" />
+        </service>
+
+        <!-- QR scanner (zxing-android-embedded): follow the phone, its default is landscape -->
+        <activity
+            android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:screenOrientation="fullSensor"
+            tools:replace="android:screenOrientation" />
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- backup for the silent-tag alarm when the system killed the process -->
+        <receiver android:name=".SilenceAlarmReceiver" android:exported="false" />
+        <!-- switches the advertised command to the next check, also in Doze -->
+        <receiver android:name=".ble.BleBeaconAlarm" android:exported="false" />
+        <!-- 0.12: matches of the background filtered scan for the tags' Bluetooth adverts -->
+        <receiver android:name=".ble.BleSightReceiver" android:exported="false" />
+
+        <service
+            android:name=".TrackerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the connection to MeshCore Open to receive location reports from the user's own LoRa trackers." />
+        </service>
+    </application>
+</manifest>

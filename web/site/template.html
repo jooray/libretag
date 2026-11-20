@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="[[lang]]">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>[[title]]</title>
+<meta name="description" content="[[desc]]">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1A1C1E" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="[[canonical]]">
+<link rel="alternate" hreflang="en" href="https://cypherpunk.today/libretag/">
+<link rel="alternate" hreflang="sk" href="https://cypherpunk.today/libretag/sk/">
+<link rel="alternate" hreflang="x-default" href="https://cypherpunk.today/libretag/">
+<link rel="icon" type="image/svg+xml" href="[[root]]img/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="[[root]]img/favicon-32.png">
+<link rel="apple-touch-icon" href="[[root]]img/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="LibreTag">
+<meta property="og:title" content="[[title]]">
+<meta property="og:description" content="[[desc]]">
+<meta property="og:url" content="[[canonical]]">
+<meta property="og:locale" content="[[og_locale]]">
+<meta property="og:image" content="https://cypherpunk.today/libretag/img/og-[[lang]].png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="[[og_alt]]">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="[[title]]">
+<meta name="twitter:description" content="[[desc]]">
+<meta name="twitter:image" content="https://cypherpunk.today/libretag/img/og-[[lang]].png">
+<link rel="preload" href="[[root]]fonts/archivo_extrabold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="[[root]]fonts/archivo_regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="[[root]]style.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body>
+<a class="skip" href="#main">[[skip]]</a>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="[[home]]"><img src="[[root]]img/icon-512.png" width="36" height="36" alt="">LibreTag</a>
+    <nav aria-label="[[nav_label]]">
+      <a href="#how">[[nav_how]]</a>
+      <a href="#privacy">[[nav_privacy]]</a>
+      <a href="#features">[[nav_features]]</a>
+      <a href="#hardware">[[nav_hw]]</a>
+      <a href="#get">[[nav_get]]</a>
+    </nav>
+    <div class="top-r">
+      <div class="lang" role="group" aria-label="Language / Jazyk">
+        [[lang_switch]]
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <h1>[[h1]]</h1>
+      <p class="lede">[[lede]]</p>
+      <div class="cta">
+        <a class="btn" href="#get">[[cta_get]]</a>
+        <a class="btn ghost" href="#video">[[cta_video]]</a>
+      </div>
+      <p class="status">[[status]]</p>
+    </div>
+    <div class="hero-art">
+      <img class="bg" src="[[root]]img/hero-trail.webp" width="1024" height="1024" alt="[[hero_alt]]" fetchpriority="high">
+      <div class="plates" role="group" aria-label="[[plates_label]]">
+        <p class="cap">[[plates_cap]]</p>
+        [[plate1]]
+        [[plate2]]
+      </div>
+    </div>
+  </div>
+</section>
+
+<!--VIDEO-->
+<section id="video">
+  <div class="wrap">
+    <div class="h2">[[bz_h2_green]]<h2>[[video_h]]</h2></div>
+    <p class="sec-intro">[[video_p]]</p>
+    <div class="video" id="videobox">
+      <video controls preload="none" playsinline poster="[[root]]media/libretag-explainer-[[lang]].jpg" aria-label="[[video_label]]">
+        <source src="[[root]]media/libretag-explainer-[[lang]].mp4" type="video/mp4">
+        [[video_fallback]]
+      </video>
+    </div>
+  </div>
+</section>
+<!--/VIDEO-->
+
+<section id="what" class="tint">
+  <div class="wrap">
+    <div class="h2">[[bz_h2_red]]<h2>[[what_h]]</h2></div>
+    <p class="sec-intro">[[what_p]]</p>
+    <ul class="rows">
+      <li>[[bz0]]<h3>[[what1_h]]</h3><p>[[what1_p]]</p></li>
+      <li>[[bz1]]<h3>[[what2_h]]</h3><p>[[what2_p]]</p></li>
+      <li>[[bz2]]<h3>[[what3_h]]</h3><p>[[what3_p]]</p></li>
+    </ul>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="h2">[[bz_h2_blue]]<h2>[[how_h]]</h2></div>
+    <p class="sec-intro">[[how_p]]</p>
+    <ol class="cycle">
+      <li>[[bz0]]<b>[[c1_h]]</b><span>[[c1_p]]</span></li>
+      <li>[[bz1]]<b>[[c2_h]]</b><span>[[c2_p]]</span></li>
+      <li>[[bz2]]<b>[[c3_h]]</b><span>[[c3_p]]</span></li>
+      <li>[[bz3]]<b>[[c4_h]]</b><span>[[c4_p]]</span></li>
+      <li>[[bz0]]<b>[[c5_h]]</b><span>[[c5_p]]</span></li>
+    </ol>
+    <div class="cols three" style="margin-top:40px">
+      <div><h3>[[mesh_h]]</h3><p>[[mesh_p]]</p></div>
+      <div><h3>[[nostr_h]]</h3><p>[[nostr_p]]</p></div>
+      <div><h3>[[cmd_h]]</h3><p>[[cmd_p]]</p></div>
+    </div>
+    <p class="note">[[how_note]]</p>
+  </div>
+</section>
+
+<section id="nogps" class="tint">
+  <div class="wrap cols split">
+    <div>
+      <div class="h2">[[bz_h2_green]]<h2>[[nogps_h]]</h2></div>
+      <p>[[nogps_p1]]</p>
+      <p>[[nogps_p2]]</p>
+      <p>[[nogps_p3]]</p>
+    </div>
+    <figure class="mapbox" style="margin:0">
+      [[map]]
+      <figcaption>[[map_cap]]</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="privacy" class="night">
+  <div class="wrap">
+    <div class="h2">[[bz_h2_yellow]]<h2>[[priv_h]]</h2></div>
+    <p class="sec-intro">[[priv_p]]</p>
+    <ul class="rows">
+      <li>[[bz0]]<h3>[[priv1_h]]</h3><p>[[priv1_p]]</p></li>
+      <li>[[bz1]]<h3>[[priv2_h]]</h3><p>[[priv2_p]]</p></li>
+      <li>[[bz2]]<h3>[[priv3_h]]</h3><p>[[priv3_p]]</p></li>
+      <li>[[bz3]]<h3>[[priv4_h]]</h3><p>[[priv4_p]]</p></li>
+      <li>[[bz4]]<h3>[[priv5_h]]</h3><p>[[priv5_p]]</p></li>
+    </ul>
+    <div class="honest"><h3>[[honest_h]]</h3><p>[[honest_p]]</p></div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <div class="h2">[[bz_h2_diag]]<h2>[[feat_h]]</h2></div>
+    <p class="sec-intro">[[feat_p]]</p>
+    <ul class="feat">
+      [[features_html]]
+    </ul>
+  </div>
+</section>
+
+<section id="next" class="tint">
+  <div class="wrap">
+    <div class="h2">[[bz_h2_red]]<h2>[[next_h]]</h2></div>
+    <div class="next">
+      <div>
+        <span class="tag-state">[[next_plan_label]]</span>
+        <p>[[next_plan_p]]</p>
+        <ul class="stack">[[next_plan_html]]</ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="uses">
+  <div class="wrap">
+    <div class="h2">[[bz_h2_blue]]<h2>[[uses_h]]</h2></div>
+    <p class="sec-intro">[[uses_p]]</p>
+    <div class="cols two">
+      <div class="use">
+        <div class="h3row">[[bz1]]<h3>[[things_h]]</h3></div>
+        <ul>[[things_ul]]</ul>
+        <p class="limit">[[things_limit]]</p>
+      </div>
+      <div class="use">
+        <div class="h3row">[[bz2]]<h3>[[people_h]]</h3></div>
+        <ul>[[people_ul]]</ul>
+        <p class="limit">[[people_limit]]</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+
+<section id="hardware">
+  <div class="wrap">
+    <div class="h2">[[bz_h2_yellow]]<h2>[[hw_h]]</h2></div>
+    <p class="sec-intro">[[hw_p]]</p>
+    <div class="hw">
+      <article>
+        <span class="role">[[x1_role]]</span>
+        <h3>Seeed SenseCAP MeshTracker X1</h3>
+        <p>[[x1_p]]</p>
+        <dl>[[x1_dl]]</dl>
+        <a class="btn" href="[[x1_url]]" rel="sponsored noopener" target="_blank">[[hw_buy]]</a>
+      </article>
+      <article>
+        <span class="role ok">[[l1_role]]</span>
+        <h3>Seeed Wio Tracker L1 Pro</h3>
+        <p>[[l1_p]]</p>
+        <dl>[[l1_dl]]</dl>
+        <a class="btn" href="[[l1_url]]" rel="sponsored noopener" target="_blank">[[hw_buy]]</a>
+      </article>
+    </div>
+    <p class="disclose">[[hw_disclose]]</p>
+  </div>
+</section>
+
+<section id="get" class="tint">
+  <div class="wrap">
+    <div class="h2">[[bz_h2_red]]<h2>[[get_h]]</h2></div>
+    <ul class="get">
+      <li><h3>[[get1_h]]</h3><p>[[get1_p]]</p><a class="btn" href="#get" aria-disabled="true" data-placeholder="apk">[[get1_btn]]<span class="soon">[[soon]]</span></a></li>
+      <li><h3>[[get1b_h]]</h3><p>[[get1b_p]]</p><a class="btn" href="[[root]]app/">[[get1b_btn]]</a></li>
+      <li><h3>[[get2_h]]</h3><p>[[get2_p]]</p><a class="btn ghost" href="#get" aria-disabled="true" data-placeholder="source">[[get2_btn]]<span class="soon">[[soon]]</span></a></li>
+      <li><h3>[[get3_h]]</h3><p>[[get3_p]]</p><a class="btn ghost" href="#get" aria-disabled="true" data-placeholder="bridge-docs">[[get3_btn]]<span class="soon">[[soon]]</span></a></li>
+      <li><h3>[[get4_h]]</h3><p>[[get4_p]]</p><a class="btn" href="[[support_url]]" rel="noopener" target="_blank">[[get4_btn]]</a></li>
+    </ul>
+    <div class="own" id="own-node">
+      <h3>[[own_h]]</h3>
+      <p>[[own_p]]</p>
+      <ol>[[own_steps]]</ol>
+      <p class="note">[[own_note]]</p>
+    </div>
+  </div>
+</section>
+
+<section id="nostr">
+  <div class="wrap cols two">
+    <div>
+      <div class="h2">[[bz_h2_blue]]<h2>[[nostr_sec_h]]</h2></div>
+      <p>[[nostr_sec_p]]</p>
+    </div>
+    <div>
+      <dl class="nostr">
+        <dt>npub</dt><dd><div class="npub"><code id="npub">[[npub]]</code><button class="btn small ghost" type="button" id="copynpub" data-copied="[[copied]]">[[copy]]</button></div></dd>
+        <dt>njump</dt><dd><a href="https://njump.me/[[npub]]" rel="noopener" target="_blank">njump.me/[[npub_short]]</a></dd>
+        <dt>NIP-05</dt><dd><span class="mono">libretag@cypherpunk.today</span></dd>
+      </dl>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>[[foot_1]]</p>
+    <p>[[foot_2]]</p>
+    <div class="row"><span>[[foot_license]]</span><a href="[[support_url]]" rel="noopener" target="_blank">[[foot_support]]</a><a href="[[other_url]]" hreflang="[[other_lang]]">[[other_name]]</a></div>
+  </div>
+</footer>
+<script src="[[root]]main.js" defer></script>
+</body>
+</html>

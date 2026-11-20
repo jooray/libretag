@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Trackerdiagnose (app 0.12, docs/design/tag-diagnosis.md): waarom een tracker te laat is.
+     De zinnen in lijstrijen (dg_row_*) passen in één rij: hooguit 44 tekens met de waarden ingevuld. -->
+<resources>
+    <plurals name="st_missed">
+        <item quantity="one">%1$d melding gemist · volgende %2$s</item>
+        <item quantity="other">%1$d meldingen gemist · volgende %2$s</item>
+    </plurals>
+
+    <!-- row sentences -->
+    <string name="dg_row_bootloader">In updatemodus · meldt niets</string>
+    <string name="dg_row_esp_download">In downloadmodus · meldt niets</string>
+    <string name="dg_row_tx_floor">Batterij te zwak om te melden</string>
+    <plurals name="dg_row_reset_loop">
+        <item quantity="one">Start steeds opnieuw · %1$d keer achter elkaar</item>
+        <item quantity="other">Start steeds opnieuw · %1$d keer achter elkaar</item>
+    </plurals>
+    <string name="dg_row_on_cable">Aan de kabel</string>
+    <string name="dg_row_counter_ahead">Meldingen buiten bereik van de app</string>
+    <string name="dg_row_firmware_too_old">Firmware %1$s is te oud voor deze app</string>
+    <string name="dg_row_phone_offline">Telefoon offline · gehoord %1$s</string>
+    <string name="dg_row_relays_down">Relays onbereikbaar · gehoord %1$s</string>
+    <string name="dg_row_just_back">Zoeken naar gemiste meldingen…</string>
+    <string name="dg_row_not_delivered">Gemeld %1$s · niet op je relays</string>
+    <string name="dg_row_with_you">Bij jou · bewust stil</string>
+    <string name="dg_row_restarted_here">Herstart bij jou %1$s · melding volgt</string>
+    <plurals name="dg_row_restarting">
+        <item quantity="one">Start opnieuw · %1$d keer sinds %2$s</item>
+        <item quantity="other">Start opnieuw · %1$d keer sinds %2$s</item>
+    </plurals>
+    <string name="dg_row_update_unfinished">Stil sinds de update (%1$s)</string>
+    <string name="dg_row_battery_empty">Batterij waarschijnlijk leeg · %1$s (%2$s)</string>
+    <string name="dg_row_battery_empty_unknown">Batterij waarschijnlijk leeg</string>
+    <string name="dg_row_schedule_pending">Nieuw schema komt · uiterlijk %1$s</string>
+    <string name="dg_row_schedule_mismatch">Meldt %1$s, app verwacht %2$s</string>
+    <string name="dg_row_schedule_unsent">Schema staat nog niet op de tracker</string>
+    <string name="dg_row_out_of_range">Stil %1$s · geen repeater gehoord</string>
+    <string name="dg_row_node_down">Je knooppunt is uit · gehoord %1$s</string>
+    <string name="dg_row_maybe_with_you">Stil %1$s · misschien rustig bij jou</string>
+    <string name="dg_row_maybe_quiet_place">Stil %1$s · misschien rustig bij %2$s</string>
+    <string name="dg_row_after_cable">Stil sinds de kabel · %1$s</string>
+    <string name="dg_row_phone_clock">Klok van telefoon lijkt fout</string>
+
+    <!-- the Why card -->
+    <string name="dg_why">Waarom</string>
+    <string name="dg_card_missed">Eén melding is niet aangekomen. Dat gebeurt op een gedeeld mesh. De volgende komt rond %1$s.</string>
+    <string name="dg_card_bootloader">De tracker aan de kabel wacht op firmware en meldt niets tot hij opnieuw start. Wilde je hem niet updaten, druk dan één keer op de resetknop.</string>
+    <string name="dg_card_esp_download">De tracker aan de kabel staat in downloadmodus, dus zijn firmware draait niet.</string>
+    <string name="dg_card_tx_floor">De batterij zit onder 3,25 V, dus de tracker zwijgt om niet opnieuw te starten. Boven 3,35 V of aan een oplader meldt hij zich vanzelf weer.</string>
+    <string name="dg_card_reset_loop">De tracker is %1$d keer achter elkaar opnieuw gestart (%2$s). Na elke herstart wacht hij langer met de eerste melding, nu %3$s. Meestal komt het door een zwakke batterij of een los contact.</string>
+    <string name="dg_card_on_cable">Verbonden met deze telefoon. Laatste melding %1$s, de volgende %2$s.</string>
+    <string name="dg_card_counter_ahead">De meldingsteller van de tracker loopt ver voor op die van de app, dus de app vindt zijn meldingen niet.</string>
+    <string name="dg_card_firmware_too_old">Deze app leest meldingen van firmware %2$s en nieuwer. De tracker heeft %1$s. Update hem via de kabel.</string>
+    <string name="dg_card_phone_offline">Deze telefoon heeft geen internet en geen MeshCore-knooppunt, dus hij kan geen meldingen ontvangen. Laatst gehoord %1$s. De app kijkt opnieuw zodra de verbinding terug is.</string>
+    <plurals name="dg_card_relays_down">
+        <item quantity="one">Je relay antwoordt niet. Meldingen die bruggen hebben gepubliceerd, wachten daar.</item>
+        <item quantity="other">Geen van je %1$d relays antwoordt. Meldingen die bruggen hebben gepubliceerd, wachten daar.</item>
+    </plurals>
+    <string name="dg_card_just_back">De telefoon kon van %1$s tot %2$s niets ontvangen. Ik vraag de relays om meldingen uit die tijd.</string>
+    <string name="dg_card_not_delivered">Een brug hoorde de tracker %1$s (%2$s), maar de melding staat niet op je relays. De tracker werkt.</string>
+    <string name="dg_card_not_delivered_add">Een brug hoorde de tracker %1$s (%2$s), maar de melding staat niet op je relays. De tracker werkt. Voeg een van de relays van de brug toe om zijn meldingen te krijgen.</string>
+    <string name="dg_card_with_you">Deze telefoon hoorde de tracker %1$s via Bluetooth, en de tracker ziet een van je apparaten. Zolang je in de buurt bent, zwijgt hij en meldt hij zich uiterlijk %2$s.</string>
+    <string name="dg_card_with_you_console">Via Bluetooth zei de tracker %1$s dat hij een van je apparaten ziet. Zolang je in de buurt bent, zwijgt hij en meldt hij zich uiterlijk %2$s.</string>
+    <string name="dg_card_restarted_here">Deze telefoon hoorde de tracker %1$s opstarten. De eerste melding komt ongeveer 30 s na een herstart.</string>
+    <string name="dg_card_restarting">De tracker is %1$s opnieuw gestart. Meestal komt het door een zwakke batterij.</string>
+    <string name="dg_card_update_unfinished">Een update begon %1$s en de tracker heeft zich sindsdien niet gemeld. Misschien staat hij nog in updatemodus, waar hij zonder tijdslimiet wacht. Sluit hem aan op deze telefoon om het te controleren.</string>
+    <string name="dg_card_battery_empty">De laatste melding (%1$s) gaf %2$s aan. Onder ongeveer 7 %% stopt de tracker met melden. Laad hem op.</string>
+    <string name="dg_card_schedule_pending">Je hebt het schema veranderd naar %1$s. Tot de tracker het bevestigt, kan de volgende melding volgens beide schema\'s komen, uiterlijk %2$s.</string>
+    <string name="dg_card_schedule_mismatch">De tracker meldt %1$s. De app heeft %2$s. Tot ze overeenkomen, kunnen commando\'s de tracker missen.</string>
+    <string name="dg_card_schedule_unsent">Gewijzigde instellingen moeten nog via de kabel worden geschreven. Tot dan houdt de tracker zijn oude schema.</string>
+    <string name="dg_card_out_of_range">Geen repeater hoorde de laatste twee meldingen, dus de tracker is misschien buiten bereik van het mesh. Hij blijft het proberen %1$s.</string>
+    <string name="dg_card_node_down">De meldingen van deze tracker kwamen via je eigen MeshCore-knooppunt, dat sinds %1$s niet verbonden is.</string>
+    <string name="dg_card_maybe_with_you">De tracker zwijgt als hij je apparaten ziet, en de melding die dat zegt kan verloren zijn gegaan. Deze telefoon kan het hem via Bluetooth vragen als hij weer wakker wordt, rond %1$s.</string>
+    <string name="dg_card_maybe_with_you_plain">De tracker zwijgt als hij je apparaten ziet, en de melding die dat zegt kan verloren zijn gegaan.</string>
+    <string name="dg_card_maybe_quiet_place">De laatste positie lag binnen %1$s. Daar zwijgt de tracker, en de melding die dat zegt kan verloren zijn gegaan.</string>
+    <string name="dg_card_after_cable">Niets meer sinds de tracker aan de kabel zat (%1$s). Is hij op een computer geüpdatet, dan staat hij misschien nog in updatemodus. Sluit hem aan op deze telefoon om het te controleren.</string>
+    <plurals name="dg_card_phone_clock">
+        <item quantity="one">De klok van de telefoon loopt ongeveer %1$d min fout. Verwachte tijden en getimede commando\'s hangen ervan af.</item>
+        <item quantity="other">De klok van de telefoon loopt ongeveer %1$d min fout. Verwachte tijden en getimede commando\'s hangen ervan af.</item>
+    </plurals>
+    <string name="dg_card_unknown">Geen melding sinds %1$s en niets verklaart het. Positie en batterij hieronder zijn van toen.</string>
+    <string name="dg_card_asking">Ik vraag het als hij weer wakker wordt, rond %1$s. Houd de telefoon bij de tracker.</string>
+    <string name="dg_card_not_here">Niet hier: de tracker antwoordde %1$s niet via Bluetooth.</string>
+
+    <!-- findings without a silence -->
+    <string name="dg_find_node_down">Je MeshCore-knooppunt is niet verbonden, en de meldingen van deze tracker kwamen alleen via dat knooppunt.</string>
+    <string name="dg_find_battery_cliff">De batterij is %1$d punten gedaald sinds de vorige melding.</string>
+    <string name="dg_find_no_gps_run">Sinds %1$s geen GPS-fix.</string>
+    <string name="dg_find_counter_back">Een melding (%1$s) kwam met een oudere teller. Gebruikt een tweede tracker dezelfde sleutel?</string>
+    <string name="dg_find_counter_ahead">De meldingsteller van de tracker loopt ver voor op wat de app kent.</string>
+    <string name="dg_find_firmware_behind">Firmware %1$s op de tracker, %2$s is beschikbaar.</string>
+    <string name="dg_find_flood_cap">De tracker bereikte zijn dagelijkse zendlimiet en meldt nu alleen %1$s om het mesh te ontzien.</string>
+    <string name="dg_find_restarting">De tracker is sinds %1$s meerdere keren opnieuw gestart.</string>
+
+    <!-- actions -->
+    <string name="dg_act_finish_update">Update afmaken</string>
+    <string name="dg_act_update_firmware">Firmware updaten</string>
+    <string name="dg_act_how_to_restart">Zo start je opnieuw</string>
+    <string name="dg_act_restart">Tracker herstarten</string>
+    <string name="dg_act_read_log">Logboek lezen</string>
+    <string name="dg_act_open_ble">Openen via Bluetooth</string>
+    <string name="dg_act_check_here">Kijken of hij hier is</string>
+    <string name="dg_act_send_report">Nu een melding sturen</string>
+    <string name="dg_act_connections">Verbindingen</string>
+    <string name="dg_act_try_again">Opnieuw proberen</string>
+    <string name="dg_act_add_relay">Relay toevoegen</string>
+    <string name="dg_act_use_tag_schedule">Schema van de tracker gebruiken</string>
+    <string name="dg_act_send_mine">Mijn schema opnieuw sturen</string>
+    <string name="dg_act_catch_up">Inhalen</string>
+    <string name="dg_act_date_settings">Datum- en tijdinstellingen</string>
+    <string name="dg_act_open_map">Openen op de kaart</string>
+    <string name="dg_act_service">Aansluiten en controleren</string>
+    <string name="dg_all_checks">Alle controles</string>
+    <string name="dg_hide_checks">Controles verbergen</string>
+    <string name="dg_how_to_restart_title">Tracker herstarten</string>
+    <string name="dg_how_to_restart_text">Druk één keer op de resetknop. Blijft de tracker in updatemodus staan, dan is zijn firmware onvolledig: sluit hem aan op deze telefoon en kies Update afmaken.</string>
+    <string name="dg_add_relay_title">Deze relay toevoegen?</string>
+    <string name="dg_add_relay_text">%1$s is een relay waarop een brug publiceert. Dat zegt de brug zelf, dus voeg hem alleen toe als je de brug vertrouwt. De app leest dan ook meldingen van die relay.</string>
+    <string name="dg_add_relay_ok">Toevoegen</string>
+    <string name="dg_relay_added">Relay toegevoegd</string>
+    <string name="dg_restart_sent">Tracker wordt herstart…</string>
+    <string name="dg_report_sent">Tracker gevraagd te melden</string>
+    <string name="dg_schedule_adopted">De app gebruikt nu het schema van de tracker</string>
+    <string name="dg_caught_up">Zoeken naar meldingen vanaf de teller van de tracker</string>
+    <string name="dg_no_console">Verbind de tracker eerst via de kabel of Bluetooth.</string>
+
+    <!-- the checklist: key, then value -->
+    <string name="dg_chk_online">Telefoon online</string>
+    <string name="dg_chk_relays">Relays</string>
+    <string name="dg_chk_node">Eigen knooppunt</string>
+    <string name="dg_chk_bridges">Bruggen die hem hoorden</string>
+    <string name="dg_chk_last_report">Laatste melding</string>
+    <string name="dg_chk_lost">Verloren meldingen (7 dagen)</string>
+    <string name="dg_chk_battery">Batterij toen</string>
+    <string name="dg_chk_bluetooth">Bluetooth</string>
+    <string name="dg_chk_cable">Kabel</string>
+    <string name="dg_chk_restarts">Herstarts</string>
+    <string name="dg_chk_schedule">Schema</string>
+    <string name="dg_chk_firmware">Firmware</string>
+    <string name="dg_chk_clock">Klok van telefoon</string>
+    <string name="dg_val_yes">ja</string>
+    <string name="dg_val_no">nee</string>
+    <string name="dg_val_unknown">onbekend</string>
+    <string name="dg_val_relays">%1$d van %2$d verbonden</string>
+    <string name="dg_val_node_up">verbonden</string>
+    <string name="dg_val_node_down">niet verbonden sinds %1$s</string>
+    <string name="dg_val_node_down_never">niet verbonden</string>
+    <string name="dg_val_node_never">niet ingesteld</string>
+    <string name="dg_val_bridges">laatst %1$s, %2$s</string>
+    <string name="dg_val_none_known">geen bekend</string>
+    <string name="dg_val_last_report">%1$s · %2$s · nr. %3$d</string>
+    <string name="dg_val_lost">%1$d van %2$d</string>
+    <string name="dg_val_battery">%1$s (%2$s)</string>
+    <string name="dg_val_ble_heard">gehoord %1$s</string>
+    <string name="dg_val_ble_not">niet gehoord door deze telefoon</string>
+    <string name="dg_val_cable_tag">nu verbonden</string>
+    <string name="dg_val_cable_boot">nu in updatemodus</string>
+    <string name="dg_val_cable_esp">nu in downloadmodus</string>
+    <string name="dg_val_cable_last">laatst verbonden %1$s</string>
+    <string name="dg_val_cable_never">nooit verbonden</string>
+    <plurals name="dg_val_restarts">
+        <item quantity="one">%1$d bekend, laatste %2$s</item>
+        <item quantity="other">%1$d bekend, laatste %2$s</item>
+    </plurals>
+    <string name="dg_val_schedule">meldt %1$s, luistert %2$s</string>
+    <string name="dg_val_firmware_current">%1$s · actueel</string>
+    <string name="dg_val_firmware_behind">%1$s · %2$s beschikbaar</string>
+    <string name="dg_val_firmware_old">%1$s · te oud</string>
+    <string name="dg_val_clock_ok">in orde</string>
+    <plurals name="dg_val_clock_off">
+        <item quantity="one">ongeveer %1$d min fout</item>
+        <item quantity="other">ongeveer %1$d min fout</item>
+    </plurals>
+    <string name="dg_hops">%1$s hops</string>
+    <string name="dg_hops_direct">direct</string>
+
+    <!-- notifications -->
+    <string name="notif_silent_cause">%1$s. %2$s</string>
+    <string name="notif_restart_title">%1$s start steeds opnieuw</string>
+    <string name="notif_restart_text">Meestal een zwakke batterij of een los contact. Open de tracker om te zien wanneer hij herstartte.</string>
+    <string name="notif_update_title">%1$s staat misschien nog in updatemodus</string>
+    <string name="notif_update_text">Hij heeft zich niet gemeld sinds de update begon. Druk één keer op de resetknop of sluit hem aan op deze telefoon.</string>
+    <string name="notif_blind_title">LibreTag kan geen meldingen ontvangen</string>
+    <string name="notif_blind_text">Deze telefoon had 2 uur geen verbinding met de relays of je knooppunt, en een tracker wordt bewaakt.</string>
+
+    <!-- home strip: a bootloader on the cable that fits no tag -->
+    <string name="dg_strip_bootloader">Een tracker aan de kabel staat in updatemodus. Hij meldt niets tot hij opnieuw start.</string>
+
+    <!-- map pill suffixes -->
+    <string name="dg_pill_with_you">bij jou</string>
+    <string name="dg_pill_cable">aan de kabel</string>
+
+    <!-- Settings -->
+    <string name="set_ble_sightings">Mijn trackers opmerken via Bluetooth</string>
+    <string name="set_ble_sightings_sub">De telefoon luistert op de achtergrond naar het Bluetooth-signaal van je trackers, zodat hij merkt wanneer een tracker is herstart of bij je in de buurt is. Je locatie wordt niet gebruikt.</string>
+
+    <!-- Track: how often and how long (app 0.12) -->
+    <string name="cmd_track_for">%1$s volgen, %2$s</string>
+    <string name="track_choose_title2">Tracker volgen</string>
+    <string name="track_how_often">Hoe vaak</string>
+    <string name="track_how_long">Hoe lang</string>
+    <plurals name="track_reports">
+        <item quantity="one">%1$d melding, tot %2$s</item>
+        <item quantity="other">%1$d meldingen, tot %2$s</item>
+    </plurals>
+    <string name="track_cap_warn">Dat is meer dan de tracker per dag mag sturen. Na ongeveer %1$s zakt hij naar één melding per uur om het mesh te ontzien.</string>
+    <string name="track_choose_ok_for">%1$s volgen</string>
+</resources>

@@ -1,0 +1,77 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 12:10:44 +0100
+Subject: [PATCH 09/40] tracker: BLE peripheral + SMP only for the blepair
+ window (bonds in RAM), LIBRETAG_WIFI option with a scanner hook
+
+---
+ zephcore/CMakeLists.txt             |  4 ++++
+ zephcore/Kconfig                    |  8 ++++++++
+ zephcore/boards/common/tracker.conf | 17 ++++++++++++-----
+ 3 files changed, 24 insertions(+), 5 deletions(-)
+
+diff --git a/zephcore/CMakeLists.txt b/zephcore/CMakeLists.txt
+index a0281e9..1b34761 100644
+--- a/zephcore/CMakeLists.txt
++++ b/zephcore/CMakeLists.txt
+@@ -634,6 +634,10 @@ elseif(CONFIG_ZEPHCORE_ROLE_TRACKER)
+     adapters/transport/ZephyrUartStream.cpp
+   )
+   target_include_directories(app PRIVATE ${LIBRETAG_CORE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/adapters/usb)
++  if(CONFIG_BT_SMP)
++    # blepair reads the bonded peer's IRK from the host's key store
++    target_include_directories(app PRIVATE ${ZEPHYR_BASE}/subsys/bluetooth)
++  endif()
+   target_compile_definitions(app PRIVATE ZEPHCORE_TRACKER=1)
+   if(NOT CONFIG_CDC_ACM_SERIAL_INITIALIZE_AT_BOOT AND (CONFIG_USB_CDC_ACM OR CONFIG_USBD_CDC_ACM_CLASS))
+     target_sources(app PRIVATE adapters/usb/ZephyrUSBCDC.cpp)
+diff --git a/zephcore/Kconfig b/zephcore/Kconfig
+index acb570a..e7262c9 100644
+--- a/zephcore/Kconfig
++++ b/zephcore/Kconfig
+@@ -237,6 +237,14 @@ config LIBRETAG_NOSTR
+ 	  profile libretag.public), short NIP-04 DMs to and from the owner
+ 	  through nostrmesh bridges, and the inbox poll. ~60 kB flash.
+ 
++config LIBRETAG_WIFI
++	bool "Wi-Fi APs in reports without a fix (needs a board Wi-Fi scanner)"
++	default n
++	help
++	  Report layout with a full BSSID and a tail, and a Wi-Fi packet in
++	  LOST (LibreTag PROTOCOL.md 2.2, 2.4). The board provides
++	  lt_wifi_scan(); the weak default finds nothing.
++
+ endif
+ 
+ config ZEPHCORE_COMPANION_USB
+diff --git a/zephcore/boards/common/tracker.conf b/zephcore/boards/common/tracker.conf
+index 2de526a..29d2e46 100644
+--- a/zephcore/boards/common/tracker.conf
++++ b/zephcore/boards/common/tracker.conf
+@@ -2,14 +2,21 @@
+ # Build: west build -b wio_tracker_l1 zephcore -- -DEXTRA_CONF_FILE="boards/common/tracker.conf"
+ CONFIG_ZEPHCORE_ROLE_TRACKER=y
+ 
+-# BLE as an observer only (experiment: blescan lists devices around when there is no GPS).
+-# No advertising, no connections: the tracker stays invisible on Bluetooth.
++# BLE: scanning (owner presence, BLE_SCAN, blescan) and, only inside a `blepair` window, a
++# connectable bondable peripheral so the owner's phone can hand over its IRK. Outside the window
++# nothing advertises and nothing can connect. Bonds live in RAM only (no BT settings).
+ CONFIG_BT=y
+ CONFIG_BT_OBSERVER=y
+-CONFIG_BT_BROADCASTER=n
+-CONFIG_BT_PERIPHERAL=n
++CONFIG_BT_PERIPHERAL=y
+ CONFIG_BT_CENTRAL=n
+-CONFIG_BT_SMP=n
++CONFIG_BT_SMP=y
++CONFIG_BT_SMP_ENFORCE_MITM=n
++CONFIG_BT_APP_PASSKEY=n
++CONFIG_BT_BONDABLE=y
++CONFIG_BT_MAX_PAIRED=1
++CONFIG_BT_MAX_CONN=1
++CONFIG_BT_DEVICE_NAME="LibreTag"
++CONFIG_BT_DEVICE_NAME_DYNAMIC=n
+ CONFIG_BT_SETTINGS=n
+ CONFIG_ENTROPY_GENERATOR=y
+ 

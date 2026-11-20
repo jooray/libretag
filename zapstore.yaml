@@ -1,0 +1,28 @@
+repository: https://github.com/jooray/libretag
+metadata_sources:
+    - github
+pubkey: npub1m2mvvpjugwdehtaskrcl7ksvdqnnhnjur9v6g9v266nss504q7mqvlr8p9
+match: "^libretag-[0-9.]+\\.apk$"
+name: LibreTag
+summary: Open-source LoRa tracker tags over MeshCore, with no company server in between.
+description: |
+  LibreTag is the app for LibreTag tags: small LoRa GPS trackers that sleep most of the time, wake up about once an hour and send one short encrypted report over the MeshCore mesh network.
+
+  You pair a tag over a USB cable. The app then shows where it is on a map, with a timeline of past reports, and sends it commands: track it more often for a while, mark it lost, make it beep. Without GPS it estimates the area from the repeaters the tag heard, or from Wi-Fi on boards that have it.
+
+  Reports reach the app through your own MeshCore node in MeshCore Open, or over Nostr relays through bridges run by other people, so a tag can be found outside the range of your own radio. Only you and the people you share a tag with can read its reports.
+
+  When a tag goes quiet, the app tells you why if it can: it is next to you, it is on the cable in the bootloader, a bridge heard it but the report did not arrive, or it has simply missed one report.
+
+  No account, no Google services needed. This is a preview.
+tags:
+    - tracker
+    - gps
+    - lora
+    - meshcore
+    - nostr
+    - privacy
+license: MIT
+website: https://cypherpunk.today/libretag/
+icon: ./branding/icon-512.png
+release_notes: ./docs/release-notes/app-0.12.0.md

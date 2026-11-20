@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tracker-Diagnose (App 0.12, docs/design/tag-diagnosis.md): warum ein Tracker sich verspätet.
+     Die Zeilensätze (dg_row_*) passen in eine Listenzeile: höchstens 44 Zeichen mit eingesetzten Werten. -->
+<resources>
+    <plurals name="st_missed">
+        <item quantity="one">%1$d Meldung verpasst · nächste %2$s</item>
+        <item quantity="other">%1$d Meldungen verpasst · nächste %2$s</item>
+    </plurals>
+
+    <!-- row sentences -->
+    <string name="dg_row_bootloader">Im Update-Modus · meldet nicht</string>
+    <string name="dg_row_esp_download">Im Download-Modus · meldet nicht</string>
+    <string name="dg_row_tx_floor">Akku zu schwach zum Melden</string>
+    <plurals name="dg_row_reset_loop">
+        <item quantity="one">Startet dauernd neu · %1$d Mal in Folge</item>
+        <item quantity="other">Startet dauernd neu · %1$d Mal in Folge</item>
+    </plurals>
+    <string name="dg_row_on_cable">Am Kabel</string>
+    <string name="dg_row_counter_ahead">Meldungen außerhalb der App-Reichweite</string>
+    <string name="dg_row_firmware_too_old">Firmware %1$s ist für die App zu alt</string>
+    <string name="dg_row_phone_offline">Handy offline · zuletzt gehört %1$s</string>
+    <string name="dg_row_relays_down">Relays nicht erreichbar · gehört %1$s</string>
+    <string name="dg_row_just_back">Suche verpasste Meldungen…</string>
+    <string name="dg_row_not_delivered">Gemeldet %1$s · nicht auf deinen Relays</string>
+    <string name="dg_row_with_you">Bei dir · schweigt absichtlich</string>
+    <string name="dg_row_restarted_here">Neustart bei dir %1$s · Meldung gleich</string>
+    <plurals name="dg_row_restarting">
+        <item quantity="one">Startet neu · %1$d Mal seit %2$s</item>
+        <item quantity="other">Startet neu · %1$d Mal seit %2$s</item>
+    </plurals>
+    <string name="dg_row_update_unfinished">Still seit dem Update (%1$s)</string>
+    <string name="dg_row_battery_empty">Akku wohl leer · %1$s (%2$s)</string>
+    <string name="dg_row_battery_empty_unknown">Akku wohl leer</string>
+    <string name="dg_row_schedule_pending">Neuer Takt unterwegs · bis %1$s</string>
+    <string name="dg_row_schedule_mismatch">Meldet %1$s, App erwartet %2$s</string>
+    <string name="dg_row_schedule_unsent">Takt noch nicht im Tracker</string>
+    <string name="dg_row_out_of_range">Still seit %1$s · kein Repeater gehört</string>
+    <string name="dg_row_node_down">Dein Knoten ist aus · gehört %1$s</string>
+    <string name="dg_row_maybe_with_you">Still seit %1$s · evtl. bei dir ruhig</string>
+    <string name="dg_row_maybe_quiet_place">Still seit %1$s · evtl. ruhig bei %2$s</string>
+    <string name="dg_row_after_cable">Still seit dem Kabel · %1$s</string>
+    <string name="dg_row_phone_clock">Handyuhr geht wohl falsch</string>
+
+    <!-- the Why card -->
+    <string name="dg_why">Warum</string>
+    <string name="dg_card_missed">Eine Meldung ist nicht angekommen. Im geteilten Mesh passiert das. Die nächste kommt gegen %1$s.</string>
+    <string name="dg_card_bootloader">Der Tracker am Kabel wartet auf Firmware. Bis zum Neustart meldet er sich nicht. Wolltest du ihn nicht aktualisieren, drücke einmal seine Reset-Taste.</string>
+    <string name="dg_card_esp_download">Der Tracker am Kabel ist im Download-Modus, seine Firmware läuft also nicht.</string>
+    <string name="dg_card_tx_floor">Der Akku liegt unter 3,25 V, deshalb schweigt der Tracker, um nicht neu zu starten. Über 3,35 V oder am Ladegerät meldet er sich von selbst wieder.</string>
+    <string name="dg_card_reset_loop">Der Tracker ist %1$d Mal hintereinander neu gestartet (%2$s). Nach jedem Neustart wartet er länger mit der ersten Meldung, jetzt %3$s. Meist liegt es an einem schwachen Akku oder einem wackeligen Stecker.</string>
+    <string name="dg_card_on_cable">Mit diesem Handy verbunden. Letzte Meldung %1$s, die nächste %2$s.</string>
+    <string name="dg_card_counter_ahead">Der Meldungszähler des Trackers liegt weit vor dem der App, deshalb findet die App seine Meldungen nicht.</string>
+    <string name="dg_card_firmware_too_old">Diese App liest Meldungen von Firmware %2$s und neuer. Der Tracker hat %1$s. Aktualisiere ihn per Kabel.</string>
+    <string name="dg_card_phone_offline">Dieses Handy hat weder Internet noch einen MeshCore-Knoten und kann keine Meldungen empfangen. Zuletzt gehört %1$s. Die App prüft erneut, sobald die Verbindung zurück ist.</string>
+    <plurals name="dg_card_relays_down">
+        <item quantity="one">Dein Relay antwortet nicht. Meldungen, die Brücken veröffentlicht haben, warten dort.</item>
+        <item quantity="other">Keines deiner %1$d Relays antwortet. Meldungen, die Brücken veröffentlicht haben, warten dort.</item>
+    </plurals>
+    <string name="dg_card_just_back">Das Handy konnte von %1$s bis %2$s nichts empfangen. Ich frage die Relays nach Meldungen aus dieser Zeit.</string>
+    <string name="dg_card_not_delivered">Eine Brücke hat den Tracker %1$s gehört (%2$s), aber die Meldung ist nicht auf deinen Relays. Der Tracker funktioniert.</string>
+    <string name="dg_card_not_delivered_add">Eine Brücke hat den Tracker %1$s gehört (%2$s), aber die Meldung ist nicht auf deinen Relays. Der Tracker funktioniert. Füge eines der Relays der Brücke hinzu, um ihre Meldungen zu bekommen.</string>
+    <string name="dg_card_with_you">Dieses Handy hat den Tracker %1$s per Bluetooth gehört, und der Tracker sieht eines deiner Geräte. Solange du in der Nähe bist, schweigt er und meldet sich spätestens %2$s.</string>
+    <string name="dg_card_with_you_console">Per Bluetooth hat der Tracker %1$s gesagt, dass er eines deiner Geräte sieht. Solange du in der Nähe bist, schweigt er und meldet sich spätestens %2$s.</string>
+    <string name="dg_card_restarted_here">Dieses Handy hat den Start des Trackers %1$s gehört. Die erste Meldung kommt etwa 30 s nach einem Neustart.</string>
+    <string name="dg_card_restarting">Der Tracker ist %1$s neu gestartet. Meist liegt es an einem schwachen Akku.</string>
+    <string name="dg_card_update_unfinished">Ein Update hat %1$s begonnen, seitdem hat sich der Tracker nicht gemeldet. Vielleicht steckt er noch im Update-Modus, wo er ohne Zeitlimit wartet. Schließe ihn an dieses Handy an und prüfe es.</string>
+    <string name="dg_card_battery_empty">Die letzte Meldung (%1$s) zeigte %2$s. Unter etwa 7 %% hört der Tracker auf zu melden. Lade ihn auf.</string>
+    <string name="dg_card_schedule_pending">Du hast den Takt auf %1$s geändert. Bis der Tracker ihn bestätigt, kann die nächste Meldung nach dem alten oder dem neuen Takt kommen, spätestens %2$s.</string>
+    <string name="dg_card_schedule_mismatch">Der Tracker meldet %1$s. Die App hat %2$s. Solange beide nicht übereinstimmen, können Befehle den Tracker verfehlen.</string>
+    <string name="dg_card_schedule_unsent">Geänderte Einstellungen müssen noch per Kabel geschrieben werden. Bis dahin behält der Tracker seinen alten Takt.</string>
+    <string name="dg_card_out_of_range">Die letzten zwei Meldungen hat kein Repeater gehört, der Tracker ist vielleicht außerhalb der Mesh-Reichweite. Er versucht es weiter %1$s.</string>
+    <string name="dg_card_node_down">Die Meldungen dieses Trackers kamen über deinen eigenen MeshCore-Knoten, der seit %1$s nicht verbunden ist.</string>
+    <string name="dg_card_maybe_with_you">Der Tracker schweigt, wenn er deine Geräte sieht, und die Meldung, die das mitteilt, kann verloren gegangen sein. Dieses Handy kann ihn bei seinem nächsten Aufwachen per Bluetooth fragen, gegen %1$s.</string>
+    <string name="dg_card_maybe_with_you_plain">Der Tracker schweigt, wenn er deine Geräte sieht, und die Meldung, die das mitteilt, kann verloren gegangen sein.</string>
+    <string name="dg_card_maybe_quiet_place">Die letzte Position lag in %1$s. Dort schweigt der Tracker, und die Meldung, die das mitteilt, kann verloren gegangen sein.</string>
+    <string name="dg_card_after_cable">Seit der Tracker am Kabel war (%1$s), kam nichts. Wurde er an einem Computer aktualisiert, steckt er vielleicht noch im Update-Modus. Schließe ihn an dieses Handy an und prüfe es.</string>
+    <plurals name="dg_card_phone_clock">
+        <item quantity="one">Die Handyuhr geht etwa %1$d Min. falsch. Erwartete Zeiten und zeitgesteuerte Befehle hängen davon ab.</item>
+        <item quantity="other">Die Handyuhr geht etwa %1$d Min. falsch. Erwartete Zeiten und zeitgesteuerte Befehle hängen davon ab.</item>
+    </plurals>
+    <string name="dg_card_unknown">Seit %1$s keine Meldung, und nichts erklärt es. Position und Akku unten stammen von damals.</string>
+    <string name="dg_card_asking">Ich frage bei seinem nächsten Aufwachen, gegen %1$s. Halte das Handy in die Nähe des Trackers.</string>
+    <string name="dg_card_not_here">Nicht hier: Der Tracker hat %1$s nicht per Bluetooth geantwortet.</string>
+
+    <!-- findings without a silence -->
+    <string name="dg_find_node_down">Dein MeshCore-Knoten ist nicht verbunden, und die Meldungen dieses Trackers kamen nur über ihn.</string>
+    <string name="dg_find_battery_cliff">Der Akku ist seit der vorigen Meldung um %1$d Punkte gefallen.</string>
+    <string name="dg_find_no_gps_run">Seit %1$s kein GPS-Fix.</string>
+    <string name="dg_find_counter_back">Eine Meldung (%1$s) kam mit einem älteren Zähler. Benutzt ein zweiter Tracker denselben Schlüssel?</string>
+    <string name="dg_find_counter_ahead">Der Meldungszähler des Trackers liegt weit vor dem, was die App kennt.</string>
+    <string name="dg_find_firmware_behind">Firmware %1$s auf dem Tracker, %2$s ist verfügbar.</string>
+    <string name="dg_find_flood_cap">Der Tracker hat sein tägliches Sendelimit erreicht und meldet jetzt nur noch %1$s, um das Mesh zu schonen.</string>
+    <string name="dg_find_restarting">Der Tracker ist seit %1$s mehrmals neu gestartet.</string>
+
+    <!-- actions -->
+    <string name="dg_act_finish_update">Update abschließen</string>
+    <string name="dg_act_update_firmware">Firmware aktualisieren</string>
+    <string name="dg_act_how_to_restart">So startest du neu</string>
+    <string name="dg_act_restart">Tracker neu starten</string>
+    <string name="dg_act_read_log">Protokoll lesen</string>
+    <string name="dg_act_open_ble">Per Bluetooth öffnen</string>
+    <string name="dg_act_check_here">Prüfen, ob er hier ist</string>
+    <string name="dg_act_send_report">Jetzt eine Meldung senden</string>
+    <string name="dg_act_connections">Verbindungen</string>
+    <string name="dg_act_try_again">Erneut versuchen</string>
+    <string name="dg_act_add_relay">Relay hinzufügen</string>
+    <string name="dg_act_use_tag_schedule">Takt des Trackers übernehmen</string>
+    <string name="dg_act_send_mine">Meinen erneut senden</string>
+    <string name="dg_act_catch_up">Nachholen</string>
+    <string name="dg_act_date_settings">Datum- und Uhrzeiteinstellungen</string>
+    <string name="dg_act_open_map">Auf der Karte öffnen</string>
+    <string name="dg_act_service">Anschließen und prüfen</string>
+    <string name="dg_all_checks">Alle Prüfungen</string>
+    <string name="dg_hide_checks">Prüfungen ausblenden</string>
+    <string name="dg_how_to_restart_title">Tracker neu starten</string>
+    <string name="dg_how_to_restart_text">Drücke einmal die Reset-Taste. Bleibt der Tracker im Update-Modus, ist seine Firmware unvollständig: Schließe ihn an dieses Handy an und wähle Update abschließen.</string>
+    <string name="dg_add_relay_title">Dieses Relay hinzufügen?</string>
+    <string name="dg_add_relay_text">%1$s ist ein Relay, auf dem eine Brücke veröffentlicht. Das sagt die Brücke über sich selbst, füge es also nur hinzu, wenn du ihr vertraust. Die App liest dann auch von dort Meldungen.</string>
+    <string name="dg_add_relay_ok">Hinzufügen</string>
+    <string name="dg_relay_added">Relay hinzugefügt</string>
+    <string name="dg_restart_sent">Tracker wird neu gestartet…</string>
+    <string name="dg_report_sent">Tracker zum Melden aufgefordert</string>
+    <string name="dg_schedule_adopted">Die App nutzt jetzt den Takt des Trackers</string>
+    <string name="dg_caught_up">Suche Meldungen ab dem Zähler des Trackers</string>
+    <string name="dg_no_console">Verbinde den Tracker zuerst per Kabel oder Bluetooth.</string>
+
+    <!-- the checklist: key, then value -->
+    <string name="dg_chk_online">Handy online</string>
+    <string name="dg_chk_relays">Relays</string>
+    <string name="dg_chk_node">Eigener Knoten</string>
+    <string name="dg_chk_bridges">Brücken, die ihn gehört haben</string>
+    <string name="dg_chk_last_report">Letzte Meldung</string>
+    <string name="dg_chk_lost">Verlorene Meldungen (7 Tage)</string>
+    <string name="dg_chk_battery">Akku damals</string>
+    <string name="dg_chk_bluetooth">Bluetooth</string>
+    <string name="dg_chk_cable">Kabel</string>
+    <string name="dg_chk_restarts">Neustarts</string>
+    <string name="dg_chk_schedule">Takt</string>
+    <string name="dg_chk_firmware">Firmware</string>
+    <string name="dg_chk_clock">Handyuhr</string>
+    <string name="dg_val_yes">ja</string>
+    <string name="dg_val_no">nein</string>
+    <string name="dg_val_unknown">unbekannt</string>
+    <string name="dg_val_relays">%1$d von %2$d verbunden</string>
+    <string name="dg_val_node_up">verbunden</string>
+    <string name="dg_val_node_down">nicht verbunden seit %1$s</string>
+    <string name="dg_val_node_down_never">nicht verbunden</string>
+    <string name="dg_val_node_never">nicht eingerichtet</string>
+    <string name="dg_val_bridges">zuletzt %1$s, %2$s</string>
+    <string name="dg_val_none_known">keine bekannt</string>
+    <string name="dg_val_last_report">%1$s · %2$s · Nr. %3$d</string>
+    <string name="dg_val_lost">%1$d von %2$d</string>
+    <string name="dg_val_battery">%1$s (%2$s)</string>
+    <string name="dg_val_ble_heard">gehört %1$s</string>
+    <string name="dg_val_ble_not">von diesem Handy nicht gehört</string>
+    <string name="dg_val_cable_tag">gerade verbunden</string>
+    <string name="dg_val_cable_boot">gerade im Update-Modus</string>
+    <string name="dg_val_cable_esp">gerade im Download-Modus</string>
+    <string name="dg_val_cable_last">zuletzt verbunden %1$s</string>
+    <string name="dg_val_cable_never">nie verbunden</string>
+    <plurals name="dg_val_restarts">
+        <item quantity="one">%1$d bekannt, zuletzt %2$s</item>
+        <item quantity="other">%1$d bekannt, zuletzt %2$s</item>
+    </plurals>
+    <string name="dg_val_schedule">meldet %1$s, hört %2$s</string>
+    <string name="dg_val_firmware_current">%1$s · aktuell</string>
+    <string name="dg_val_firmware_behind">%1$s · %2$s verfügbar</string>
+    <string name="dg_val_firmware_old">%1$s · zu alt</string>
+    <string name="dg_val_clock_ok">in Ordnung</string>
+    <plurals name="dg_val_clock_off">
+        <item quantity="one">etwa %1$d Min. daneben</item>
+        <item quantity="other">etwa %1$d Min. daneben</item>
+    </plurals>
+    <string name="dg_hops">%1$s Hops</string>
+    <string name="dg_hops_direct">direkt</string>
+
+    <!-- notifications -->
+    <string name="notif_silent_cause">%1$s. %2$s</string>
+    <string name="notif_restart_title">%1$s startet dauernd neu</string>
+    <string name="notif_restart_text">Meist ein schwacher Akku oder ein wackeliger Stecker. Öffne den Tracker, um zu sehen, wann er neu gestartet ist.</string>
+    <string name="notif_update_title">%1$s steckt vielleicht noch im Update-Modus</string>
+    <string name="notif_update_text">Seit Beginn des Updates hat er sich nicht gemeldet. Drücke einmal seine Reset-Taste oder schließe ihn an dieses Handy an.</string>
+    <string name="notif_blind_title">LibreTag kann keine Meldungen empfangen</string>
+    <string name="notif_blind_text">Dieses Handy hatte seit 2 Stunden keine Verbindung zu den Relays oder deinem Knoten, und ein Tracker wird bewacht.</string>
+
+    <!-- home strip: a bootloader on the cable that fits no tag -->
+    <string name="dg_strip_bootloader">Ein Tracker am Kabel ist im Update-Modus. Bis zum Neustart meldet er sich nicht.</string>
+
+    <!-- map pill suffixes -->
+    <string name="dg_pill_with_you">bei dir</string>
+    <string name="dg_pill_cable">am Kabel</string>
+
+    <!-- Settings -->
+    <string name="set_ble_sightings">Meine Tracker per Bluetooth bemerken</string>
+    <string name="set_ble_sightings_sub">Das Handy lauscht im Hintergrund auf das Bluetooth-Signal deiner Tracker und erkennt so, wenn ein Tracker neu gestartet ist oder bei dir ist. Es nutzt deinen Standort nicht.</string>
+
+    <!-- Track: how often and how long (app 0.12) -->
+    <string name="cmd_track_for">%1$s verfolgen, %2$s</string>
+    <string name="track_choose_title2">Tracker verfolgen</string>
+    <string name="track_how_often">Wie oft</string>
+    <string name="track_how_long">Wie lange</string>
+    <plurals name="track_reports">
+        <item quantity="one">%1$d Meldung, bis %2$s</item>
+        <item quantity="other">%1$d Meldungen, bis %2$s</item>
+    </plurals>
+    <string name="track_cap_warn">Das ist mehr, als der Tracker an einem Tag senden darf. Nach etwa %1$s fällt er auf eine Meldung pro Stunde zurück, um das Mesh zu schonen.</string>
+    <string name="track_choose_ok_for">%1$s verfolgen</string>
+</resources>

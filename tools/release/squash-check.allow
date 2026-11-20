@@ -1,0 +1,14 @@
+# <path glob> <regex on the line>: findings that are fine to publish (tools/release/squash_check.py)
+# region test: the public city centres of Bratislava and Vienna, not a private place
+firmware/lt_core/test/region_test.c	/\* (Bratislava|Wien) \*/|plan\(48\.1486, 17\.1077
+# NIP-17 example keys from the NIP itself (public test data)
+pwa/tests/vectors/nip17-examples.json	nsec1
+# this script's own pattern list
+tools/release/squash_check.py	.
+# lock files: versions, sizes and hashes, not places
+host/uv.lock	(version|size|hash|url|upload-time) ?=
+pwa/package-lock.json	"(version|integrity|resolved)"
+# vendored upstream code (author addresses in comments)
+firmware/third_party/*	.
+# relay filter tests: a carrier-grade NAT address must be refused
+*Test.kt	wss://100\.64\.1\.1

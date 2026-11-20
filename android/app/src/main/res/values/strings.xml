@@ -1,0 +1,765 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- English is the base language. Vocabulary is binding (docs/design/app-brief.md §3): tag, report,
+     heard … ago, next report ~14:31, GPS ±8 m, area ±1.2 km (68 %), quiet, silent, via mesh / via Nostr.
+     Translations (sk, cs, de, es, nl) are made separately; keep placeholders and plurals intact. -->
+<resources>
+    <string name="app_name">LibreTag</string>
+
+    <!-- notification channels -->
+    <string name="channel_service">Connection to MeshCore Open</string>
+    <string name="channel_alerts">Tag alerts</string>
+    <string name="channel_alerts_desc">Silent tag, low battery, left a zone, moved while guarded</string>
+    <string name="channel_lost">Lost mode reports</string>
+    <string name="channel_lost_desc">Every new position of a tag in Lost mode</string>
+    <string name="service_title">LibreTag is listening for your tags</string>
+    <string name="service_text">Through MeshCore Open and Nostr relays</string>
+
+    <!-- notifications -->
+    <string name="notif_battery_title">%1$s: battery low</string>
+    <string name="notif_battery_text">Battery %1$d %%. Charge it soon.</string>
+    <string name="notif_battery_text_unknown">The tag reports a low battery. Charge it soon.</string>
+    <string name="notif_battery_crit_title">%1$s: battery almost empty</string>
+    <string name="notif_battery_crit_text">Battery %1$d %%. The tag will stop reporting soon. Charge it now.</string>
+    <string name="notif_battery_crit_text_unknown">The tag says its battery is almost empty. Charge it now.</string>
+    <string name="notif_guard_title">%1$s moved while guarded</string>
+    <string name="notif_guard_text">More than %1$s from the guarded spot. %2$s. %3$s</string>
+    <string name="notif_lost_title">%1$s reported in Lost mode</string>
+    <string name="notif_lost_text">%1$s. %2$s</string>
+    <string name="notif_silent_title">%1$s has been silent for %2$s</string>
+    <string name="notif_silent_text">Expected %1$s. %2$s</string>
+    <string name="notif_preview_title">Keys has been silent for 3 h</string>
+    <string name="notif_preview_text">Expected hourly. This is a preview of how alerts look.</string>
+    <string name="dm_low_battery">LibreTag %1$s: battery %2$s %%, please charge me.</string>
+    <string name="dm_welcome">Your LibreTag tag \"%1$s\" is paired. Follow this account so low-battery alerts reach you and don\'t land among message requests.</string>
+    <string name="menu_welcome_dm">Send welcome message again</string>
+    <string name="welcome_sending">Sending the welcome message…</string>
+    <plurals name="welcome_sent">
+        <item quantity="one">Welcome message sent to %1$d relay.</item>
+        <item quantity="other">Welcome message sent to %1$d relays.</item>
+    </plurals>
+    <string name="welcome_failed">No relay accepted the welcome message.\n%1$s</string>
+    <string name="welcome_no_owner">Add your Nostr npub in Settings first. The welcome message goes to that account.</string>
+    <string name="welcome_offer_title">Send a welcome message from %1$s?</string>
+    <string name="welcome_offer_text">The tag writes to you from its own Nostr key, for example when its battery runs low. It hasn\'t sent you a welcome message yet. Send one now and follow the tag in your Nostr app, so alerts don\'t get lost among message requests.</string>
+    <string name="welcome_offer_send">Send</string>
+    <string name="menu_follow">Follow on Nostr</string>
+    <string name="follow_title">Follow your tag on Nostr</string>
+    <string name="follow_why">Primal and other Nostr apps hide messages from accounts you don\'t follow, so the tag\'s low-battery alerts could go unseen.</string>
+    <string name="follow_open">Open in a Nostr app</string>
+    <string name="relay_no_answer">no answer</string>
+    <string name="relay_unreachable">can\'t connect</string>
+
+    <!-- ages and times -->
+    <string name="age_now">now</string>
+    <string name="age_min">%1$d min</string>
+    <string name="age_h">%1$d h</string>
+    <string name="age_d">%1$d d</string>
+    <string name="ago_just_now">just now</string>
+    <string name="ago_min">%1$d min ago</string>
+    <string name="ago_h_min">%1$d h %2$d min ago</string>
+    <string name="ago_h">%1$d h ago</string>
+    <plurals name="ago_days">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
+    <plurals name="minutes">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
+    <plurals name="hours">
+        <item quantity="one">%1$d hour</item>
+        <item quantity="other">%1$d hours</item>
+    </plurals>
+    <plurals name="days">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <plurals name="weeks">
+        <item quantity="one">%1$d week</item>
+        <item quantity="other">%1$d weeks</item>
+    </plurals>
+    <plurals name="months">
+        <item quantity="one">%1$d month</item>
+        <item quantity="other">%1$d months</item>
+    </plurals>
+    <string name="every_hourly">hourly</string>
+    <string name="every_daily">daily</string>
+    <string name="every_min">every %1$d min</string>
+    <string name="every_h">every %1$d h</string>
+    <string name="clock_tomorrow">tomorrow %1$s</string>
+    <string name="clock_yesterday">yesterday %1$s</string>
+    <string name="ago_at">%1$s (%2$s)</string>
+    <string name="dist_m">%1$d m</string>
+    <string name="dist_km">%1$s km</string>
+    <string name="dist_ft">%1$d ft</string>
+    <string name="dist_mi">%1$s mi</string>
+    <string name="next_report_short">Next report ~%1$s</string>
+
+    <!-- types and marks -->
+    <string name="type_person">person</string>
+    <string name="type_thing">thing</string>
+    <string name="type_vehicle">vehicle</string>
+    <string name="type_person_cap">Person</string>
+    <string name="type_thing_cap">Thing</string>
+    <string name="type_vehicle_cap">Vehicle</string>
+    <string name="mark_red">Red</string>
+    <string name="mark_blue">Blue</string>
+    <string name="mark_green">Green</string>
+    <string name="mark_yellow">Yellow</string>
+    <string name="mark_stripe">stripe</string>
+    <string name="mark_diag">diagonal stripe</string>
+    <string name="mark_triangle">triangle</string>
+    <string name="mark_circle">circle</string>
+    <string name="mark_square">square</string>
+    <string name="mark_name">%1$s %2$s</string>
+    <string name="mark_used_by">%1$s, used by %2$s</string>
+
+    <!-- status sentences (one per tag, priority Lost > Alarm > Silent > Low battery > Tracking > Quiet > OK) -->
+    <string name="st_alarm_guard">Moved while guarded</string>
+    <string name="st_low_battery">Battery %1$d %% · charge soon</string>
+    <string name="st_low_battery_unknown">Battery low · charge soon</string>
+    <string name="st_tracking_until">Tracking %1$s until %2$s</string>
+    <string name="st_tracking">Tracking %1$s</string>
+    <!-- list rows, a report an hour old or more: the clock time (today) -->
+    <string name="row_heard_at">Heard at %1$s</string>
+    <string name="st_waiting">Waiting for the first report</string>
+    <string name="zone_home">Home</string>
+
+    <plurals name="reports_missed">
+        <item quantity="one">%1$d report missed</item>
+        <item quantity="other">%1$d reports missed</item>
+    </plurals>
+    <string name="sub_shared_view">Shared with you by %1$s · view only</string>
+    <string name="sub_shared_control">Shared with you by %1$s · view and control</string>
+
+    <!-- position and certainty -->
+    <string name="pos_none">No position yet</string>
+    <string name="pos_gps">GPS ±%1$s · %2$s</string>
+    <string name="pos_gps_noacc">GPS · %1$s</string>
+    <string name="pos_last_gps">Last GPS %1$s · %2$s</string>
+    <string name="pos_area">No GPS · area ±%1$s (68 %%)</string>
+    <string name="pos_wifi_area">No GPS · Wi-Fi area ±%1$s (68 %%)</string>
+    <string name="pos_ambiguous">No GPS · can\'t tell which repeater (code shared abroad)</string>
+    <string name="pos_need_map">No GPS · download the repeater map to estimate the area</string>
+    <string name="pos_estimating">No GPS · estimating the area…</string>
+    <string name="pos_no_gps_last">No GPS · last GPS %1$s</string>
+    <string name="pos_no_repeater">No GPS · no repeater heard</string>
+    <string name="pos_no_gps">No GPS</string>
+
+    <!-- commands -->
+    <string name="cmd_lost">Lost</string>
+    <string name="cmd_track">Track 1 h</string>
+    <string name="cmd_beep">Beep</string>
+    <string name="cmd_normal">Normal</string>
+    <string name="commands">Commands</string>
+    <string name="snack_confirmed">%1$s confirmed %2$s</string>
+    <string name="slip_cancel">Cancel command</string>
+    <string name="note_view_only">Shared with you by %1$s · view only. Commands are off.</string>
+    <string name="lost_dialog_title">Turn on Lost mode for %1$s?</string>
+    <string name="lost_dialog_text">Reports every 10 min for 24 h. Uses about a third of the battery.</string>
+    <string name="lost_dialog_ok">Turn on Lost mode</string>
+
+    <!-- route -->
+    <string name="route_nostr">via Nostr (bridge)</string>
+    <string name="route_usb">from the tag\'s memory (USB)</string>
+    <string name="route_mesh">via mesh</string>
+    <plurals name="route_mesh_hops">
+        <item quantity="one">via mesh, %1$d hop</item>
+        <item quantity="other">via mesh, %1$d hops</item>
+    </plurals>
+    <string name="route_nostr_sub">Through a bridge on Nostr relays</string>
+    <string name="route_usb_sub">Read from the tag\'s history over the cable</string>
+    <string name="route_last_repeater">Repeaters near the tag: %1$s</string>
+
+    <!-- accessibility -->
+    <string name="a11y_heard">Heard %1$s ago</string>
+    <string name="a11y_battery">battery %1$d percent</string>
+    <string name="a11y_more">More options</string>
+    <string name="a11y_tag_options">Tag options</string>
+    <string name="a11y_prev_tag">Previous tag</string>
+    <string name="a11y_next_tag">Next tag</string>
+    <string name="a11y_back">Back</string>
+    <string name="a11y_close">Close</string>
+    <string name="a11y_close_detail">Close detail</string>
+    <string name="a11y_connection">Connection: %1$s. Open connections</string>
+    <string name="a11y_map_all">Map of all tags</string>
+    <string name="a11y_show_map">Show map</string>
+    <string name="a11y_hide_map">Hide map</string>
+    <string name="a11y_delete_zone">Delete %1$s</string>
+    <string name="a11y_zone_radius">Radius of %1$s</string>
+    <string name="a11y_copy_npub">Copy npub</string>
+    <string name="a11y_show_qr">Show QR code</string>
+    <string name="a11y_scan_qr">Scan a QR code</string>
+
+    <!-- home -->
+    <string name="conn_mesh">mesh</string>
+    <string name="conn_nostr">Nostr only</string>
+    <string name="conn_offline">offline</string>
+    <plurals name="home_tags">
+        <item quantity="one">%1$d tag</item>
+        <item quantity="other">%1$d tags</item>
+    </plurals>
+    <plurals name="home_need_look">
+        <item quantity="one">%1$d needs a look</item>
+        <item quantity="other">%1$d need a look</item>
+    </plurals>
+    <string name="home_count_need">%1$s · %2$s</string>
+    <string name="home_list_order">%1$s · alarms first, then by age</string>
+    <string name="fit_all">Fit all</string>
+    <string name="fit">Fit</string>
+    <string name="hide_map">Hide map</string>
+    <string name="show_map">Show map</string>
+    <string name="all_tags">All tags</string>
+    <string name="add_tag">Add tag</string>
+    <string name="empty_title">Plug a tag into this phone with a USB-C cable to pair it.</string>
+    <string name="empty_sub">Pairing locks the tag to this phone. Nothing goes through an account or a server.</string>
+    <string name="empty_scan_shared">Someone shared a tag with you? Scan their code</string>
+    <string name="banner_offline">Offline. Showing saved reports, ages keep counting.</string>
+    <string name="banner_nostr">Nostr only. MeshCore Open isn\'t connected, so reports come through bridges.</string>
+    <string name="banner_no_repeaters">Download the repeater map to estimate areas without GPS.</string>
+    <string name="banner_old_repeaters">The repeater map is %1$s old. Update it so estimates stay right.</string>
+    <string name="banner_action_map">Repeater map</string>
+    <string name="hint_pick">Pick a tag to see where it is, how sure that is, when it reports next and what you can send it.</string>
+
+    <!-- detail -->
+    <string name="detail_sub">%1$s · %2$s · %3$d of %4$d</string>
+    <string name="detail_sub_shared">shared by %1$s · %2$d of %3$d</string>
+    <string name="repeaters">Repeaters</string>
+    <string name="where">Where</string>
+    <string name="when">When</string>
+    <string name="battery">Battery</string>
+    <string name="route">Route</string>
+    <string name="open_in_map">Open in map</string>
+    <string name="copy_coordinates">Copy coordinates</string>
+    <string name="coordinates_copied">Coordinates copied</string>
+    <string name="where_area">No GPS · area ±%1$s (68 %%)</string>
+    <string name="where_area_sub">Centre %1$s · 95 %% within ±%2$s</string>
+    <string name="where_wifi_sub">Centre %1$s · from Wi-Fi networks near the tag (%2$s)</string>
+    <string name="where_ambiguous_sub">Can\'t tell which repeater (code shared abroad).</string>
+    <string name="where_need_map_sub">Download the repeater map to estimate the area.</string>
+    <string name="where_estimating_sub">Estimating the area from the repeaters the tag heard…</string>
+    <string name="where_none_sub">No repeater near the tag is on the public map.</string>
+    <string name="where_none_last">Last GPS %1$s: %2$s</string>
+    <string name="where_no_gps">No GPS</string>
+    <string name="where_gps">GPS ±%1$s</string>
+    <string name="where_gps_noacc">GPS</string>
+    <string name="where_wifi_lookup">Look up Wi-Fi position</string>
+    <string name="when_heard">Heard %1$s (%2$s)</string>
+    <string name="when_waiting">No report yet</string>
+    <string name="when_report_at">Report heard %1$s</string>
+    <string name="when_report_before">%1$s before the latest report</string>
+    <string name="when_report_earlier">Earlier day</string>
+    <string name="batt_value">%1$d %%</string>
+    <string name="batt_value_low">%1$d %% · charge soon</string>
+    <string name="batt_unknown">Unknown</string>
+    <string name="batt_estimate_later">Battery estimate after 2 weeks of reports</string>
+    <string name="batt_estimate">~%1$s at this pace</string>
+    <string name="batt_estimate_long">more than 6 months at this pace</string>
+    <string name="showing_report">Showing report from %1$s</string>
+    <string name="back_to_latest">Back to latest</string>
+    <string name="map_last_gps">Last GPS</string>
+    <string name="map_point_n">report %1$d</string>
+    <string name="map_area_at">±%1$s · %2$s</string>
+    <string name="usb_settings_read">Settings read from the tag</string>
+    <string name="repeater_bubble">%1$s · SNR %2$s dB</string>
+
+    <!-- timeline -->
+    <string name="timeline">Timeline</string>
+    <plurals name="timeline_reports">
+        <item quantity="one">%1$d report</item>
+        <item quantity="other">%1$d reports</item>
+    </plurals>
+    <string name="day_today">Today</string>
+    <string name="day_yesterday">Yesterday</string>
+    <string name="scrub_label">Report %1$d of %2$d · %3$s</string>
+    <string name="scrub_range">%1$s to %2$s</string>
+    <string name="scrub_none">No reports this day</string>
+    <string name="scrub_a11y">Move through reports</string>
+    <string name="stn_gps">GPS ±%1$s</string>
+    <string name="stn_gps_noacc">GPS</string>
+    <string name="stn_area">No GPS · area ±%1$s</string>
+    <string name="stn_no_gps">No GPS</string>
+    <string name="stn_unclear">No GPS · repeater unclear</string>
+    <string name="stn_sub">n %1$d · %2$s</string>
+    <string name="stn_sub_batt">n %1$d · %2$d %%</string>
+    <string name="stn_quiet">Quiet at %1$s</string>
+    <string name="stn_quiet_owner">Quiet, your device was nearby</string>
+    <string name="stn_gap">No reports</string>
+    <string name="stn_gap_sub">%1$s to %2$s · collapsed</string>
+    <string name="stn_since">since %1$s · collapsed</string>
+    <string name="stn_now">now</string>
+    <string name="stn_lost">Lost mode</string>
+    <string name="stn_track">Tracking</string>
+
+    <!-- menus -->
+    <string name="menu_settings">Settings</string>
+    <string name="menu_repeaters">Repeater map</string>
+    <string name="menu_nostr_key">My Nostr key &amp; backup</string>
+    <string name="menu_connections">Connections</string>
+    <string name="menu_support">Support the project</string>
+    <string name="menu_get_tag">Get a tag</string>
+    <string name="menu_about">About</string>
+    <string name="menu_known">Known devices</string>
+    <string name="menu_share">Share</string>
+    <string name="menu_service">Service</string>
+    <string name="menu_diag">Diagnostics</string>
+    <string name="menu_export">Export history</string>
+    <string name="export_title">Export history</string>
+    <string name="export_text">Reports on this phone: %1$d. With a GPS position: %2$d.</string>
+    <string name="export_gpx">GPX track</string>
+    <string name="export_gpx_sub">GPS positions only, for map apps</string>
+    <string name="export_csv">CSV table</string>
+    <string name="export_csv_sub">Every report with time, battery and the estimated area</string>
+    <string name="export_no_fixes">No GPS positions to export yet</string>
+    <string name="export_privacy">The file shows where the tag has been. Send it only to people you trust, such as the police after a theft.</string>
+    <string name="menu_remove">Remove</string>
+    <string name="menu_stop_following">Stop following</string>
+    <string name="menu_nostr_contact">Tag\'s Nostr contact</string>
+
+    <!-- generic -->
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="done">Done</string>
+    <string name="close">Close</string>
+    <string name="next">Next</string>
+    <string name="back">Back</string>
+    <string name="undo">Undo</string>
+    <string name="copy">Copy</string>
+    <string name="saved">Saved</string>
+    <string name="not_now">Not now</string>
+    <string name="try_again">Try again</string>
+    <string name="working">Working…</string>
+    <string name="copied">Copied</string>
+    <string name="key_copied">Key copied</string>
+    <string name="shared_suffix">shared</string>
+    <string name="cmd_ble_scan">Bluetooth scan</string>
+    <string name="support_text">LibreTag is free and open source. Support it and get an e-book.</string>
+    <string name="support_yes">Support</string>
+    <string name="support_later">Not now</string>
+    <string name="support_never">Don\'t ask again</string>
+    <string name="support_never_snack">Got it. The menu still has Support the project.</string>
+    <!-- alerts -->
+    <!-- edit, fields -->
+    <string name="edit_title">Edit %1$s</string>
+    <string name="field_name">Name</string>
+    <string name="field_type">Type</string>
+    <string name="field_mark">Mark</string>
+    <!-- remove -->
+    <string name="remove_title">Remove %1$s?</string>
+    <string name="remove_text">This phone forgets the tag and its history. The tag stays locked to you until you reset it over USB.</string>
+    <string name="remove_shared_title">Stop following %1$s?</string>
+    <string name="remove_shared_text">You stop getting its reports. %1$s can share it with you again.</string>
+    <string name="removed_snack">%1$s removed</string>
+    <!-- battery exemption -->
+    <string name="battery_exempt_title">Keep running in the background</string>
+    <string name="battery_exempt_text">So LibreTag catches reports with the screen off, allow it to skip battery optimisation. It uses little power: it only waits for messages from MeshCore Open and the relays.</string>
+    <string name="battery_exempt_ok">Allow</string>
+    <!-- open with -->
+    <string name="open_with">Open with</string>
+    <string name="open_with_area">Sends the centre of the area, the radius goes in the label</string>
+    <string name="open_with_none">No app on this phone opens map links (geo:). OsmAnd, CoMaps and Organic Maps work offline.</string>
+    <string name="geo_area_label">%1$s area ±%2$s</string>
+    <!-- diagnostics -->
+    <string name="diag_last">Last report</string>
+    <string name="diag_hops">Hops</string>
+    <string name="diag_repeaters">Repeaters heard</string>
+    <string name="diag_ambiguous">code shared abroad</string>
+    <string name="diag_nb_total">Repeaters in range</string>
+    <string name="diag_energy">Charge used</string>
+    <string name="diag_next_in">Next report in</string>
+    <string name="diag_quiet">Quiet</string>
+    <string name="diag_ble">Bluetooth nearby</string>
+    <string name="diag_epoch">Key epoch</string>
+    <string name="diag_stored">Reports stored</string>
+    <string name="diag_interval">Interval</string>
+    <string name="diag_firmware">Firmware</string>
+    <string name="diag_hardware">Hardware</string>
+    <string name="diag_unknown_usb">unknown (connect over USB)</string>
+    <string name="fw_available_short">%1$s · %2$s available</string>
+    <!-- share -->
+    <string name="share_title">Share %1$s</string>
+    <string name="share_view">View only</string>
+    <string name="share_view_sub">Sees positions from now on. Can\'t send commands.</string>
+    <string name="share_control">View and control</string>
+    <string name="share_control_sub">Sees positions and can send every command, including Lost.</string>
+    <string name="share_send_with">Send with</string>
+    <string name="share_qr">QR code</string>
+    <string name="share_dm">Nostr DM</string>
+    <string name="share_qr_hint">Open LibreTag on their phone, tap Add tag or the empty list, and scan this code.</string>
+    <string name="share_their_npub">Their npub</string>
+    <string name="share_send_invite">Send invite</string>
+    <string name="share_dm_sent">Invite sent as a Nostr DM</string>
+    <string name="share_dm_failed">The invite didn\'t go out. Check the relays in Connections.</string>
+    <string name="share_dm_needs_owner">The invite is signed with the tag\'s own Nostr key, so only the owner can send it.</string>
+    <string name="share_dm_text">LibreTag: \"%1$s\" is shared with you. Open this link in LibreTag on your phone: %2$s</string>
+    <string name="share_revoke_note">You can stop sharing at any time. That only covers the future, and it takes re-keying the tag over USB (Service > New key). They keep what they\'ve already seen.</string>
+    <string name="share_with">Shared with</string>
+    <string name="share_since">since %1$s</string>
+    <string name="share_stop">Stop sharing</string>
+    <string name="share_stopped">Stopped sharing with %1$s. They keep what they\'ve already seen. To cut them off, give the tag a new key over USB.</string>
+    <string name="share_someone_qr">Someone (QR code)</string>
+    <string name="share_scan_prompt">Scan the code from the tag owner\'s phone</string>
+    <string name="share_import_title">Add a shared tag</string>
+    <string name="share_import_view">View only: you see its positions from now on. You can\'t send commands.</string>
+    <string name="share_import_control">View and control: you see its positions from now on and can send every command, including Lost.</string>
+    <string name="share_import_by">Shared by</string>
+    <string name="share_import_ok">Add</string>
+    <string name="share_import_someone">someone</string>
+    <string name="share_import_bad_title">Not a LibreTag code</string>
+    <string name="share_import_bad">This code doesn\'t carry a shared tag. Ask the owner to open Share in their LibreTag.</string>
+    <!-- get a tag -->
+    <string name="get_tag_title">Get a tag</string>
+    <string name="get_tag_text">LibreTag runs on open hardware with the LibreTag firmware. Both work; the SenseCAP X1 is the main target.</string>
+    <string name="get_tag_x1">Seeed SenseCAP MeshTracker X1</string>
+    <string name="get_tag_x1_sub">GPS, LoRa, buzzer, rugged case</string>
+    <string name="get_tag_l1">Seeed Wio Tracker L1 Pro</string>
+    <string name="get_tag_l1_sub">GPS, LoRa, small screen</string>
+    <string name="get_tag_affiliate">These are affiliate links: Seeed pays the project a small share of a purchase. The price is the same for you.</string>
+    <!-- settings -->
+    <string name="set_owner">Owner Nostr key</string>
+    <string name="set_owner_none">Not set</string>
+    <string name="set_owner_sub">Tags paired from now on message this key (welcome, low battery)</string>
+    <string name="set_owner_help">Paste an npub, nprofile, hex key or a profile link, or scan a QR code with the icon on the right.</string>
+    <string name="npub_hint">npub1…</string>
+    <string name="npub_invalid">That isn\'t a Nostr key (npub, nprofile, hex or a profile link).</string>
+    <string name="npub_qr_none">The QR code holds no Nostr profile.</string>
+    <string name="npub_scan_prompt">Scan the QR code of your Nostr profile</string>
+    <string name="set_language">Language</string>
+    <string name="set_language_system">Phone\'s language</string>
+    <string name="set_units">Units</string>
+    <string name="set_metric">Metric</string>
+    <string name="set_imperial">Imperial</string>
+    <string name="set_theme">Theme</string>
+    <string name="set_theme_system">System</string>
+    <string name="set_theme_light">Light</string>
+    <string name="set_theme_dark">Dark</string>
+    <string name="set_notifications">Notifications</string>
+    <string name="set_notif_status_sub">Tap to open Android\'s notification settings</string>
+    <string name="set_silence_check">Silent-tag check</string>
+    <string name="set_silence_check_sub">Last run %1$s, next by %2$s. It also runs when Android has closed the app.</string>
+    <string name="set_silence_check_never">Not run yet, next by %1$s. It also runs when Android has closed the app.</string>
+    <string name="set_background">Background</string>
+    <string name="set_bg_ok">Runs in the background</string>
+    <string name="set_bg_needed">Battery optimisation is on</string>
+    <string name="set_bg_sub">Without the exemption Android pauses the connection and reports are missed</string>
+    <string name="set_diagnostics">Diagnostics</string>
+    <string name="set_log">Share the diagnostic log</string>
+    <string name="set_log_sub">What the app did with reports and connections, for a bug report</string>
+    <string name="set_log_empty">No diagnostic log yet.</string>
+    <!-- wifi -->
+    <string name="wifi_off">Off</string>
+    <string name="wifi_beacondb">BeaconDB</string>
+    <string name="wifi_grapheneos">GrapheneOS proxy (Apple data)</string>
+    <string name="wifi_apple">Apple directly</string>
+    <string name="wifi_disclosure_title">Use %1$s?</string>
+    <string name="wifi_disclosure_ok">Use it</string>
+    <string name="wifi_lookup_title">Wi-Fi position</string>
+    <string name="wifi_lookup_off">Wi-Fi positioning is off. Choose a lookup service in Settings first.</string>
+    <!-- connections -->
+    <string name="conn_meshcore">MeshCore Open</string>
+    <string name="conn_connected">Connected</string>
+    <string name="conn_not_connected">Not connected</string>
+    <string name="conn_node">Node %1$s</string>
+    <string name="conn_local_api">Local API on</string>
+    <string name="conn_last_packet">last packet %1$s</string>
+    <string name="conn_working">working</string>
+    <string name="conn_not_working">not working</string>
+    <string name="conn_off">off</string>
+    <string name="conn_open_meshcore">Open MeshCore Open</string>
+    <string name="conn_meshcore_missing">MeshCore Open isn\'t installed</string>
+    <string name="conn_fingerprint">Pairing fingerprint</string>
+    <string name="conn_fingerprint_text">MeshCore Open asks whether to allow LibreTag the first time it connects. Compare this fingerprint:\n\n%1$s</string>
+    <string name="conn_relays">Relays</string>
+    <string name="conn_bridges">Bridges</string>
+    <string name="relay_working">working · connected %1$s</string>
+    <string name="relay_failing">no answer since %1$s</string>
+    <string name="relay_connecting">connecting…</string>
+    <string name="relay_add">Add relay</string>
+    <string name="relay_url">Relay address (wss://…)</string>
+    <string name="relay_bad">A relay address starts with wss://</string>
+    <string name="relay_last">Keep at least one relay</string>
+    <string name="relay_remove">Remove %1$s</string>
+    <string name="bridges_offline">Unknown while offline</string>
+    <string name="bridges_sub">Bridges are MeshCore nodes that forward sealed reports to Nostr. They can\'t read them.</string>
+    <string name="mesh_connecting">Connecting…</string>
+    <string name="mesh_disconnected">Start MeshCore Open and turn on its Local API</string>
+    <string name="mesh_approve">Allow LibreTag in MeshCore Open</string>
+    <string name="mesh_not_approved">MeshCore Open didn\'t allow LibreTag</string>
+    <string name="mesh_no_radio">MeshCore Open isn\'t connected to a radio</string>
+    <string name="mesh_add_channel">Add the #libretag channel in MeshCore Open</string>
+    <string name="mesh_channel_denied">The #libretag channel wasn\'t added</string>
+    <string name="mesh_channel_missing">The radio has no #libretag channel (%1$s)</string>
+    <string name="mesh_refused">MeshCore Open refused the subscription (%1$s)</string>
+    <string name="mesh_failed">Connection error: %1$s</string>
+    <!-- repeater map -->
+    <string name="rep_downloaded">Downloaded %1$s</string>
+    <string name="rep_not_downloaded">Not downloaded</string>
+    <string name="rep_count">%1$s repeaters · %2$s on this phone</string>
+    <string name="rep_need">Download the repeater map to estimate areas without GPS.</string>
+    <string name="rep_download">Download</string>
+    <string name="rep_update">Update</string>
+    <string name="rep_downloading">Downloading…</string>
+    <string name="rep_old">Older than 30 days. Repeaters move and new ones appear: update it.</string>
+    <string name="rep_done">Repeater map updated · %1$s repeaters</string>
+    <string name="rep_failed">Download failed: %1$s</string>
+    <string name="rep_text1">When a tag has no GPS fix, the app estimates the area from the repeaters the tag heard. The list comes from the public MeshCore map (about 60 MB to download, better on Wi-Fi).</string>
+    <string name="rep_text2">The whole list is downloaded and searched on this phone. Your tags\' positions never leave the phone for this.</string>
+    <string name="rep_text3">The app reminds you to update it after 30 days.</string>
+    <!-- about -->
+    <string name="about_version">Version %1$s · knows firmware %2$s</string>
+    <string name="about_text1">A GPS tag on the MeshCore mesh. Reports are sealed with a ratcheting key and only this phone can read them. No account and no server of ours in the middle.</string>
+    <string name="about_text2">When the tag has no GPS fix, the app shows an area estimated from the repeaters it heard, with how sure that is. It never shows a guess as a point.</string>
+    <string name="about_text3">Open hardware, open firmware, open protocol.</string>
+    <string name="about_licences">Licences</string>
+    <string name="about_licences_text">LibreTag is MIT licensed. Map data © OpenStreetMap contributors. Fonts: Archivo and Archivo Narrow (SIL Open Font License). osmdroid, OkHttp, ZXing, secp256k1-kmp, AndroidX and Material Components are Apache 2.0.</string>
+    <string name="about_font_licence">Font licence (OFL)</string>
+    <!-- nostr key & backup -->
+    <string name="key_no_owner">Set your Nostr npub in Settings: tags send their welcome message and low-battery alerts to it.</string>
+    <string name="backup_deleted">Backup deleted from the relays that answered</string>
+    <string name="backup_failed">No relay accepted it. Check Connections.</string>
+    <string name="backup_restore_deleted">That backup was deleted.</string>
+    <string name="backup_restore_unreadable">A backup exists but this app can\'t read it (corrupt or newer format).</string>
+    <!-- service -->
+    <string name="svc_via_cable">Connected by cable</string>
+    <string name="svc_not_connected">Not connected</string>
+    <string name="svc_connected">%1$s is connected</string>
+    <string name="svc_no_tag">No tag selected.</string>
+    <string name="svc_plug">Connect %1$s by cable or over Bluetooth</string>
+    <string name="svc_plug_text">The phone charges the tag while it\'s on the cable. History, places and known devices need the tag connected: by cable, or over Bluetooth after a restart.</string>
+    <string name="svc_other_tag">A different tag is on the cable.</string>
+    <string name="svc_charging">Charging</string>
+    <string name="svc_battery">battery %1$d %%</string>
+    <string name="svc_syncing">Reading the tag\'s history…</string>
+    <string name="svc_sync_wait">History sync starts when the tag is unlocked</string>
+    <string name="svc_sync_failed">History couldn\'t be read (older firmware?)</string>
+    <string name="svc_sync_sub">Reports the mesh didn\'t deliver, read from the tag\'s memory</string>
+    <string name="svc_sync_again">Sync again</string>
+    <string name="svc_fw_unknown">Firmware version unknown</string>
+    <string name="svc_fw_ok">Firmware %1$s · up to date</string>
+    <string name="svc_fw_available">Firmware %1$s · %2$s available</string>
+    <string name="svc_fw_later">Updating over USB from the phone comes later. Until then, update from a computer.</string>
+    <string name="svc_fw_update">Update from a computer</string>
+    <string name="svc_fw_steps">1. Connect the tag to a computer with a USB-C cable.\n2. Double-press the reset button: a drive appears.\n3. Copy the LibreTag firmware %1$s (.uf2) onto the drive. The tag restarts by itself.\n4. Plug it back into this phone: the pairing stays, the app unlocks it as before.</string>
+    <string name="svc_cable_settings">Settings that need the tag connected</string>
+    <string name="svc_test">Test: 3 reports, 5 min apart</string>
+    <string name="svc_test_sub">One report now, two more after 5 and 10 minutes. You can unplug the tag right away.</string>
+    <string name="svc_test_ok">Test running: a report now, after 5 and after 10 minutes.</string>
+    <string name="svc_test_no">This firmware doesn\'t know the test command.</string>
+    <string name="svc_danger">Keys and pairing</string>
+    <string name="svc_rekey">New key</string>
+    <string name="svc_rekey_sub">Cuts off everyone you shared the tag with, from now on</string>
+    <string name="svc_rekey_text">The tag gets a new pairing key. People you shared it with stop seeing new reports. They keep what they\'ve already seen. Your history in this app stays.</string>
+    <string name="svc_rekey_ok">Give it a new key</string>
+    <string name="svc_rekey_done">New key set. The tag is locked to this phone again.</string>
+    <string name="svc_reset">Reset pairing</string>
+    <string name="svc_reset_sub">Erases the pairing and the stored history on the tag</string>
+    <string name="svc_reset_text">The tag forgets its owner and erases its stored history, and this phone forgets the tag. This can\'t be undone.</string>
+    <string name="svc_write_failed">The tag didn\'t take it. Check the connection and try again.</string>
+    <!-- zones -->
+    <!-- known devices -->
+    <string name="kd_saved">Known devices</string>
+    <string name="kd_none">None yet.</string>
+    <string name="kd_seen_now">Seen now</string>
+    <string name="kd_need_cable">Connect %1$s with a USB-C cable or over Bluetooth: it scans the Bluetooth around it for 30 seconds.</string>
+    <string name="kd_scan">Scan around the tag</string>
+    <string name="kd_scan_again">Scan again</string>
+    <string name="kd_scanning">Scanning · %1$d s left</string>
+    <string name="kd_scan_empty">Nothing heard.</string>
+    <string name="kd_scan_failed">The scan didn\'t finish. Check the connection.</string>
+    <string name="kd_fw_old">This firmware can\'t keep known devices yet. Update the tag.</string>
+    <string name="kd_unnamed">Unnamed device</string>
+    <string name="kd_stable">stable address</string>
+    <string name="kd_changes">changes, can\'t use</string>
+    <string name="kd_tag_stable">stable</string>
+    <string name="kd_tag_changes">changes</string>
+    <string name="kd_phone_paired">phone, paired</string>
+    <string name="kd_phone">Phone</string>
+    <string name="kd_phone_n">Phone %1$d</string>
+    <string name="kd_rename">Rename</string>
+    <string name="kd_scan_note">While it scans here, the tag briefly announces itself over Bluetooth so nearby devices answer with their names.</string>
+    <string name="kd_kind_phone">phone</string>
+    <string name="kd_kind_computer">computer</string>
+    <string name="kd_kind_watch">watch</string>
+    <string name="kd_kind_tag">tag or key finder</string>
+    <string name="kd_kind_input">keyboard or mouse</string>
+    <string name="kd_kind_speaker">speaker</string>
+    <string name="kd_kind_headphones">headphones</string>
+    <string name="kd_kind_hearing">hearing aid</string>
+    <string name="kd_kind_heart">heart rate sensor</string>
+    <string name="kd_mesh_title">Scan over the mesh</string>
+    <string name="kd_mesh_text">The tag can scan Bluetooth on the spot and send what it saw with its next report. Useful in Lost mode: it shows which devices are around it.</string>
+    <string name="kd_mesh_last">Last scan %1$s · %2$d devices</string>
+    <string name="kd_mesh_go">Ask for a Bluetooth scan</string>
+    <string name="kd_pair_title">Pair a phone</string>
+    <string name="kd_pair_text">Pairing only lets the tag recognise a phone nearby, so it knows its owner is close. It gives that phone no access to the tag and sends nothing anywhere. A phone changes its Bluetooth address every few minutes, and pairing once lets the tag recognise it anyway.\n\nFor 2 minutes the tag shows up as \"LibreTag\". Pair with it in the Bluetooth settings of the phone it should know: this one or another, for example your second phone. Repeat for each phone.</string>
+    <string name="kd_pair_go">Start pairing</string>
+    <string name="kd_pair_settings">Bluetooth settings</string>
+    <string name="kd_pair_waiting">Waiting for a phone to pair with \"LibreTag\"…</string>
+    <string name="kd_pair_ok">Paired. The tag now recognises that phone even when its address changes.</string>
+    <string name="kd_pair_no_irk">Paired, but the phone sent no identity key, so the tag can\'t recognise it later.</string>
+    <string name="kd_pair_failed">Pairing didn\'t finish. Try again and confirm on the phone.</string>
+    <string name="ble_cmd_permission">When this phone is near the tag, it can pass the command over Bluetooth instead of waiting for the mesh. That needs the Nearby devices permission.</string>
+    <string name="ble_cmd_permission_ok">Allow</string>
+    <!-- wizard -->
+    <string name="wz_cancel">Cancel pairing</string>
+    <string name="wz_step">Step %1$d of %2$d · %3$s</string>
+    <string name="wz_s1">Plug in the tag</string>
+    <string name="wz_s6">Done</string>
+    <string name="wz_plug_title">Plug in the tag</string>
+    <string name="wz_plug_lead">Connect the tag to this phone with a USB-C cable.</string>
+    <string name="wz_waiting">Waiting for a tag on USB-C</string>
+    <string name="wz_waiting_text">Plug the tag in with a USB-C cable. The phone charges it while you set it up.</string>
+    <string name="wz_connecting">Talking to the tag…</string>
+    <string name="wz_permission">Allow LibreTag to use the USB device.</string>
+    <string name="wz_failed">The connection failed: %1$s</string>
+    <string name="wz_new_found">New tag found</string>
+    <string name="wz_fw">firmware %1$s</string>
+    <string name="wz_new_text">It isn\'t paired with any phone yet.</string>
+    <string name="wz_fw_old">Firmware %1$s is out. Pairing works now; update from a computer later.</string>
+    <string name="wz_mine_title">This tag is locked to you</string>
+    <string name="wz_mine_text">It\'s already in the app as %1$s. Its settings and history are in Service.</string>
+    <string name="wz_unlock_failed_title">Couldn\'t unlock</string>
+    <string name="wz_unlock_failed">The tag answered with a different key. Check that this is your tag and that the cable is plugged in firmly, then try again.</string>
+    <string name="wz_reset_instead">Reset pairing instead</string>
+    <string name="wz_foreign_title">Paired with someone else\'s phone</string>
+    <string name="wz_foreign_text">Resetting erases its pairing and stored history. The previous owner stops getting its reports. Only do this with a tag you own.</string>
+    <string name="wz_reset">Reset pairing</string>
+    <string name="wz_reset_title">Reset pairing?</string>
+    <string name="wz_reset_text">The tag forgets its owner and erases its stored history. This can\'t be undone.</string>
+    <string name="wz_reset_done">Pairing reset. The tag is empty and ready to pair with this phone.</string>
+    <string name="wz_reset_failed">The reset didn\'t go through. Unplug the tag, plug it in again and retry.</string>
+    <string name="wz_not_tag_title">Not a LibreTag tag</string>
+    <string name="wz_not_tag">The device on the cable doesn\'t answer like a LibreTag tag. Does it run the LibreTag firmware (0.5 or newer)?</string>
+    <string name="wz_name_ph">Backpack, Car, Max…</string>
+    <string name="wz_new_tag">New tag</string>
+    <string name="wz_pair">Pair</string>
+    <string name="wz_pairing">Pairing…</string>
+    <string name="wz_pairing_text">Writing the settings and locking the tag to this phone. Keep the cable in.</string>
+    <string name="wz_pair_failed">Pairing didn\'t finish</string>
+    <string name="wz_done_title">Paired</string>
+    <string name="wz_done_named">%1$s is paired</string>
+    <string name="wz_done_text">Locked to this phone. A welcome message from the tag went to your Nostr inbox.</string>
+    <string name="wz_done_text_nonpub">Locked to this phone. Set your Nostr npub in Settings to get its messages.</string>
+    <string name="wz_done_partial">Paired, but some settings didn\'t take</string>
+    <string name="wz_backup_title">Back up your tags\' keys</string>
+    <string name="wz_backup_text">A backup on Nostr restores your tags on a new phone and opens them in the web version. Sign in with Nostr, or create a recovery phrase.</string>
+    <string name="wz_backup_go">Set up backup</string>
+    <string name="wz_open_tag">Open tag</string>
+    <string name="wz_stop_title">Stop pairing?</string>
+    <string name="wz_stop_text">The tag stays unpaired. You can start again any time it\'s plugged in.</string>
+    <string name="wz_keep_going">Keep going</string>
+    <string name="wz_stop">Stop</string>
+    <plurals name="backup_restored"><item quantity="one">Restored %1$d tag</item><item quantity="other">Restored %1$d tags</item></plurals>
+    <plurals name="bridges_reports"><item quantity="one">Bridges published %1$d of your reports in the last 24 h</item><item quantity="other">Bridges published %1$d of your reports in the last 24 h</item></plurals>
+    <plurals name="svc_synced"><item quantity="one">History synced: %1$d report added</item><item quantity="other">History synced: %1$d reports added</item></plurals>
+    <string name="route_usb_quiet">kept by the tag while quiet, never sent (USB)</string>
+    <!-- 0.7: checks, parked quiet, Reporting -->
+    <string name="stn_quiet_parked">Quiet, parked</string>
+    <string name="cmd_interval">Report interval</string>
+    <string name="cmd_interval_to">Reports %1$s</string>
+    <string name="track_choose_ok">Track</string>
+    <string name="set_cable_writing">Writing to the tag…</string>
+    <string name="set_needs_07">Checks and parked quiet need firmware 0.7 or newer.</string>
+    <string name="set_written">Saved on the tag.</string>
+    <plurals name="reports_n">
+        <item quantity="one">%1$d report</item>
+        <item quantity="other">%1$d reports</item>
+    </plurals>
+    <string name="diag_checks">Checks</string>
+    <!-- backup 0.7.1 (SPEC 12.2): recovery phrase and a copy for your npub -->
+    <string name="menu_backup">Backup</string>
+    <string name="set_backup_sub_none">Not set up. Without a backup, a lost phone means re-pairing every tag over the cable.</string>
+    <string name="set_backup_sub_on">%1$s</string>
+    <string name="bk_intro">The backup keeps your tags\' keys encrypted on Nostr relays, so you can restore your tags on a new phone or open them in the web version. This phone updates both copies below after every change.</string>
+    <string name="bk_npub_title">Your Nostr account</string>
+    <string name="bk_npub_text">Sign in with your Nostr signer (Amber, or a bunker on another device). The copy is encrypted to your npub, and only your signer can open it.</string>
+    <string name="bk_signin">Sign in with Nostr</string>
+    <string name="bk_signed_in_as">Signed in as %1$s</string>
+    <string name="bk_signout">Sign out</string>
+    <string name="bk_signout_title">Sign out of Nostr?</string>
+    <string name="bk_signout_text">The copy for your npub stays on the relays and you can sign in again later. You can also delete it from the relays now.</string>
+    <string name="bk_signout_delete">Sign out and delete copy</string>
+    <string name="bk_phrase_title">Recovery phrase</string>
+    <string name="bk_phrase_text">LibreTag makes 12 words for you. They restore your tags even when the phone with your signer is gone. Write them on paper.</string>
+    <string name="bk_phrase_on">This phone keeps the copy up to date. The phrase itself isn\'t stored here.</string>
+    <string name="bk_phrase_create">Create recovery phrase</string>
+    <string name="bk_phrase_restore">Restore with phrase</string>
+    <string name="bk_phrase_delete">Delete copy</string>
+    <string name="bk_phrase_delete_text">The relays that answer remove this copy. A relay or anyone who copied it earlier may still keep it, but without the phrase it can\'t be opened.</string>
+    <string name="bk_saved">Saved %1$s to %2$d relays</string>
+    <string name="bk_not_saved">Not saved yet</string>
+    <string name="bk_pending">Some changes aren\'t saved yet.</string>
+    <string name="bk_save_now">Save now</string>
+    <string name="bk_problem_signer">Waiting for your signer. Tap Save now to approve it.</string>
+    <string name="bk_problem_offline">No relay answered. It will try again after the next change.</string>
+    <string name="bk_problem_unreadable">The copy on the relays was made by a newer version and this one can\'t read it.</string>
+    <string name="bk_problem_deleted">This copy was deleted from another device. Create it again if you want it back.</string>
+    <string name="bk_problem_failed">No relay accepted the update.</string>
+    <string name="bk_add_them">Add them</string>
+    <string name="bk_legacy_title">Older passphrase backup</string>
+    <string name="bk_legacy_text">Version 0.7.0 saved a backup with a passphrase you chose. This version uses a recovery phrase instead. Create one, then delete the old backup.</string>
+    <string name="bk_legacy_delete">Delete old backup</string>
+    <string name="bk_risk">The backup holds each tag\'s pairing key. Whoever opens it can read the tag\'s whole history and send it commands.</string>
+    <string name="bk_restore_first">Restore from backup</string>
+    <!-- sign in with Nostr -->
+    <string name="si_title">Sign in with Nostr</string>
+    <string name="si_text">LibreTag asks your signer to encrypt the backup to your npub and to sign it. The signer asks you once whether to allow that.</string>
+    <string name="si_use">Use %1$s</string>
+    <string name="si_no_signer">No signer app on this phone. Install Amber, or use a signer on another device below.</string>
+    <string name="si_remote">Signer on another device</string>
+    <string name="si_remote_text">Scan this code with your signer, or open the link in a signer on this phone.</string>
+    <string name="si_open">Open in signer</string>
+    <string name="si_new_code">New code</string>
+    <string name="si_waiting">Waiting for your signer…</string>
+    <string name="si_expired">This code has expired. Make a new one.</string>
+    <string name="si_auth">Open approval page</string>
+    <string name="si_bunker">Bunker link</string>
+    <string name="si_bunker_hint">bunker://…</string>
+    <string name="si_connect">Connect</string>
+    <string name="si_bunker_bad">That isn\'t a bunker:// link with a relay.</string>
+    <string name="si_rejected">The signer said no.</string>
+    <string name="si_unavailable">The signer didn\'t answer.</string>
+    <string name="si_looking">Signed in. Looking for your backup…</string>
+    <string name="si_done">Signed in. The backup for your npub is saved.</string>
+    <!-- recovery phrase -->
+    <string name="ph_create_title">Recovery phrase</string>
+    <string name="ph_create_text">Write these 12 words on paper, in this order. Anyone who has them can open your backup. LibreTag doesn\'t keep them and can\'t show them again.</string>
+    <string name="ph_written">I wrote them down</string>
+    <string name="ph_check_title">Check your copy</string>
+    <string name="ph_check_text">Type words 3, 7 and 11 from your paper.</string>
+    <string name="ph_word_n">Word %1$d</string>
+    <string name="ph_check">Check</string>
+    <string name="ph_check_wrong">That doesn\'t match. Look at your paper again.</string>
+    <string name="ph_back_to_words">Show the words again</string>
+    <string name="ph_bip85">If you already keep a Bitcoin seed safe, you can use a BIP-85 child phrase from your wallet instead. Choose Restore with phrase and type it there.</string>
+    <string name="ph_deriving">Deriving keys from the phrase…</string>
+    <string name="ph_saving">Saving the backup…</string>
+    <string name="ph_saved">Recovery phrase set. The backup is saved.</string>
+    <string name="ph_restore_title">Restore with phrase</string>
+    <string name="ph_warning">Never type your wallet\'s seed here. Use the phrase LibreTag made, or a BIP-85 child phrase from your wallet.</string>
+    <string name="ph_field">12 or 24 words</string>
+    <string name="ph_unknown_word">Not a word from the list: %1$s</string>
+    <string name="ph_bad_checksum">The words don\'t fit together. Check each one against your paper.</string>
+    <string name="ph_wrong_length">Use 12 or 24 words.</string>
+    <string name="ph_ok">The phrase is valid.</string>
+    <string name="ph_restore">Restore</string>
+    <string name="ph_searching">Looking for the backup on the relays…</string>
+    <string name="ph_none_title">No backup for this phrase</string>
+    <string name="ph_none_text">You can start a new backup with this phrase, for example a BIP-85 child phrase from your wallet.</string>
+    <string name="ph_use_new">Start a new backup</string>
+    <string name="ph_offline">No relay answered. Check your connection.</string>
+    <string name="ph_all_here">Found the backup. All its tags are already on this phone.</string>
+    <plurals name="ph_words"><item quantity="one">%1$d word</item><item quantity="other">%1$d words</item></plurals>
+    <plurals name="bk_not_here"><item quantity="one">%1$d tag in your backup isn\'t on this phone.</item><item quantity="other">%1$d tags in your backup aren\'t on this phone.</item></plurals>
+    <!-- Wi-Fi zones (tags without GPS, 0.8.6) -->
+    <string name="zone_wifi_unnamed">a Wi-Fi zone</string>
+    <string name="stn_quiet_wifi">Quiet in a Wi-Fi zone</string>
+    <plurals name="wzn_networks"><item quantity="one">%d network</item><item quantity="other">%d networks</item></plurals>
+    <string name="wzn_replaces">%1$s is already on the tag. Snapping again replaces it.</string>
+    <string name="wzn_full">The tag holds at most %1$d Wi-Fi zones. Delete one first.</string>
+    <string name="wzn_delete_title">Delete %1$s?</string>
+    <string name="wzn_delete_text">The tag forgets this place. To get it back, the tag has to be there again.</string>
+    <string name="wzn_delete">Delete</string>
+    <string name="wzn_deleted">%1$s deleted from the tag.</string>
+</resources>

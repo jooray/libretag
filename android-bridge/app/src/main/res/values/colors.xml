@@ -1,0 +1,9 @@
+<resources>
+    <color name="brand">#7B4FD6</color>
+    <color name="brand_dark">#C9B2FF</color>
+    <color name="ok">#2E9E6A</color>
+    <color name="warn">#E0A526</color>
+    <color name="bad">#D64545</color>
+    <color name="idle">#8A8A99</color>
+    <color name="ic_launcher_background">#4B2A9E</color>
+</resources>

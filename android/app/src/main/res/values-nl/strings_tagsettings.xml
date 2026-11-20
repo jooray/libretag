@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <string name="menu_tag_settings">Trackerinstellingen</string>
+    <string name="ts_title">Trackerinstellingen</string>
+    <string name="ts_edit">Wijzigen</string>
+    <string name="ts_reports">Meldingen</string>
+    <string name="ts_away_reports">Onderweg meldt hij zich</string>
+    <string name="ts_per_charge">Ongeveer %1$s per lading in dit tempo.</string>
+    <string name="ts_listens">Luistert naar commando’s</string>
+    <string name="ts_listens_with_report">bij elke melding</string>
+    <string name="ts_cmd_waits">Een commando wacht hooguit %1$s.</string>
+    <string name="ts_quiet">Stil</string>
+    <string name="ts_devices_near">Zolang mijn apparaten dichtbij zijn</string>
+    <string name="ts_devices_none">Nog geen apparaten gekozen</string>
+    <string name="ts_devices_people_note">Uit voor mensen: iemand kan je telefoon meenemen.</string>
+    <string name="ts_still">Als hij niet beweegt</string>
+    <string name="ts_still_after">Stil na %1$s op één plek</string>
+    <string name="ts_still_off">Meldt ook als hij stilligt</string>
+    <string name="ts_still_sheet_after">Wordt stil na</string>
+    <string name="ts_still_sheet_life">Teken van leven in stilte</string>
+    <string name="ts_needs_07">Vereist firmware 0.7 of nieuwer</string>
+    <string name="ts_tell">Laat het me weten</string>
+    <string name="ts_not_heard">Niet gehoord wanneer verwacht</string>
+    <string name="ts_not_heard_sub">%1$s na een verwachte melding (%2$s)</string>
+    <string name="ts_low_batt">Batterij bijna leeg</string>
+    <string name="ts_low_batt_sub">Onder %1$d %%, weer bij %2$d %%</string>
+    <string name="ts_goes_out">gaat uit ~%1$s</string>
+    <string name="ts_waits_cable">wacht op de tracker</string>
+    <plurals name="ts_changes_wait">
+        <item quantity="one">%d wijziging wacht op de tracker.</item>
+        <item quantity="other">%d wijzigingen wachten op de tracker.</item>
+    </plurals>
+    <string name="ts_nostr">Nostr</string>
+    <string name="set_look">Weergave</string>
+    <string name="set_notif_allowed">Meldingen: toegestaan</string>
+    <string name="set_notif_blocked">Geblokkeerd in de Android-instellingen</string>
+    <string name="set_preview">Voorbeeld</string>
+    <string name="wifi2_title">Positie via Wi-Fi</string>
+    <string name="wifi2_service">Dienst</string>
+    <string name="wifi2_off_sub">Meldingen zonder GPS gebruiken alleen repeaters.</string>
+    <string name="wifi2_beacondb_sub">Open database. Leert welke netwerken bij de tracker zijn.</string>
+    <string name="wifi2_grapheneos_sub">Apple-gegevens. Apple ziet je adres niet.</string>
+    <string name="wifi2_apple_sub">Apple ziet bij elke opzoeking het adres van je telefoon.</string>
+    <string name="wifi2_when">Opzoeken</string>
+    <string name="wifi2_tap">Alleen als ik tik</string>
+    <string name="wifi2_lost">In Verloren-modus</string>
+    <string name="wifi2_always">Elke melding zonder GPS</string>
+    <string name="wifi2_sum_tap">Er wordt niets verstuurd tot je bij een melding op Opzoeken tikt.</string>
+    <string name="wifi2_sum_lost">In Verloren-modus gaat elke melding zonder GPS naar %1$s.</string>
+    <string name="wifi2_sum_always">Elke melding zonder GPS stuurt de netwerken die de tracker hoorde naar %1$s.</string>
+    <string name="wifi2_sum_places">Meldingen van je eigen plaatsen worden niet opgezocht.</string>
+    <string name="wifi2_consent">De app stuurt de Wi-Fi-netwerken die een tracker hoorde naar %1$s, en de dienst antwoordt met een grove positie. Er gaat niets anders mee en de resultaten blijven op deze telefoon.</string>
+</resources>

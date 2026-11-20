@@ -1,0 +1,10 @@
+{
+  "note": "Share links as the Android app (ShareImport.link) writes them: Uri.Builder, parameter order v,name,type,mark,e,ve[,ce], percent-encoded UTF-8 with uppercase hex. Keys are the lt2.json vector (K0 000102..1f), epoch 2.",
+  "k0": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "name": "Kajak č 1 & co",
+  "type": "thing",
+  "mark": "blue-circle",
+  "epoch": 2,
+  "view_link": "libretag://share?v=1&name=Kajak%20%C4%8D%201%20%26%20co&type=thing&mark=blue-circle&e=2&ve=6a144c347903d428c4bb2c28d24f98a4c3bdfa62a6dc1bcc15927b9bce4de029",
+  "control_link": "libretag://share?v=1&name=Kajak%20%C4%8D%201%20%26%20co&type=thing&mark=blue-circle&e=2&ve=6a144c347903d428c4bb2c28d24f98a4c3bdfa62a6dc1bcc15927b9bce4de029&ce=eab6a158a4dde21170e5265d4a1f136857b3c2aac8409787d72e87774dbadbcd"
+}

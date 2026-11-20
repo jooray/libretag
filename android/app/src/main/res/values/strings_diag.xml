@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tag diagnosis (app 0.12, docs/design/tag-diagnosis.md): why a tag is late.
+     Row sentences (dg_row_*) fit a list row: at most 44 characters with the values filled in. -->
+<resources>
+    <plurals name="st_missed">
+        <item quantity="one">%1$d report missed · next %2$s</item>
+        <item quantity="other">%1$d reports missed · next %2$s</item>
+    </plurals>
+
+    <!-- row sentences -->
+    <string name="dg_row_bootloader">In update mode · can\'t report</string>
+    <string name="dg_row_esp_download">In download mode · can\'t report</string>
+    <string name="dg_row_tx_floor">Battery too low to report</string>
+    <plurals name="dg_row_reset_loop">
+        <item quantity="one">Keeps restarting · %1$d time in a row</item>
+        <item quantity="other">Keeps restarting · %1$d times in a row</item>
+    </plurals>
+    <string name="dg_row_on_cable">On the cable</string>
+    <string name="dg_row_counter_ahead">Reports out of the app\'s range</string>
+    <string name="dg_row_firmware_too_old">Firmware %1$s is too old for this app</string>
+    <string name="dg_row_phone_offline">Phone is offline · heard %1$s</string>
+    <string name="dg_row_relays_down">Can\'t reach the relays · heard %1$s</string>
+    <string name="dg_row_just_back">Checking for missed reports…</string>
+    <string name="dg_row_not_delivered">Reported %1$s · not on your relays</string>
+    <string name="dg_row_with_you">With you · quiet on purpose</string>
+    <string name="dg_row_restarted_here">Restarted near you %1$s · report soon</string>
+    <plurals name="dg_row_restarting">
+        <item quantity="one">Keeps restarting · %1$d time since %2$s</item>
+        <item quantity="other">Keeps restarting · %1$d times since %2$s</item>
+    </plurals>
+    <string name="dg_row_update_unfinished">Silent since the update at %1$s</string>
+    <string name="dg_row_battery_empty">Battery probably empty · %1$s at %2$s</string>
+    <string name="dg_row_battery_empty_unknown">Battery probably empty</string>
+    <string name="dg_row_schedule_pending">New schedule on its way · by %1$s</string>
+    <string name="dg_row_schedule_mismatch">Sends %1$s, app expects %2$s</string>
+    <string name="dg_row_schedule_unsent">Schedule not on the tag yet</string>
+    <string name="dg_row_out_of_range">Silent %1$s · no repeater heard</string>
+    <string name="dg_row_node_down">Your node is off · heard %1$s</string>
+    <string name="dg_row_maybe_with_you">Silent %1$s · may be quiet near you</string>
+    <string name="dg_row_maybe_quiet_place">Silent %1$s · may be quiet at %2$s</string>
+    <string name="dg_row_after_cable">Silent since the cable at %1$s</string>
+    <string name="dg_row_phone_clock">Phone clock looks wrong</string>
+
+    <!-- the Why card -->
+    <string name="dg_why">Why</string>
+    <string name="dg_card_missed">One report didn\'t arrive. That happens on a shared mesh. The next one is due around %1$s.</string>
+    <string name="dg_card_bootloader">The tag on the cable is waiting for firmware. It can\'t report until it restarts. If you didn\'t mean to update it, press its reset button once.</string>
+    <string name="dg_card_esp_download">The tag on the cable is in download mode, so its firmware isn\'t running.</string>
+    <string name="dg_card_tx_floor">The battery is below 3.25 V, so the tag stays silent to avoid restarting. It reports again by itself above 3.35 V or on a charger.</string>
+    <string name="dg_card_reset_loop">The tag restarted %1$d times in a row (%2$s). After each restart it waits longer before the first report, now %3$s. A weak battery or a loose connector is the usual reason.</string>
+    <string name="dg_card_on_cable">Connected to this phone. Last report %1$s, the next one %2$s.</string>
+    <string name="dg_card_counter_ahead">The tag\'s report counter is far ahead of the app\'s, so the app can\'t find its reports.</string>
+    <string name="dg_card_firmware_too_old">This app reads reports from firmware %2$s and newer. The tag has %1$s. Update it over the cable.</string>
+    <string name="dg_card_phone_offline">This phone has no internet and no MeshCore node, so it can\'t receive reports. Last heard %1$s. The app checks again when the connection is back.</string>
+    <plurals name="dg_card_relays_down">
+        <item quantity="one">Your relay doesn\'t answer. Reports that bridges published wait there.</item>
+        <item quantity="other">None of your %1$d relays answers. Reports that bridges published wait there.</item>
+    </plurals>
+    <string name="dg_card_just_back">The phone couldn\'t receive from %1$s to %2$s. Asking the relays for reports from that time.</string>
+    <string name="dg_card_not_delivered">A bridge heard the tag at %1$s (%2$s), but the report isn\'t on your relays. The tag works.</string>
+    <string name="dg_card_not_delivered_add">A bridge heard the tag at %1$s (%2$s), but the report isn\'t on your relays. The tag works. Add one of the bridge\'s relays to get its reports.</string>
+    <string name="dg_card_with_you">This phone heard the tag over Bluetooth at %1$s, and the tag sees one of your devices. It stays quiet while you are near and reports by %2$s at the latest.</string>
+    <string name="dg_card_with_you_console">Over Bluetooth at %1$s the tag said it sees one of your devices. It stays quiet while you are near and reports by %2$s at the latest.</string>
+    <string name="dg_card_restarted_here">This phone heard the tag start up at %1$s. The first report comes about 30 s after a restart.</string>
+    <string name="dg_card_restarting">The tag restarted at %1$s. A weak battery is the usual reason.</string>
+    <string name="dg_card_update_unfinished">An update started at %1$s and the tag hasn\'t reported since. It may still be in update mode, where it waits without a time limit. Plug it into this phone to check.</string>
+    <string name="dg_card_battery_empty">The last report at %1$s said %2$s. Below about 7 %% the tag stops reporting. Charge it.</string>
+    <string name="dg_card_schedule_pending">You changed the schedule to %1$s. Until the tag confirms it, the next report can come on either schedule, by %2$s at the latest.</string>
+    <string name="dg_card_schedule_mismatch">The tag reports %1$s. The app has %2$s. Commands may miss the tag until both agree.</string>
+    <string name="dg_card_schedule_unsent">Settings you changed still have to be written over the cable. Until then the tag keeps its old schedule.</string>
+    <string name="dg_card_out_of_range">The last two reports heard no repeater, so the tag may be out of mesh range. It keeps trying %1$s.</string>
+    <string name="dg_card_node_down">This tag\'s reports came through your own MeshCore node, and it hasn\'t been connected since %1$s.</string>
+    <string name="dg_card_maybe_with_you">The tag goes quiet when it sees your devices, and the report that says so may have been lost. This phone can ask it over Bluetooth at its next wake-up, around %1$s.</string>
+    <string name="dg_card_maybe_with_you_plain">The tag goes quiet when it sees your devices, and the report that says so may have been lost.</string>
+    <string name="dg_card_maybe_quiet_place">The last position was inside %1$s. The tag goes quiet there, and the report that says so may have been lost.</string>
+    <string name="dg_card_after_cable">Nothing since the tag was on the cable at %1$s. If it was updated from a computer, it may still be in update mode. Plug it into this phone to check.</string>
+    <plurals name="dg_card_phone_clock">
+        <item quantity="one">The phone\'s clock is about %1$d min off. Expected times and timed commands depend on it.</item>
+        <item quantity="other">The phone\'s clock is about %1$d min off. Expected times and timed commands depend on it.</item>
+    </plurals>
+    <string name="dg_card_unknown">No report since %1$s and nothing explains it. Position and battery below are from then.</string>
+    <string name="dg_card_asking">Asking at its next wake-up, around %1$s. Keep the phone near the tag.</string>
+    <string name="dg_card_not_here">Not here: the tag didn\'t answer over Bluetooth at %1$s.</string>
+
+    <!-- findings without a silence -->
+    <string name="dg_find_node_down">Your MeshCore node isn\'t connected, and this tag\'s reports came only through it.</string>
+    <string name="dg_find_battery_cliff">The battery fell %1$d points since the report before.</string>
+    <string name="dg_find_no_gps_run">No GPS fix since %1$s.</string>
+    <string name="dg_find_counter_back">On %1$s a report came with an older counter. Is a second tag using the same key?</string>
+    <string name="dg_find_counter_ahead">The tag\'s report counter is far ahead of what the app knows.</string>
+    <string name="dg_find_firmware_behind">Firmware %1$s on the tag, %2$s is available.</string>
+    <string name="dg_find_flood_cap">The tag hit its daily transmission limit, so it now reports only %1$s to spare the mesh.</string>
+    <string name="dg_find_restarting">The tag restarted several times since %1$s.</string>
+
+    <!-- actions -->
+    <string name="dg_act_finish_update">Finish the update</string>
+    <string name="dg_act_update_firmware">Update firmware</string>
+    <string name="dg_act_how_to_restart">How to restart</string>
+    <string name="dg_act_restart">Restart the tag</string>
+    <string name="dg_act_read_log">Read the log</string>
+    <string name="dg_act_open_ble">Open over Bluetooth</string>
+    <string name="dg_act_check_here">Check if it\'s here</string>
+    <string name="dg_act_send_report">Send a report now</string>
+    <string name="dg_act_connections">Connections</string>
+    <string name="dg_act_try_again">Try again</string>
+    <string name="dg_act_add_relay">Add relay</string>
+    <string name="dg_act_use_tag_schedule">Use the tag\'s schedule</string>
+    <string name="dg_act_send_mine">Send the app\'s schedule</string>
+    <string name="dg_act_catch_up">Catch up</string>
+    <string name="dg_act_date_settings">Date &amp; time settings</string>
+    <string name="dg_act_open_map">Open in map</string>
+    <string name="dg_act_service">Plug it in to check</string>
+    <string name="dg_all_checks">All checks</string>
+    <string name="dg_hide_checks">Hide checks</string>
+    <string name="dg_how_to_restart_title">Restart the tag</string>
+    <string name="dg_how_to_restart_text">Press the reset button once. If the tag stays in update mode, its firmware is incomplete: plug it into this phone and choose Finish the update.</string>
+    <string name="dg_add_relay_title">Add this relay?</string>
+    <string name="dg_add_relay_text">%1$s is a relay a bridge publishes to. A bridge says this about itself, so add it only if you trust it. The app then reads reports from it as well.</string>
+    <string name="dg_add_relay_ok">Add</string>
+    <string name="dg_relay_added">Relay added</string>
+    <string name="dg_restart_sent">Restarting the tag…</string>
+    <string name="dg_report_sent">Asked the tag to report</string>
+    <string name="dg_schedule_adopted">The app now uses the tag\'s schedule</string>
+    <string name="dg_caught_up">Looking for reports from the tag\'s counter</string>
+    <string name="dg_no_console">Connect the tag over the cable or Bluetooth first.</string>
+
+    <!-- the checklist: key, then value -->
+    <string name="dg_chk_online">Phone online</string>
+    <string name="dg_chk_relays">Relays</string>
+    <string name="dg_chk_node">Own node</string>
+    <string name="dg_chk_bridges">Bridges that heard it</string>
+    <string name="dg_chk_last_report">Last report</string>
+    <string name="dg_chk_lost">Reports lost (7 days)</string>
+    <string name="dg_chk_battery">Battery then</string>
+    <string name="dg_chk_bluetooth">Bluetooth</string>
+    <string name="dg_chk_cable">Cable</string>
+    <string name="dg_chk_restarts">Restarts</string>
+    <string name="dg_chk_schedule">Schedule</string>
+    <string name="dg_chk_firmware">Firmware</string>
+    <string name="dg_chk_clock">Phone clock</string>
+    <string name="dg_val_yes">yes</string>
+    <string name="dg_val_no">no</string>
+    <string name="dg_val_unknown">unknown</string>
+    <string name="dg_val_relays">%1$d of %2$d connected</string>
+    <string name="dg_val_node_up">connected</string>
+    <string name="dg_val_node_down">not connected since %1$s</string>
+    <string name="dg_val_node_down_never">not connected</string>
+    <string name="dg_val_node_never">not set up</string>
+    <string name="dg_val_bridges">last %1$s, %2$s</string>
+    <string name="dg_val_none_known">none known</string>
+    <string name="dg_val_last_report">%1$s · %2$s · no. %3$d</string>
+    <string name="dg_val_lost">%1$d of %2$d</string>
+    <string name="dg_val_battery">%1$s at %2$s</string>
+    <string name="dg_val_ble_heard">heard %1$s</string>
+    <string name="dg_val_ble_not">not heard by this phone</string>
+    <string name="dg_val_cable_tag">connected now</string>
+    <string name="dg_val_cable_boot">in update mode now</string>
+    <string name="dg_val_cable_esp">in download mode now</string>
+    <string name="dg_val_cable_last">last connected %1$s</string>
+    <string name="dg_val_cable_never">never connected</string>
+    <plurals name="dg_val_restarts">
+        <item quantity="one">%1$d known, last %2$s</item>
+        <item quantity="other">%1$d known, last %2$s</item>
+    </plurals>
+    <string name="dg_val_schedule">reports %1$s, listens %2$s</string>
+    <string name="dg_val_firmware_current">%1$s · current</string>
+    <string name="dg_val_firmware_behind">%1$s · %2$s available</string>
+    <string name="dg_val_firmware_old">%1$s · too old</string>
+    <string name="dg_val_clock_ok">fine</string>
+    <plurals name="dg_val_clock_off">
+        <item quantity="one">about %1$d min off</item>
+        <item quantity="other">about %1$d min off</item>
+    </plurals>
+    <string name="dg_hops">%1$s hops</string>
+    <string name="dg_hops_direct">directly</string>
+
+    <!-- notifications -->
+    <string name="notif_silent_cause">%1$s. %2$s</string>
+    <string name="notif_restart_title">%1$s keeps restarting</string>
+    <string name="notif_restart_text">Usually a weak battery or a loose connector. Open the tag to see when it restarted.</string>
+    <string name="notif_update_title">%1$s may still be in update mode</string>
+    <string name="notif_update_text">It hasn\'t reported since the update started. Press its reset button once, or plug it into this phone.</string>
+    <string name="notif_blind_title">LibreTag can\'t receive reports</string>
+    <string name="notif_blind_text">This phone has had no connection to the relays or your node for 2 hours, and a tag is guarded.</string>
+
+    <!-- home strip: a bootloader on the cable that fits no tag -->
+    <string name="dg_strip_bootloader">A tag on the cable is in update mode. It can\'t report until it restarts.</string>
+
+    <!-- map pill suffixes -->
+    <string name="dg_pill_with_you">with you</string>
+    <string name="dg_pill_cable">on the cable</string>
+
+    <!-- Settings -->
+    <string name="set_ble_sightings">Notice my tags over Bluetooth</string>
+    <string name="set_ble_sightings_sub">The phone listens for your tags\' Bluetooth signal in the background, so it can tell when a tag restarted or is near you. It doesn\'t use your location.</string>
+
+    <!-- Track: how often and how long (app 0.12) -->
+    <string name="cmd_track_for">Track %1$s, %2$s</string>
+    <string name="track_choose_title2">Track the tag</string>
+    <string name="track_how_often">How often</string>
+    <string name="track_how_long">How long</string>
+    <plurals name="track_reports">
+        <item quantity="one">%1$d report, until %2$s</item>
+        <item quantity="other">%1$d reports, until %2$s</item>
+    </plurals>
+    <string name="track_cap_warn">That is more than the tag may send in a day. After about %1$s it drops to one report an hour to spare the mesh.</string>
+    <string name="track_choose_ok_for">Track %1$s</string>
+</resources>

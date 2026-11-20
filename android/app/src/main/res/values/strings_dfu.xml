@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Firmware update over USB (docs/design/dfu.md). English only for now: TO TRANSLATE (sk, cs, de, es, nl)
+     once the flow is tested on hardware. Kept in this file so the translation pass finds them in one place. -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="fw_title">Update firmware</string>
+    <string name="fw_sub">Over the USB cable</string>
+    <string name="fw_on_tag">On the tag: %1$s</string>
+    <string name="fw_in_app">In this app: %1$s</string>
+    <string name="fw_unknown">unknown</string>
+    <string name="fw_none_bundled">This build of the app has no tag firmware in it. Update from a computer instead.</string>
+    <string name="fw_same">The tag already runs this version. You can install it again if something seems wrong.</string>
+    <string name="fw_newer_on_tag">The tag runs a newer version than the one in this app. Installing it would go back to an older version.</string>
+    <string name="fw_explain">It takes about a minute. Keep the cable plugged in and the screen on. Android asks for USB access twice: once for the tag in update mode, which counts as a different device, and once when the tag restarts. Pairing, keys, zones and settings stay on the tag.</string>
+    <string name="fw_install">Install %1$s</string>
+    <string name="fw_plug">Plug the tag into this phone with a USB-C cable.</string>
+    <string name="fw_not_mine">This tag is paired with another phone. Only that phone can update it.</string>
+    <string name="fw_boot_found">A tag in update mode is on the cable</string>
+    <string name="fw_boot_text">Either an update stopped halfway, or someone double-pressed the reset button. The app can\'t tell which tag it is, so continue only if it\'s a LibreTag tag.</string>
+    <string name="fw_continue">Continue the update</string>
+    <string name="fw_service_sub">Install %1$s from this app over the cable</string>
+
+    <string name="fw_step_rebooting">Restarting the tag in update mode…</string>
+    <string name="fw_step_waiting">Waiting for the tag in update mode…</string>
+    <string name="fw_step_perm_boot">Tap Allow. Android asks again because the tag in update mode is a different USB device.</string>
+    <string name="fw_step_perm_tag">Tap Allow for the restarted tag.</string>
+    <string name="fw_step_erasing">Clearing the old firmware…</string>
+    <string name="fw_step_sending">Sending the firmware: %1$d %%</string>
+    <string name="fw_step_finishing">Checking the firmware…</string>
+    <string name="fw_step_restarting">The tag is restarting…</string>
+    <string name="fw_step_reading">Reading the version…</string>
+    <string name="fw_keep">Don\'t unplug the cable.</string>
+
+    <string name="fw_done">Firmware %1$s is installed</string>
+    <string name="fw_done_paired">The tag is still paired with this phone.</string>
+    <string name="fw_done_unpaired">The tag no longer answers to this phone\'s key. Pair it again in Add tag.</string>
+
+    <string name="fw_fail_title">The update stopped</string>
+    <string name="fw_fail_no_firmware">The firmware in this app failed its check (%1$s). Nothing was sent to the tag.</string>
+    <string name="fw_fail_not_connected">The tag isn\'t on the cable any more. Plug it in and try again.</string>
+    <string name="fw_fail_locked">The tag refused the update command (%1$s). Unplug it, plug it back in and try again.</string>
+    <string name="fw_fail_no_bootloader">The tag didn\'t show up in update mode. If it still runs normally, try again. You can also double-press its reset button, and the app will offer to continue.</string>
+    <string name="fw_fail_permission">Without USB access the app can\'t send the firmware. Try again and tap Allow.</string>
+    <string name="fw_fail_transfer">The transfer broke off (%1$s). The tag stays in update mode and its keys are safe. Check the cable and tap Continue the update.</string>
+    <string name="fw_fail_no_return">The firmware went over, but the tag didn\'t come back on the cable. Unplug it and plug it back in. If it doesn\'t start, double-press reset and continue the update.</string>
+    <string name="fw_fail_wrong_version">The tag came back with version %1$s instead of %2$s. Try the update again.</string>
+    <string name="fw_try_again">Try again</string>
+</resources>

@@ -1,0 +1,26 @@
+{
+  "name": "libretag-web",
+  "version": "0.3.1",
+  "private": true,
+  "type": "module",
+  "description": "LibreTag web app (PWA), Nostr only",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.4.0",
+    "@scure/bip39": "2.0.1",
+    "leaflet": "1.9.4",
+    "nostr-tools": "2.26.1",
+    "qrcode-generator": "2.0.4"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "6.2.8",
+    "vite": "8.3.8",
+    "vitest": "5.1.0"
+  }
+}

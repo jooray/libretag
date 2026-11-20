@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <!-- Places list -->
+    <string name="places_title">Places</string>
+    <string name="places_lead">%1$s stays quiet here.</string>
+    <string name="places_empty">No places yet. Add the place where %1$s usually rests, and it stays quiet there.</string>
+    <string name="place_add">Add a place</string>
+    <string name="place_add_here">Add the place where %1$s is now</string>
+    <string name="place_add_map">On the map</string>
+    <string name="place_add_wifi">Where the tag is now, by its Wi-Fi</string>
+    <string name="place_add_btn">Add place</string>
+    <string name="place_needs_cable">Connect the tag while it\'s at the place: with the cable, or restart it and connect over Bluetooth.</string>
+    <string name="place_on_tag">On the tag</string>
+    <string name="place_waits_cable">Waits for the tag</string>
+    <string name="place_waits_cable_sub">Until you connect %1$s, it keeps reporting from here.</string>
+    <string name="place_writing">Writing…</string>
+    <string name="place_writing_to">Writing to %1$s…</string>
+    <string name="place_saved_on">Saved on %1$s.</string>
+    <string name="place_not_written">Not written</string>
+    <string name="place_app_only">App only</string>
+    <string name="place_app_only_sub">This firmware can\'t store places, so %1$s keeps reporting from here.</string>
+    <string name="place_name">Name</string>
+    <string name="place_name_empty">Give the place a name.</string>
+    <string name="place_name_taken">Another place already has this name.</string>
+    <string name="place_size">Size</string>
+    <string name="place_move_hint">Tap the map to move it. Drag the blue handle to change its size.</string>
+    <string name="place_tap_hint">Tap the map where %1$s usually rests.</string>
+    <string name="place_move">Move on the map</string>
+    <string name="place_tell_leave">Tell me when it leaves</string>
+    <string name="place_tell_arrive">Tell me when it arrives</string>
+    <string name="place_not_with_you">Not when it leaves with you.</string>
+    <string name="place_delete">Delete place</string>
+    <string name="place_delete_cable">Connect the tag to delete it.</string>
+    <!-- Wi-Fi snap sheet -->
+    <string name="snap_start">Start</string>
+    <string name="snap_step_listen">Listening for Wi-Fi networks · %1$d of %2$d</string>
+    <string name="snap_step_listen_short">Listening for Wi-Fi networks</string>
+    <string name="snap_step_save">Saving on the tag</string>
+    <string name="snap_step_check">Checking that the tag recognises the place</string>
+    <string name="snap_wait">About %1$d s. Keep the tag where it is.</string>
+    <string name="snap_ok">%1$s saved. The tag recognises this place.</string>
+    <string name="snap_weak">Saved, but the match is weak. The tag may not go quiet here.</string>
+    <string name="snap_unchecked">%1$s saved. The check didn\'t finish, so tap Check here later.</string>
+    <string name="snap_none">No Wi-Fi network in range, so nothing was saved.</string>
+    <string name="snap_no_answer">The tag didn\'t answer. Check the connection.</string>
+    <string name="snap_keep">Keep it</string>
+    <string name="place_check_here">Check here</string>
+    <string name="place_check_ok">Recognised</string>
+    <string name="place_check_weak">Weak</string>
+    <string name="place_check_no">Not recognised</string>
+    <!-- Add tag wizard, four steps -->
+    <string name="wz2_s2">Name</string>
+    <string name="wz2_s3">Where it rests</string>
+    <string name="wz2_rest_lead">Add the place where %1$s stays. It keeps quiet there.</string>
+    <string name="wz2_skip">Skip</string>
+    <string name="wz2_mark_row">Mark: %1$s</string>
+    <string name="wz2_change">Change</string>
+    <string name="wz2_done_reports">Reports hourly when away.</string>
+    <string name="wz2_done_quiet">Quiet at %1$s.</string>
+    <string name="wz2_done_tell">You\'ll be told when it isn\'t heard or the battery is low.</string>
+    <string name="wz2_devices_title">Keep it quiet while you\'re with it</string>
+    <string name="wz2_devices_text">Pick the phone, watch or other devices you carry. While one of them is near, %1$s stays quiet.</string>
+    <string name="wz2_devices_go">Pick your devices</string>
+    <string name="wz2_pair_failed">Pairing didn\'t finish. Keep the cable in and try again.</string>
+    <string name="wz2_partial_text">Open Tag settings with the tag connected to write them again.</string>
+    <!-- Known devices -->
+    <string name="kd_lead_short">%1$s stays quiet while one of these is near.</string>
+</resources>

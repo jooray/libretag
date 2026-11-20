@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LibreTag: otvorený GPS tag na sieti MeshCore</title>
+<meta name="description" content="GPS tag, ktorý spí, raz za hodinu sa ozve cez LoRa a polohu prezradí len tebe. Bez SIM karty, bez cloudu, bez účtu.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1A1C1E" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://cypherpunk.today/libretag/sk/">
+<link rel="alternate" hreflang="en" href="https://cypherpunk.today/libretag/">
+<link rel="alternate" hreflang="sk" href="https://cypherpunk.today/libretag/sk/">
+<link rel="alternate" hreflang="x-default" href="https://cypherpunk.today/libretag/">
+<link rel="icon" type="image/svg+xml" href="../img/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="../img/favicon-32.png">
+<link rel="apple-touch-icon" href="../img/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="LibreTag">
+<meta property="og:title" content="LibreTag: otvorený GPS tag na sieti MeshCore">
+<meta property="og:description" content="GPS tag, ktorý spí, raz za hodinu sa ozve cez LoRa a polohu prezradí len tebe. Bez SIM karty, bez cloudu, bez účtu.">
+<meta property="og:url" content="https://cypherpunk.today/libretag/sk/">
+<meta property="og:locale" content="sk_SK">
+<meta property="og:image" content="https://cypherpunk.today/libretag/img/og-sk.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="LibreTag: GPS tag, ktorý spí, raz za hodinu sa ozve a polohu povie len tebe.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="LibreTag: otvorený GPS tag na sieti MeshCore">
+<meta name="twitter:description" content="GPS tag, ktorý spí, raz za hodinu sa ozve cez LoRa a polohu prezradí len tebe. Bez SIM karty, bez cloudu, bez účtu.">
+<meta name="twitter:image" content="https://cypherpunk.today/libretag/img/og-sk.png">
+<link rel="preload" href="../fonts/archivo_extrabold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../fonts/archivo_regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../style.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body>
+<a class="skip" href="#main">Preskočiť na obsah</a>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="./"><img src="../img/icon-512.png" width="36" height="36" alt="">LibreTag</a>
+    <nav aria-label="Hlavná navigácia">
+      <a href="#how">Ako to funguje</a>
+      <a href="#privacy">Súkromie</a>
+      <a href="#features">Funkcie</a>
+      <a href="#hardware">Hardvér</a>
+      <a href="#get">Získaj</a>
+    </nav>
+    <div class="top-r">
+      <div class="lang" role="group" aria-label="Language / Jazyk">
+        <a href="../" hreflang="en" lang="en">EN</a><span aria-current="true" lang="sk">SK</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <h1>GPS tag, ktorý spí, ozve sa raz za hodinu a polohu povie len tebe.</h1>
+      <p class="lede">LibreTag je otvorený tracker, ktorý sa hlási cez LoRa sieť MeshCore. Nepotrebuje SIM kartu, cloud ani účet. Keď nemá GPS, aplikácia ukáže oblasť, nie vymyslený bod.</p>
+      <div class="cta">
+        <a class="btn" href="#get">Získaj aplikáciu</a>
+        <a class="btn ghost" href="#video">Pozri si video (6 min)</a>
+      </div>
+      <p class="status">Stav: funkčný prototyp. Tag beží na reálnom hardvéri. Aplikácia a mosty sú zatiaľ v ranom štádiu.</p>
+    </div>
+    <div class="hero-art">
+      <img class="bg" src="../img/hero-trail.webp" width="1024" height="1024" alt="Kmeň brezy s červeno-bielym turistickým značením a malým visačkovým tagom na konári, v pozadí hmlisté kopce." fetchpriority="high">
+      <div class="plates" role="group" aria-label="Ukážka dvoch tagov v aplikácii">
+        <p class="cap">Dva tagy tak, ako ich ukazuje aplikácia (ukážka)</p>
+        <article class="plate"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><div><div class="plate-name">Auto<span>vec</span></div><p class="st">Ozvalo sa pred 12&nbsp;min · ďalšie hlásenie ~14:31</p><p>GPS ±8&nbsp;m · 48.70120, 21.25410</p></div><div class="plate-side"><span class="age">12&nbsp;min</span><span class="bat"><svg viewBox="0 0 18 10" aria-hidden="true"><rect x=".75" y=".75" width="14.5" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="16" y="3" width="2" height="4" fill="currentColor"/><rect x="2.5" y="2.5" width="11.5" height="5" fill="currentColor"/></svg>82&nbsp;%</span></div><span class="ticket">Pípnutie · odíde ~14:31</span></article>
+        <article class="plate"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><div><div class="plate-name">Batoh<span>vec</span></div><p class="st">Ozval sa pred 41&nbsp;min · ďalšie hlásenie ~14:50</p><p>Bez GPS · oblasť ±1,2&nbsp;km (68&nbsp;%)</p></div><div class="plate-side"><span class="age">41&nbsp;min</span><span class="bat"><svg viewBox="0 0 18 10" aria-hidden="true"><rect x=".75" y=".75" width="14.5" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="16" y="3" width="2" height="4" fill="currentColor"/><rect x="2.5" y="2.5" width="9" height="5" fill="currentColor"/></svg>64&nbsp;%</span></div></article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!--VIDEO-->
+<section id="video">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><h2>Pozri si video (6 minút)</h2></div>
+    <p class="sec-intro">Krátke vysvetlenie nápadu a toho, ako sa hlásenie dostane k tvojmu telefónu.</p>
+    <div class="video" id="videobox">
+      <video controls preload="none" playsinline poster="../media/libretag-explainer-sk.jpg" aria-label="Vysvetľujúce video o LibreTagu, slovensky">
+        <source src="../media/libretag-explainer-sk.mp4" type="video/mp4">
+        Tvoj prehliadač toto video neprehrá.
+      </video>
+    </div>
+  </div>
+</section>
+<!--/VIDEO-->
+
+<section id="what" class="tint">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><h2>Čo to je</h2></div>
+    <p class="sec-intro">LibreTag je malý tag do auta, tašky alebo dieťaťu do batohu. Skoro stále spí. Zhruba raz za hodinu sa zobudí, hľadá GPS, pošle jeden šifrovaný paket cez sieť MeshCore a chvíľu počúva, či si mu neposlal príkaz. Potom zase zaspí.</p>
+    <ul class="rows">
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><h3>Rádio namiesto mobilnej siete</h3><p>Tag hovorí cez LoRa na komunitnej sieti MeshCore. Nekupuješ SIM kartu ani dátový balík.</p></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><h3>Nikto uprostred</h3><p>Polohy putujú medzi tagom, tvojím telefónom a relayami, ktoré môže prevádzkovať ktokoľvek. Nedrží ich žiadna firma na svojom serveri a prečítať ich môžeš len ty.</p></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><h3>Spárovanie káblom</h3><p>Tag spáruješ USB-C káblom. Tým je nastavenie hotové: nezakladáš si účet a nemáš sa kam prihlasovať. Neskoršie zmeny idú cez kábel alebo cez Bluetooth.</p></li>
+    </ul>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><h2>Ako to funguje</h2></div>
+    <p class="sec-intro">Väčšinu hodiny tag nerobí nič, aby šetril batériu. Každé prebudenie prebieha rovnako.</p>
+    <ol class="cycle">
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><b>Spánok</b><span>Skoro celú hodinu. Čas prebudenia sa posúva asi o ±10&nbsp;%, takže z neho nikto nevyčíta pravidelnosť.</span></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><b>Hľadanie GPS</b><span>Čaká na polohu najviac 90&nbsp;sekúnd a poznačí si, ktoré opakovače počuje.</span></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><b>Hlásenie</b><span>Po sieti odíde jeden zapečatený paket. Nič iné sa nevysiela.</span></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><b>Počúvanie</b><span>Krátke okno pre tvoj príkaz, cez mesh alebo, keď je telefón nablízku, cez Bluetooth.</span></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><b>Znova spánok</b><span>Ak prišiel príkaz, vykoná sa teraz.</span></li>
+    </ol>
+    <div class="cols three" style="margin-top:40px">
+      <div><h3>Cez mesh</h3><p>Paket preskáče cez opakovače MeshCore. Ak je tvoj telefón pripojený k vlastnému uzlu MeshCore, hlásenie počuje priamo, a keď je tag v dosahu toho uzla, príkaz ide rovno z neho, len k rádiám v dosahu. Zatiaľ na to treba našu upravenú verziu MeshCore Open, pozri <a href="#own-node">Vlastný uzol</a>.</p></div>
+      <div><h3>Cez mosty do Nostru</h3><p>Most je uzol MeshCore a malý program, ktorý to, čo počuje, publikuje na relayoch Nostr. Nič nedešifruje a každé hlásenie podpíše náhodným kľúčom. Vďaka mostom nájde aplikácia tag aj v inom meste či v inej krajine. Príkazy idú naspäť tou istou cestou: aplikácia ich nechá v schránke na Nostri a most, ktorý tag počul, ich pošle. Mosty sa na Nostri ohlasujú, takže aplikácia vie adresovať príkaz tým, ktoré tvoj tag počuli.</p></div>
+      <div><h3>Príkazy</h3><p>Režim Stratený (hlásenie každých 10&nbsp;minút počas 24&nbsp;hodín), Sledovanie na hodinu v intervale, aký si vyberieš, Pípnutie, Sken Bluetooth a Otvoriť Bluetooth na diaľku. Režim Stratený aj Sledovanie sa dajú ukončiť skôr. Tag spí, takže príkaz odíde pri jeho ďalšom hlásení alebo kontrole a aplikácia ti povie kedy a ktorou cestou: „Pípnutie · odíde ~14:31“, a keď tag odpovie, „potvrdené“. Ak je telefón pri tagu, príkaz ide cez Bluetooth, inak z tvojho vlastného uzla, ak je tag v jeho dosahu, a cez mosty, ak nedosiahne ani jeden.</p></div>
+    </div>
+    <p class="note">Bez vlastného uzla aplikácia funguje cez USB kábel alebo Bluetooth (spárovanie a nastavenia) a cez Nostr. Hlásenia a príkazy vtedy idú cez mosty medzi MeshCore a Nostrom, takže most musí byť v dosahu tagu, v jeho krajine či oblasti. Keď nie je žiadny most nablízku, cez Nostr hlásenia neprídu.</p>
+  </div>
+</section>
+
+<section id="nogps" class="tint">
+  <div class="wrap cols split">
+    <div>
+      <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><h2>Bez GPS dostaneš oblasť a mieru istoty</h2></div>
+      <p>V garáži alebo pod hustým porastom môže tag stratiť GPS. Každé hlásenie preto nesie až päť opakovačov MeshCore, ktoré tag počul, a jeho poslednú GPS polohu s časom.</p>
+      <p>Aplikácia ich porovná s verejnou mapou opakovačov (asi 55&nbsp;000 opakovačov, stiahne sa raz a po 30&nbsp;dňoch sa obnoví) a nakreslí dve oblasti, jednu na 68&nbsp;% a druhú na 95&nbsp;%. Je to oblasť, nie bod. Keď si kód zdieľa viac opakovačov, aplikácia povie, že to nevie určiť, a nehádá.</p>
+      <p>Na reálnych dátach sa odhad mýlil asi o 1 až 1,4&nbsp;km. Ber ho ako miesto, kde začať hľadať. Tvoje polohy sa nikdy neposielajú geokódovacej službe.</p>
+    </div>
+    <figure class="mapbox" style="margin:0">
+      <svg viewBox="0 0 520 380" role="img" aria-labelledby="mapt mapd">
+<title id="mapt">Mapa s odhadnutou oblasťou</title><desc id="mapd">Mapa so štyrmi opakovačmi, značkou tagu v strede a dvoma prerušovanými kruhmi, vnútorným na 68 percent a vonkajším na 95 percent.</desc>
+<rect class="m-paper" width="520" height="380" fill="#F3F0E8"/>
+<path class="m-forest" d="M0 250 C60 230 120 270 170 300 C200 320 150 360 120 380 L0 380Z" fill="#E0E7D0"/>
+<path class="m-forest" d="M380 0 C420 30 470 20 520 50 L520 0Z" fill="#E0E7D0"/>
+<path class="m-water" d="M330 380 C350 330 400 320 430 290 C470 250 500 250 520 230 L520 380Z" fill="#C3D7E8"/>
+<g fill="none" stroke="#D7CBA9" stroke-width="1.2"><path d="M0 120 C100 90 180 140 260 100 C340 60 420 90 520 60"/><path d="M0 150 C100 120 180 170 260 130 C340 90 420 120 520 90"/><path d="M0 90 C100 60 180 110 260 70 C340 30 420 60 520 30" stroke-width="2"/></g>
+<path class="m-road" d="M0 300 C90 280 160 230 240 220 C330 210 400 150 520 140" fill="none" stroke="#fff" stroke-width="7"/>
+<path d="M0 300 C90 280 160 230 240 220 C330 210 400 150 520 140" fill="none" stroke="#D6CFBE" stroke-width="9" opacity=".35"/>
+<circle cx="268" cy="190" r="150" fill="#1F5FB4" fill-opacity=".05" stroke="#1F5FB4" stroke-width="2" stroke-dasharray="3 7" stroke-linecap="round"/>
+<circle cx="268" cy="190" r="92" fill="#1F5FB4" fill-opacity=".14" stroke="#1F5FB4" stroke-width="2.5" stroke-dasharray="9 6"/>
+<g stroke="#1E1E1E" stroke-width="1.2" stroke-dasharray="2 4" opacity=".55">
+<line x1="268" y1="190" x2="120" y2="110"/><line x1="268" y1="190" x2="390" y2="95"/><line x1="268" y1="190" x2="150" y2="290"/><line x1="268" y1="190" x2="420" y2="270"/></g>
+<g class="m-rep" fill="#1E1E1E" stroke="#fff" stroke-width="2">
+<rect x="113" y="103" width="14" height="14"/><rect x="383" y="88" width="14" height="14"/><rect x="143" y="283" width="14" height="14"/><rect x="413" y="263" width="14" height="14"/></g>
+<g transform="translate(268 190)"><circle r="15" fill="#fff" stroke="#1E1E1E" stroke-width="2.5"/><rect x="-9" y="-3" width="18" height="6" fill="#D7262E"/></g>
+<g class="m-lab" font-family="Archivo Narrow,Arial Narrow,sans-serif" font-weight="700" font-size="14" fill="#1E1E1E">
+<text x="276" y="106">68 %</text><text x="348" y="140" transform="rotate(0)">95 %</text></g>
+</svg>
+      <figcaption>Ilustrácia so syntetickými dátami. Štvorce sú opakovače, ktoré tag počul.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="privacy" class="night">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><h2>Prečítať to môže len majiteľ</h2></div>
+    <p class="sec-intro">Každú funkciu posudzujeme podľa toho, čo sa z nej dozvie zlodej so zariadením v ruke, prevádzkovateľ relaya alebo niekto s rádiom.</p>
+    <ul class="rows">
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><h3>Zapečatené hlásenia</h3><p>Hlásenia sú šifrované v režime SIV, takže opakované číslo počítadla nič neprezradí.</p></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><h3>Zakaždým nová značka</h3><p>Každé hlásenie nesie meniacu sa 4-bajtovú značku namiesto stálej identity. Ktorému tagu paket patrí, vieš poznať len ty.</p></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><h3>Račňa</h3><p>Kľúče sa posúvajú každých 64&nbsp;hlásení a staré sa v tagu prepíšu. Kto tag ukradne a vyčíta, staršie hlásenia nerozlúšti.</p></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><h3>Zamknutý USB port</h3><p>Po spárovaní kľúč tag opustí a jeho USB konzola sa zamkne. Odomknúť ju vie len tvoja aplikácia.</p></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M4 20 L20 4 L25 9 L9 25 Z" fill="#D7262E" transform="translate(-1 0)"/></svg><h3>Podpísané príkazy</h3><p>Každé hlásenie odkazuje na kľúč, ktorým môžeš podpisovať len ty a ľudia, ktorým si dal ovládanie tagu. Mosty posielajú len príkazy podpísané ním, takže cudzí človek nedonúti most poslať tagu čokoľvek.</p></li>
+    </ul>
+    <div class="honest"><h3>Čo vidí pozorovateľ s rádiom</h3><p>Že sa vysielalo hlásenie LibreTag a zhruba odkiaľ, podľa prvého opakovača na ceste. Nevidí, o ktorý tag išlo, ani čo hlásenie hovorí. Samotný kanál #libretag je verejný. Kým tag počúva cez Bluetooth, telefón nablízku vidí zariadenie, ktoré vysiela zo súkromnej adresy, ale nie ktorý je to tag, a bez tvojho kľúča tag na nič neodpovie.</p></div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M4 20 L20 4 L25 9 L9 25 Z" fill="#D7262E" transform="translate(-1 0)"/></svg><h2>Čo funguje dnes</h2></div>
+    <p class="sec-intro">Tieto funkcie už majú aktuálna aplikácia a firmvér.</p>
+    <ul class="feat">
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><div><h3>Miesta</h3><p>Ťukni na mape tam, kde tag zvyčajne býva, napríklad doma alebo v garáži. Na mieste je tag ticho a pošle len kontrolné hlásenie raz za deň. Keď miesto opustí, ozve sa. Pri každom mieste si vyberieš, či ti aplikácia dá vedieť, keď tag odíde a keď príde.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><div><h3>Ticho pri tvojich zariadeniach s Bluetooth</h3><p>Vyber zariadenia, ktoré nosíš a ktoré majú stálu identitu Bluetooth, napríklad prsteň, hodinky alebo načúvací prístroj. Kým je jedno z nich nablízku, tag mlčí a kontrolné hlásenie pošle najneskôr po 8&nbsp;hodinách. Telefón mení bluetooth adresu a v pokoji zvyčajne nič nevysiela, takže sa na to hodí len zriedka.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><div><h3>Šifrovaná história</h3><p>Pripoj tag k telefónu káblom alebo cez Bluetooth a aplikácia si skopíruje históriu, ktorú má uložená. Prenos je šifrovaný.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><div><h3>Nastavenia cez Bluetooth</h3><p>Po reštarte tag 3&nbsp;minúty počúva cez Bluetooth. Aplikácia sa pripojí bez kábla a zvládne všetko, čo kábel, okrem aktualizácie firmvéru, nového kľúča a resetu spárovania. Reštart môžeš aj vynechať: Otvoriť Bluetooth na diaľku povie tagu, aby počúval pri najbližšej kontrole, a aplikácia ukáže kedy. Vyžaduje Android 12 alebo novší.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M4 20 L20 4 L25 9 L9 25 Z" fill="#D7262E" transform="translate(-1 0)"/></svg><div><h3>Odhad batérie</h3><p>Po asi dvoch týždňoch dát aplikácia odhadne, ako dlho ešte vydrží. Je to odhad. Na stole sme to ešte nemerali.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><div><h3>Správa o slabej batérii</h3><p>Pri 25&nbsp;% ti aplikácia pošle priamu správu cez Nostr z vlastného kľúča tagu. Pod 10&nbsp;% ju pošle tag sám cez mesh, cez ktorýkoľvek most. Z relayov zmizne po 14&nbsp;dňoch.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><div><h3>Skenovanie Bluetooth na príkaz</h3><p>Opýtaj sa tagu, aké zariadenia s Bluetooth má okolo seba, a vypíše ich. V režime Stratený ich pridáva sám.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><div><h3>Režim Stratený</h3><p>Hlásenie každých 10&nbsp;minút počas 24&nbsp;hodín. Prežije aj reštart tagu. Ak tag zostane na jednom mieste 2&nbsp;hodiny, hlási sa každých 20&nbsp;minút, kým sa nepohne.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><div><h3>Sledovanie</h3><p>Tag sa hlási každé 2, 5, 10, 15 alebo 30 minút počas hodiny, podľa tvojho výberu.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M4 20 L20 4 L25 9 L9 25 Z" fill="#D7262E" transform="translate(-1 0)"/></svg><div><h3>Ohľaduplnosť k mesh sieti</h3><p>Sledovanie a režim Stratený hlásia najčastejšie raz za 2&nbsp;minúty. Tag, ktorý za deň odoslal 200 paketov, sa spomalí na jedno hlásenie za hodinu, kým počet neklesne, a na príkazy stále odpovedá. Pri príliš nízkom napätí batérie nevysiela.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><div><h3>Časová os</h3><p>Históriu tagu prechádzaš po dňoch (Dnes, Včera) s posuvníkom cez hlásenia. Mapa a stav sa hýbu spolu s ním.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><div><h3>Kontroly</h3><p>Tag v tichom režime sa aj tak zobudí každú hodinu, obzrie sa a asi 30 sekúnd počúva, dlhšie, kým GPS hľadá signál. Príkaz sa k nemu dostane do hodiny, bez čakania na kontrolné hlásenie o 8 či 24&nbsp;hodín. Vysiela len vtedy, keď sa niečo zmenilo.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><div><h3>Ticho na parkovisku</h3><p>Auto, ktoré sa nepohlo, po troch hláseniach stíchne, namiesto aby každú hodinu hlásilo „stále tu“. Keď sa pohne, ozve sa hneď.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><div><h3>Vlastné intervaly</h3><p>Vyberieš si, ako často tag hlási polohu: 15&nbsp;minút, 30&nbsp;minút, 1, 2, 3 alebo 6&nbsp;hodín. Môže sa zobudiť aj častejšie, než hlási, len aby počúval príkazy. Šetrí to batériu aj prevádzku v mesh sieti.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M4 20 L20 4 L25 9 L9 25 Z" fill="#D7262E" transform="translate(-1 0)"/></svg><div><h3>Webová aplikácia</h3><p>Na deň, keď stratíš telefón, alebo keď chceš väčšiu obrazovku. Prihlásiš sa cez Nostr alebo obnovíš zo svojej obnovovacej frázy, potom uvidíš tagy a ich polohy a môžeš posielať príkazy aj ich rušiť. Funguje len cez Nostr, takže most musí byť blízko tagu, a bez GPS na webe neukáže odhad oblasti. <a href="../app/">Otvoriť webovú aplikáciu</a>.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><div><h3>Upozornenia</h3><p>Stráž miesto a aplikácia spustí alarm, ak sa tag pohne o viac než 300&nbsp;m. Je to jediný alarm. Aplikácia ti tiež dá vedieť, keď sa tag neozve, keď sa čakalo, a keď má slabú batériu. Oboje si nastavuješ pri každom tagu.</p></div></li>
+    </ul>
+  </div>
+</section>
+
+<section id="next" class="tint">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><h2>Testujeme</h2></div>
+    <div class="next">
+      <div>
+        <span class="tag-state">Pripravené, testujeme</span>
+        <p>Je postavené, čaká na testy v teréne.</p>
+        <ul class="stack"><li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><div><h3>Tag bez GPS, ktorý pozná miesta podľa Wi-Fi</h3><p>Malá doska s ESP32-S3 (Heltec Wireless Stick Lite V3) beží s firmvérom na stole. GPS nemá. Miesto uložíš, keď je tag na kábli, a odvtedy ho spozná podľa sietí Wi-Fi, ktoré počuje, a je tam ticho. Na stole to funguje. Odchod z miesta sa zatiaľ len simuloval a dosku na batérii ešte nikto nespustil. X1 ani Wio Tracker L1 Pro Wi-Fi nemajú.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><div><h3>Poloha cez Wi-Fi</h3><p>Hlásenie z tejto dosky obsahuje zoznam sietí Wi-Fi, ktoré zachytila. Aplikácia z nich vie určiť polohu cez BeaconDB, proxy GrapheneOS alebo Apple: len keď ťukneš, v režime Stratený, alebo pri každom hlásení bez GPS. Každé vyhľadanie prezradí službe, aké siete sú pri tagu, preto je vypnuté, kým si službu nevyberieš.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><div><h3>Príkazy cez Bluetooth</h3><p>Keď je telefón blízko tagu, pošle čakajúci príkaz aj cez Bluetooth a tag ho hľadá pri každom prebudení, takže príkaz dorazí pri najbližšej kontrole bez prechodu cez mesh. Strana tagu funguje na stole. Doručenie zo skutočného telefónu rádiom sa ešte netestovalo.</p></div></li></ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="uses">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><h2>Veci a ľudia</h2></div>
+    <p class="sec-intro">Ten istý tag, v aplikácii nastavený inak.</p>
+    <div class="cols two">
+      <div class="use">
+        <div class="h3row"><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><h3>Veci: auto, taška, kľúče</h3></div>
+        <ul><li>Kým máš nablízku zariadenie, ktoré nosíš, tag mlčí, lebo ste spolu. Zlodej tvoje hodinky nenosí.</li><li>Kontrolné hlásenie najneskôr po 8&nbsp;hodinách pokryje prípad, keď to zariadenie ukradli spolu s autom.</li><li>Ticho na parkovisku zabráni zaparkovanému autu hlásiť sa každú hodinu. Miesta ho utíšia doma.</li></ul>
+        <p class="limit">Krádeži nezabráni. Povie ti, kde vec bola pred hodinou, a kde je teraz, ak sa ešte hlási. Zlodej, ktorý tag nájde a vyberie, stopu preruší.</p>
+      </div>
+      <div class="use">
+        <div class="h3row"><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><h3>Ľudia: dieťa alebo ty</h3></div>
+        <ul><li>Tvoj telefón tag neutíši, lebo telefón môže niekto vziať so sebou. Mlčí len na svojich miestach.</li><li>Ticho na parkovisku je vypnuté.</li><li>V bežnom režime sa hlási každú hodinu. Keď niekto mešká alebo sa stratil v horách, prepni na Sledovanie v krátkom intervale.</li></ul>
+        <p class="limit">LibreTag nie je certifikované bezpečnostné zariadenie a nesľubujeme, že pred niečím niekoho ochráni. Povedz to človeku, ktorý ho nosí. Tracker na dospelom potrebuje jeho súhlas.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+
+<section id="hardware">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><h2>Hardvér</h2></div>
+    <p class="sec-intro">Firmvér LibreTag je séria záplat na ZephCore. Dôležité sú dve dosky od Seeed.</p>
+    <div class="hw">
+      <article>
+        <span class="role">Plánované, zatiaľ nespustené</span>
+        <h3>Seeed SenseCAP MeshTracker X1</h3>
+        <p>Tracker veľkosti kreditnej karty s dvojpásmovým GNSS, USB-C a telom s krytím IP66. Je to doska, okolo ktorej je LibreTag navrhnutý. ZephCore ju podporuje, ale firmvér LibreTag na nej zatiaľ nikto nespustil. Ponuka Seeed spomína Meshtastic, lebo s ním sa predáva.</p>
+        <dl><dt>Čip</dt><dd>nRF52840 a rádio LR2021</dd><dt>Batéria</dt><dd>1100&nbsp;mAh (Seeed)</dd><dt>Wi-Fi</dt><dd>nemá</dd></dl>
+        <a class="btn" href="https://www.seeedstudio.com/sensecap-meshtracker-x1-meshtastic-gps-tracker-p-6935.html?sensecap_affiliate=sRobOdH&amp;referring_service=link" rel="sponsored noopener" target="_blank">Pozri si ho u Seeed</a>
+      </article>
+      <article>
+        <span class="role ok">Otestované</span>
+        <h3>Seeed Wio Tracker L1 Pro</h3>
+        <p>Doska, na ktorej sa LibreTag vyvíja a testuje. Firmvér LibreTag na nej beží už dnes. Je väčšia než X1 a má displej, takže sa hodí skôr do auta či tašky než do vrecka. Firmvér nahráš skopírovaním súboru .uf2 na USB disk, ktorý sa objaví.</p>
+        <dl><dt>Čip</dt><dd>nRF52840 a rádio SX1262, GPS L76K</dd><dt>Batéria</dt><dd>2000&nbsp;mAh (Seeed)</dd><dt>Wi-Fi</dt><dd>nemá</dd></dl>
+        <a class="btn" href="https://www.seeedstudio.com/Wio-Tracker-L1-Pro-for-Meshcore-p-6717.html?sensecap_affiliate=sRobOdH&amp;referring_service=link" rel="sponsored noopener" target="_blank">Pozri si ho u Seeed</a>
+      </article>
+    </div>
+    <p class="disclose">Oba odkazy na Seeed sú affiliate odkazy. Ak cez ne nakúpiš, projekt môže dostať províziu a ty nič nepriplatíš. Kupónový kód Seeed: <span class="coupon">56BZ8WER</span> (pri pokladni si over, na čo platí). Odkaz na L1 Pro vedie na verziu dosky pre MeshCore.</p>
+  </div>
+</section>
+
+<section id="get" class="tint">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><h2>Získaj ho</h2></div>
+    <ul class="get">
+      <li><h3>Aplikácia pre Android</h3><p>Zatiaľ podpísaný APK, neskôr Zapstore. Beží aj na telefónoch bez služieb Google, napríklad s GrapheneOS. Na pripojenie k vlastnému uzlu MeshCore zatiaľ treba našu upravenú verziu MeshCore Open (<a href="#own-node">nižšie</a>).</p><a class="btn" href="#get" aria-disabled="true" data-placeholder="apk">Stiahnuť APK<span class="soon">čoskoro</span></a></li>
+      <li><h3>Webová aplikácia</h3><p>Beží v prehliadači cez Nostr, na chvíle, keď nemáš pri sebe telefón. Potrebuje most blízko tagu.</p><a class="btn" href="../app/">Otvoriť webovú aplikáciu</a></li>
+      <li><h3>Zdrojový kód</h3><p>Otvorený kód pod licenciou MIT. Repozitár zatiaľ nie je verejný.</p><a class="btn ghost" href="#get" aria-disabled="true" data-placeholder="source">Zdrojový kód<span class="soon">čoskoro</span></a></li>
+      <li><h3>Prevádzkuj most</h3><p>Most je uzol MeshCore na USB kábli a malý program, alebo aplikácia Nostr most v telefóne. Cez Nostr aplikácia počuje tag len tam, kde je most v jeho dosahu, takže čím viac mostov, tým viac miest, kde sa dá tag nájsť.</p><a class="btn ghost" href="#get" aria-disabled="true" data-placeholder="bridge-docs">Návod na most<span class="soon">čoskoro</span></a></li>
+      <li><h3>Podpor projekt</h3><p>LibreTag je zadarmo. Ak ti je užitočný, môžeš podporiť jeho vývoj.</p><a class="btn" href="https://hackyourself.io/support/s/libre-tag?lang=sk&amp;ref=web" rel="noopener" target="_blank">Podporiť LibreTag</a></li>
+    </ul>
+    <div class="own" id="own-node">
+      <h3>Vlastný uzol: MeshCore Open s Local API</h3>
+      <p>LibreTag vie používať tvoje vlastné rádio MeshCore (companion) cez MeshCore Open. Aplikácia potom počuje hlásenia tagu priamo a príkazy vie poslať z tvojho uzla. Na to treba Local API, ktoré oficiálny MeshCore Open zatiaľ nemá. Kým ho neprevezmú do hlavnej vetvy, použi našu upravenú verziu.</p>
+      <ol><li>Zapíš si svoje kanály v pôvodnom MeshCore Open. Upravená verzia má rovnaký názov balíka, ale iný podpis, takže ju Android nainštaluje, až keď pôvodnú aplikáciu odinštaluješ, a odinštalovanie zmaže dáta aplikácie.</li><li>Odinštaluj pôvodný MeshCore Open a nainštaluj <span class="mono">meshcore-open-local-api.apk</span> z <a href="https://github.com/jooray/meshcore-open/releases/tag/localapi-test-9" rel="noopener" target="_blank">vydania localapi-test-9</a>. SHA-256 jeho podpisového certifikátu je <code class="fp">79750fb49349ec3729be5a3e825507a15e47c6d987e854ae91d5d50a20b3a24d</code></li><li>V MeshCore Open sa pripoj k svojmu uzlu, zapni Local API a v nastaveniach zapni <i>Keep connected in the background</i> (zostať pripojený na pozadí).</li><li>Otvor LibreTag a povoľ mu prístup, keď sa MeshCore Open spýta.</li></ol>
+      <p class="note">Nemusíš to robiť. Bez toho LibreTag funguje ďalej: hlásenia a príkazy idú cez mosty Nostr a nastavenia cez kábel alebo Bluetooth.</p>
+    </div>
+  </div>
+</section>
+
+<section id="nostr">
+  <div class="wrap cols two">
+    <div>
+      <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><h2>Nájdeš nás na Nostri</h2></div>
+      <p>Novinky a otázky idú cez Nostr účet projektu.</p>
+    </div>
+    <div>
+      <dl class="nostr">
+        <dt>npub</dt><dd><div class="npub"><code id="npub">npub17a09su3mlphlf264ztkh9tc7esmexmqvuw3akttp3rr5735jhcmqucwudu</code><button class="btn small ghost" type="button" id="copynpub" data-copied="Skopírované">Kopírovať</button></div></dd>
+        <dt>njump</dt><dd><a href="https://njump.me/npub17a09su3mlphlf264ztkh9tc7esmexmqvuw3akttp3rr5735jhcmqucwudu" rel="noopener" target="_blank">njump.me/npub17a09su3ml…ucwudu</a></dd>
+        <dt>NIP-05</dt><dd><span class="mono">libretag@cypherpunk.today</span></dd>
+      </dl>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>LibreTag robí jooray. Licencia MIT.</p>
+    <p>Na tejto stránke nie sú sledovače, cookies ani analytika. Písma aj obrázky sú hostované tu.</p>
+    <div class="row"><span>Otvorený hardvér, otvorený firmvér, otvorený protokol.</span><a href="https://hackyourself.io/support/s/libre-tag?lang=sk&amp;ref=web" rel="noopener" target="_blank">Podporiť projekt</a><a href="../" hreflang="en">English</a></div>
+  </div>
+</footer>
+<script src="../main.js" defer></script>
+</body>
+</html>

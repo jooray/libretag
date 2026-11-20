@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <string name="channel_places">Miesta</string>
+    <string name="channel_places_desc">Lokátor prišiel na jedno zo svojich miest alebo z neho odišiel</string>
+
+    <!-- Status: the list row and the detail's plate (ui-review section 3) -->
+    <string name="st_heard">Hlásenie %1$s</string>
+    <string name="st_heard_late">Hlásenie %1$s · neskoro</string>
+    <string name="st_left">Odchod: %1$s %2$s</string>
+    <string name="st_left_wifi">Odchod z miesta Wi-Fi %1$s</string>
+    <string name="st_quiet_place">%1$s · ticho</string>
+    <string name="st_quiet_wifi_place">Miesto Wi-Fi · ticho</string>
+    <string name="st_quiet_with_you">S tebou · ticho</string>
+    <string name="st_quiet_still">Nehýbe sa · ticho</string>
+    <string name="st_quiet_parked2">Zaparkovaný · ticho</string>
+    <string name="st_not_heard">Bez hlásenia už %1$s · čakám %2$s</string>
+    <string name="st_lost2">Režim Stratený · %1$s</string>
+
+    <!-- The plate's second line -->
+    <string name="sub_since">Od %1$s</string>
+    <string name="sub_since_device">Od %1$s · %2$s je nablízku</string>
+    <string name="sub_since_your_device">Od %1$s · tvoje zariadenie je nablízku</string>
+    <string name="sub_paired">Spárované %1$s</string>
+    <string name="sub_lost_until2">Do %1$s</string>
+    <string name="sub_guard_left">Odchod zo stráženého miesta %1$s</string>
+    <string name="sub_not_heard">Posledné hlásenie %1$s · %2$s</string>
+
+    <!-- The When row: the one "next report" line -->
+    <string name="next_report">Ďalšie hlásenie ~%1$s</string>
+    <string name="next_due">Malo prísť ~%1$s</string>
+    <string name="next_latest">Ďalšie hlásenie najneskôr %1$s</string>
+    <string name="next_when_leaves">Keď odíde z miesta %1$s</string>
+    <string name="next_when_leaves_wifi">Keď opustí miesto Wi-Fi</string>
+    <string name="next_when_part">Keď tvoje zariadenie nie je nablízku</string>
+    <string name="next_when_moves">Keď sa pohne</string>
+    <!-- %1$s is one of the three lines above, %2$s a duration such as "1 h" -->
+    <string name="next_within">%1$s (do %2$s)</string>
+    <!-- %1$s is the line above, %2$s a time such as "18:40" or "tomorrow 18:40" -->
+    <string name="next_and_latest">%1$s, najneskôr %2$s</string>
+    <string name="next_overdue">Mešká</string>
+    <string name="next_first">Prvé hlásenie do %1$s</string>
+
+    <!-- Commands: the one line under the buttons, then the slip that replaces it -->
+    <string name="cmd_reach">Príkaz k nemu dorazí ~%1$s</string>
+    <string name="cmd_reach_report">Príkaz dorazí s ďalším hlásením, najneskôr %1$s</string>
+    <string name="cmd_reach_heard">Príkaz dorazí, keď sa znova ozve</string>
+    <string name="cmd_reach_first">Príkaz dorazí s prvým hlásením</string>
+    <string name="cmd_reach_bridge">%1$s · cez most</string>
+    <string name="cmd_offline">Offline. Príkazy počkajú na pripojenie.</string>
+    <string name="cmd_stop_lost">Ukončiť režim Stratený</string>
+    <string name="cmd_stop_track">Zastaviť sledovanie</string>
+    <string name="slip2_out">%1$s · odíde ~%2$s</string>
+    <string name="slip2_out_latest">%1$s · odíde najneskôr %2$s</string>
+    <string name="slip2_out_heard">%1$s · odíde, keď sa znova ozve</string>
+    <string name="slip2_out_first">%1$s · odíde s prvým hlásením</string>
+    <string name="slip2_sent">%1$s · odoslané %2$s, čakám na lokátor</string>
+    <string name="slip2_confirmed">%1$s · potvrdené %2$s</string>
+    <string name="slip2_retry">%1$s · bez odpovede, ďalší pokus ~%2$s</string>
+    <string name="slip2_retry_later">%1$s · zatiaľ bez odpovede, skúsim znova</string>
+    <!-- the list row: command and time only, "Beep · ~1:13" -->
+    <string name="slip2_row">%1$s · %2$s</string>
+
+    <!-- Where row, Wi-Fi lookup and guard -->
+    <string name="where_at_place">Na mieste %1$s</string>
+    <string name="where_at_wifi_place">Na mieste Wi-Fi</string>
+    <string name="pos_at_place_gps">Na mieste %1$s · GPS ±%2$s</string>
+    <string name="where_place_wifi">Rozpoznané podľa sietí Wi-Fi</string>
+    <plurals name="where_wifi_heard">
+        <item quantity="one">Bez GPS · zachytená %1$d sieť Wi-Fi</item>
+        <item quantity="few">Bez GPS · zachytené %1$d siete Wi-Fi</item>
+        <item quantity="many">Bez GPS · zachytené %1$d siete Wi-Fi</item>
+        <item quantity="other">Bez GPS · zachytených %1$d sietí Wi-Fi</item>
+    </plurals>
+    <string name="wifi_looking">Zisťujem…</string>
+    <string name="wifi_unknown">%1$s tieto siete nepozná</string>
+    <string name="wifi_busy">%1$s obmedzuje vyhľadávanie. Skús to neskôr.</string>
+    <string name="wifi_failed">Vyhľadávanie zlyhalo. Skontroluj pripojenie a skús znova.</string>
+    <string name="guard_here">Strážiť toto miesto</string>
+    <string name="guard_since">Stráženie od %1$s · alarm, ak sa pohne o %2$s</string>
+    <string name="guard_stop">Prestať strážiť</string>
+    <string name="guard_new_spot">Strážiť nové miesto</string>
+    <string name="a11y_guarded">strážené</string>
+
+    <!-- Notifications on the Places channel -->
+    <string name="notif_left">%1$s: odchod z miesta %2$s o %3$s</string>
+    <string name="notif_arrived">%1$s: príchod na miesto %2$s o %3$s</string>
+    <string name="notif_left_wifi">%1$s: odchod z miesta Wi-Fi o %2$s</string>
+    <string name="notif_arrived_wifi">%1$s: príchod na miesto Wi-Fi o %2$s</string>
+    <string name="notif_place_text">%1$s. %2$s</string>
+</resources>

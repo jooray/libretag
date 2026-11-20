@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 12:44:27 +0100
+Subject: [PATCH 13/40] tracker: low-battery DM as dm4x.full (165 B, any bridge
+ can publish it), text 'batt N%'
+
+---
+ zephcore/src/main_tracker.cpp | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 25d98fd..1773172 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -1064,8 +1064,9 @@ static bool txq_add_dm(const char *text)
+ 		return false;
+ 	}
+ 	rng.random(iv, sizeof(iv));
+-	size_t l = lt_nostr_dm_frame(keys.k.dm_sk, cfg.owner, t, text, MIN(strlen(text), LT_NOSTR_DM_REF_MAX_TEXT),
+-				     iv, true, true, fr, sizeof(fr)); /* dm4x.ref: expires on relays after 14 d */
++	/* dm4x.full (165 B): full keys, so any bridge can publish it; expires on relays after 14 d */
++	size_t l = lt_nostr_dm_frame(keys.k.dm_sk, cfg.owner, t, text, MIN(strlen(text), LT_NOSTR_DM_FULL_MAX_TEXT),
++				     iv, false, true, fr, sizeof(fr));
+ 	return l && txq_add_nostr(fr, l);
+ }
+ 
+@@ -1078,7 +1079,7 @@ static void add_low_battery_dm(uint8_t pct)
+ 	if (pct < LOW_DM_PCT && !low_alert_sent) {
+ 		char msg[60];
+ 
+-		snprintf(msg, sizeof(msg), "LibreTag: battery %u %%, charge me soon.", pct);
++		snprintf(msg, sizeof(msg), "batt %u%%", pct); /* at most 15 B: dm4x.full */
+ 		low_alert_sent = txq_add_dm(msg);
+ 	}
+ 	if (pct > LOW_DM_PCT + 15) {

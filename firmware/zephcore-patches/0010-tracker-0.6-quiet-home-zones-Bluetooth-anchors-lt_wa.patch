@@ -1,0 +1,1808 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 12:25:53 +0100
+Subject: [PATCH 10/40] tracker 0.6: quiet (home zones, Bluetooth anchors,
+ lt_wake_decide, heartbeat, epoch skip), next_in and energy in reports,
+ BLE_SCAN and LOST BLE packets with full names, blepair IRK experiment,
+ history seq/j and silent records, USB session ends on DTR drop, bounded
+ console output
+
+---
+ zephcore/src/main_tracker.cpp | 1263 +++++++++++++++++++++++++++++++--
+ 1 file changed, 1196 insertions(+), 67 deletions(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 8e6421e..5b16e7c 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -32,6 +32,12 @@
+ #include <zephyr/bluetooth/bluetooth.h>
+ #include <zephyr/bluetooth/hci.h>
+ #endif
++#if IS_ENABLED(CONFIG_BT_SMP) && IS_ENABLED(CONFIG_BT_PERIPHERAL)
++#include <zephyr/bluetooth/conn.h>
++extern "C" {
++#include "host/keys.h" /* the peer's IRK after bonding (no public API for it) */
++}
++#endif
+ 
+ #include <stdarg.h>
+ #include <stdio.h>
+@@ -98,9 +104,12 @@ extern "C" void bt_ctlr_assert_handle(char *file, uint32_t line)
+ #define EV_SCAN_END    BIT(MESH_EVENT_ROLE_BASE + 4)
+ #define EV_RETX        BIT(MESH_EVENT_ROLE_BASE + 5)
+ #define EV_BLE         BIT(MESH_EVENT_ROLE_BASE + 6)
++#define EV_OWNER       BIT(MESH_EVENT_ROLE_BASE + 7) /* an anchor was seen during a presence scan */
++#define EV_USB_LINE    BIT(MESH_EVENT_ROLE_BASE + 8) /* DTR dropped: the serial port closed */
++#define EV_PAIR        BIT(MESH_EVENT_ROLE_BASE + 9) /* blepair: something happened */
+ #define EV_ALL (MESH_EVENT_LORA_RX | MESH_EVENT_LORA_TX_DONE | MESH_EVENT_CLI_RX | \
+ 		MESH_EVENT_GPS_ACTION | EV_REPORT_DUE | EV_FIX_TIMEOUT | EV_LISTEN_END | EV_TX_RETRY | \
+-		EV_SCAN_END | EV_RETX | EV_BLE)
++		EV_SCAN_END | EV_RETX | EV_BLE | EV_OWNER | EV_USB_LINE | EV_PAIR)
+ 
+ static struct k_event events;
+ 
+@@ -114,7 +123,8 @@ TIMER(listen_timer, EV_LISTEN_END);
+ TIMER(retry_timer, EV_TX_RETRY);
+ TIMER(scan_timer, EV_SCAN_END);
+ TIMER(retx_timer, EV_RETX);
+-TIMER(ble_tmr, EV_BLE); /* blescan / blesurvey, apart from the mesh scans */
++TIMER(ble_tmr, EV_BLE); /* blescan / blesurvey / presence / BLE_SCAN, apart from the mesh scans */
++TIMER(pair_tmr, EV_PAIR); /* blepair window */
+ 
+ static void post_lora_rx(void *) { k_event_post(&events, MESH_EVENT_LORA_RX); }
+ static void post_lora_tx_done(void *) { k_event_post(&events, MESH_EVENT_LORA_TX_DONE); }
+@@ -140,9 +150,20 @@ static NodePrefs prefs;
+ #define STATE_MAGIC_V2 0x4C544732u /* "LTG2": v1 + Nostr fields appended */
+ #define STATE_MAGIC_V3 0x4C544733u /* "LTG3": v2 + network (path hash size, region) */
+ #define STATE_MAGIC_V4 0x4C544734u /* "LTG4": v3 + last fix, mode, last command */
+-#define STATE_MAGIC 0x4C544735u    /* "LTG5": v4 + reports slow down while still */
++#define STATE_MAGIC_V5 0x4C544735u /* "LTG5": v4 + reports slow down while still */
++#define STATE_MAGIC 0x4C544736u    /* "LTG6": v5 + zones, BLE anchors, LOST BLE, energy */
+ #define N_CHECKPOINT 16
+ 
++#define ZONES_MAX 8
++#define ANCHORS_MAX 8
++/* An owner's Bluetooth device whose presence keeps the tracker quiet (configured over USB only). */
++enum { ANCHOR_ADDR = 1, ANCHOR_NAME = 2, ANCHOR_MFG = 3, ANCHOR_SVC = 4, ANCHOR_IRK = 5 };
++struct anchor {
++	uint8_t kind;
++	uint8_t len;      /* bytes of data used */
++	uint8_t data[30]; /* ADDR: 6 B as written; NAME: text; MFG/SVC: id LE16 + prefix; IRK: irk 16 + identity 6 */
++};
++
+ struct persisted {
+ 	uint32_t magic;
+ 	uint8_t legacy_key[32];   /* LT1 key; moved to the key pages as K0 on the first LT2 boot */
+@@ -180,12 +201,24 @@ struct persisted {
+ 	uint16_t track_interval_s;
+ 	/* v5 */
+ 	uint16_t still_max_min;   /* 0 off; else IDLE interval doubles while fixes do not move, up to this */
++	/* v6: quiet (PROTOCOL.md 2.1) */
++	lt_zone_t zones[ZONES_MAX];
++	uint8_t zone_count;
++	uint8_t anchor_count;
++	uint8_t owner_gps;        /* owner present: still take the fix and keep it in the history */
++	uint8_t anchor_active;    /* presence scan sends scan requests (names often come only in responses) */
++	struct anchor anchors[ANCHORS_MAX];
++	uint8_t lost_ble_every;   /* LOST: BLE packets after every k-th report, 0 off */
++	uint8_t lost_ble_packets;
++	uint8_t pad6[2];
++	uint32_t energy_uah;      /* estimated charge used since the last full charge */
+ };
+ 
+ #define V1_SIZE offsetof(struct persisted, nostr_sk)
+ #define V2_SIZE offsetof(struct persisted, path_hash_size)
+ #define V3_SIZE offsetof(struct persisted, last_fix_time)
+ #define V4_SIZE offsetof(struct persisted, still_max_min)
++#define V5_SIZE offsetof(struct persisted, zones)
+ #define BORDER_M 3000U /* within this of a border, the neighbour's network is a candidate */
+ /* Second copy on the neighbour's network only when the home network was silent in this many
+  * listen windows in a row: if home repeaters are audible (often true just across a border), they
+@@ -198,7 +231,7 @@ static uint8_t scope_key[16]; /* of cfg.scope */
+ static lt_net_t alt_net;      /* the neighbour's network near a border */
+ static uint8_t alt_scope_key[16];
+ 
+-enum phase { PH_SLEEP, PH_WAIT_FIX, PH_TX, PH_LISTEN };
++enum phase { PH_SLEEP, PH_WAIT_FIX, PH_TX, PH_LISTEN, PH_BLESCAN };
+ static enum phase phase = PH_SLEEP;
+ 
+ static uint32_t n_cur;            /* next report counter */
+@@ -222,12 +255,28 @@ static uint8_t test_left;
+ static uint32_t test_interval_s;
+ static int64_t test_due_ms; /* when the last test report was due; the next is interval_s later */
+ static bool first_fix_pending = true;
++/* quiet (PROTOCOL.md 2.1) */
++static lt_wake_cfg_t wake_cfg;
++static lt_wake_state_t wake_st;
++static bool wake_forced;          /* report/test/ping from the console */
++static volatile bool owner_seen;  /* an anchor answered during this wake-up */
++static uint32_t lost_reports;     /* LOST reports since LOST began, for lost_ble_every */
++static int64_t planned_due_ms;    /* when the next wake-up is due, as promised by next_in */
++/* BLE summary for the next report (BLE_SCAN) or this one (LOST) */
++static bool ble_sum_valid;
++static uint8_t ble_sum_devices, ble_sum_stable;
++static int8_t ble_sum_rssi;
++/* energy estimate: phase times of this wake-up */
++static int64_t en_mark_ms;        /* last time the estimate was brought up to date */
++static uint32_t en_tx_ms, en_ble_ms;
++static int64_t tx_start_ms;
+ static uint16_t still_factor = 1; /* IDLE interval multiplier while the tracker does not move */
+ #define STILL_RADIUS_M 50.0
+ 
+ /* packets of one wake-up, sent back to back before the LISTEN window */
+-#define TXQ_MAX 4
++#define TXQ_MAX 7
+ static uint8_t txq[TXQ_MAX][192];
++static bool txq_no_listen; /* BLE_SCAN result: sleep right after sending */
+ static size_t txq_len[TXQ_MAX];
+ static bool txq_alt[TXQ_MAX]; /* goes out on alt_net */
+ static int txq_n, txq_i;
+@@ -300,7 +349,14 @@ static void out(const char *fmt, ...)
+ 	int l = vsnprintf(buf, sizeof(buf), fmt, ap);
+ 	va_end(ap);
+ 	if (l > 0) {
+-		cli.write((const uint8_t *)buf, MIN((size_t)l, sizeof(buf) - 1));
++		size_t n = MIN((size_t)l, sizeof(buf) - 1);
++
++		/* long listings (history, blescan): wait for room in the USB ring instead of dropping
++		 * lines, but bounded, so nothing hangs when no one reads */
++		for (int i = 0; i < 100 && cli.availableForWrite() < (int)n; i++) {
++			k_msleep(2);
++		}
++		cli.write((const uint8_t *)buf, n);
+ 	}
+ }
+ 
+@@ -345,6 +401,7 @@ enum {
+ 	HF_FIX = 1, HF_RELAYED = 2, HF_RETX = 4, HF_DROPPED = 8, HF_CMD = 16, HF_BORDER = 32,
+ 	HF_DISCOVER = 64, HF_LOW = 128,
+ };
++enum { HF2_QUIET = 1, HF2_OWNER = 2, HF2_ZONE = 4, HF2_EPOCH_SKIP = 8, HF2_BLE = 16, HF2_WIFI = 32 };
+ struct histrec {
+ 	uint8_t magic;
+ 	uint8_t flags;
+@@ -352,12 +409,14 @@ struct histrec {
+ 	uint8_t mode;
+ 	uint32_t n;
+ 	uint32_t uptime_s;   /* the report's own time is inside p (fix time) */
+-	uint32_t rsv;
++	uint32_t seq;        /* record number, 0.6 on (0 in older records) */
+ 	uint16_t search_s;   /* from wake to report: GPS search (and fix timeout) */
+ 	uint8_t nb_total;
+ 	uint8_t p_len;
+-	uint8_t p[LT_REPORT_P_LEN_STEALTH]; /* sealed report as sent */
+-	uint8_t pad;
++	uint8_t p[LT_REPORT_P_LEN]; /* sealed report as sent */
++	uint8_t j;           /* LT_J_HIST, or LT_J_HIST_SILENT for a wake-up without a report; 0 = 0.5 record */
++	uint8_t flags2;      /* HF2_* */
++	uint8_t rsv[5];
+ } __packed;
+ BUILD_ASSERT(sizeof(struct histrec) == 72, "histrec size");
+ 
+@@ -367,6 +426,7 @@ static int64_t wake_ms;
+ 
+ static uint8_t hist_seg;   /* segment being appended to */
+ static uint16_t hist_count; /* records in it */
++static uint32_t hist_seq;   /* next record number */
+ 
+ static void hist_name(char *b, size_t n, unsigned seg) { snprintf(b, n, HIST_SEG, seg); }
+ 
+@@ -391,6 +451,21 @@ static void hist_init(void)
+ 	}
+ 	hist_count = (uint16_t)MIN(sz[hist_seg], HIST_SEG_RECS);
+ 	fs_unlink(STATE_DIR "/hist"); /* 0.5.1 ring file */
++	hist_seq = 0;
++	for (unsigned i = 0; i < 2; i++) {
++		struct fs_file_t f;
++		struct histrec h;
++
++		hist_name(name, sizeof(name), i);
++		fs_file_t_init(&f);
++		if (fs_open(&f, name, FS_O_READ) < 0) {
++			continue;
++		}
++		while (fs_read(&f, &h, sizeof(h)) == (ssize_t)sizeof(h)) {
++			hist_seq = MAX(hist_seq, h.seq + 1);
++		}
++		fs_close(&f);
++	}
+ }
+ 
+ /* append only: LittleFS copies the tail on a write into the middle of a file */
+@@ -410,8 +485,12 @@ static void hist_write(const struct histrec *h)
+ 	if (fs_open(&f, name, FS_O_CREATE | FS_O_WRITE | FS_O_APPEND) < 0) {
+ 		return;
+ 	}
+-	if (fs_write(&f, h, sizeof(*h)) == (ssize_t)sizeof(*h)) {
++	struct histrec r = *h;
++
++	r.seq = hist_seq;
++	if (fs_write(&f, &r, sizeof(r)) == (ssize_t)sizeof(r)) {
+ 		hist_count++;
++		hist_seq++;
+ 	}
+ 	fs_close(&f);
+ }
+@@ -450,6 +529,7 @@ static void hist_clear(void)
+ 	}
+ 	hist_seg = 0;
+ 	hist_count = 0;
++	hist_seq = 0;
+ 	hist_open = false;
+ }
+ 
+@@ -527,6 +607,9 @@ static void defaults(void)
+ 	/* the low-battery DM (below 10 %, PROTOCOL.md 5) goes out once an owner is set */
+ 	cfg.dm_alerts = 1;
+ 	cfg.path_hash_size = 1; /* until the first fix picks the country's network */
++	cfg.owner_gps = 1;
++	cfg.lost_ble_every = 5;
++	cfg.lost_ble_packets = 1;
+ }
+ 
+ static void load_cfg(void)
+@@ -545,9 +628,10 @@ static void load_cfg(void)
+ 		ok = r == (ssize_t)sizeof(cfg) && cfg.magic == STATE_MAGIC;
+ 		uint32_t was = cfg.magic;
+ 		size_t keep = was == STATE_MAGIC_V1 ? V1_SIZE : was == STATE_MAGIC_V2 ? V2_SIZE :
+-			      was == STATE_MAGIC_V3 ? V3_SIZE : was == STATE_MAGIC_V4 ? V4_SIZE : 0;
++			      was == STATE_MAGIC_V3 ? V3_SIZE : was == STATE_MAGIC_V4 ? V4_SIZE :
++			      was == STATE_MAGIC_V5 ? V5_SIZE : 0;
+ 		if (!ok && keep && r >= (ssize_t)keep) {
+-			LOG_INF("migrating LibreTag state %08x -> v5", was);
++			LOG_INF("migrating LibreTag state %08x -> v6", was);
+ 			memset((uint8_t *)&cfg + keep, 0, sizeof(cfg) - keep);
+ 			cfg.magic = STATE_MAGIC;
+ 			if (keep < V3_SIZE) {
+@@ -556,6 +640,9 @@ static void load_cfg(void)
+ 			}
+ 			cfg.low_batt_pct = CONFIG_LIBRETAG_LOW_BATT_PCT; /* 25 %: the app's DM step (PROTOCOL.md 5) */
+ 			cfg.dm_alerts = 1;
++			cfg.owner_gps = 1;
++			cfg.lost_ble_every = 5;
++			cfg.lost_ble_packets = 1;
+ 			ok = true;
+ 		}
+ 	}
+@@ -766,17 +853,83 @@ static uint32_t next_interval_s(void)
+ 		LOG_INF("mode %d expired, back to IDLE", mode);
+ 		mode = LT_MODE_IDLE;
+ 	}
++	/* quiet: the fix is the only motion detector, so do not slow the wake-ups (only reports) */
+ 	uint32_t base = (mode == LT_MODE_TRACK || mode == LT_MODE_LOST)
+ 				? track_interval_s
+-				: (uint32_t)cfg.interval_min * 60U * still_factor;
++				: (uint32_t)cfg.interval_min * 60U * (wake_st.quiet ? 1U : still_factor);
+ 	/* +-10 % jitter so the period is not a fingerprint */
+ 	int32_t span = (int32_t)base / 5;
+ 	int32_t j = span > 0 ? (int32_t)(sys_rand32_get() % (uint32_t)span) - span / 2 : 0;
+ 	return (uint32_t)MAX((int32_t)base + j, 10);
+ }
+ 
++/* Rough charge model (SPEC 8, X1 figures): enough to tell "a month" from "a week". */
++#define UA_SLEEP 50
++#define UA_AWAKE 18800 /* GNSS searching + MCU */
++#define UA_RX 8550
++#define UA_TX 110500
++#define UA_BLE 6000
++
++static void energy_add(uint32_t ua, int64_t ms)
++{
++	if (ms > 0) {
++		cfg.energy_uah += (uint32_t)(((uint64_t)ua * (uint64_t)ms) / 3600000ULL);
++	}
++}
++
++/* called when a wake-up ends: the time since the last mark was sleep up to wake_start, then awake */
++static void energy_wake_end(int64_t wake_start_ms, int64_t listen_ms)
++{
++	int64_t now = k_uptime_get();
++
++	if (en_mark_ms && wake_start_ms > en_mark_ms) {
++		energy_add(UA_SLEEP, wake_start_ms - en_mark_ms);
++	}
++	int64_t awake = wake_start_ms ? now - wake_start_ms : 0;
++
++	energy_add(UA_RX, listen_ms);
++	energy_add(UA_TX, en_tx_ms);
++	energy_add(UA_BLE, en_ble_ms);
++	energy_add(UA_AWAKE, awake - listen_ms - en_tx_ms);
++	en_mark_ms = now;
++	en_tx_ms = en_ble_ms = 0;
++	/* on a charger (or full) the count starts again */
++	if (board.getBattMilliVolts() >= 4150) {
++		cfg.energy_uah = 0;
++	}
++}
++
++static int64_t listen_start_ms;
++static int64_t wake_start_ms;
++
++/* next wake-up: the planned one (next_in), the quiet heartbeat, or the interval */
++static uint32_t sleep_s_now(void)
++{
++	uint32_t s;
++
++	if (planned_due_ms) {
++		int64_t w = planned_due_ms - k_uptime_get();
++		s = w > 1000 ? (uint32_t)(w / 1000) : 1U;
++		planned_due_ms = 0;
++	} else {
++		s = next_interval_s();
++	}
++	if (wake_st.quiet && mode == LT_MODE_IDLE) {
++		uint32_t hb = wake_st.reason == LT_QUIET_ZONE ? wake_cfg.heartbeat_s : wake_cfg.owner_cap_s;
++		uint32_t now = (uint32_t)(k_uptime_get() / 1000);
++		uint32_t due = wake_st.last_tx_s + hb;
++
++		s = MIN(s, due > now ? due - now : 1U);
++	}
++	return s;
++}
++
+ static void go_to_sleep(void)
+ {
++	energy_wake_end(wake_start_ms, phase == PH_LISTEN && listen_start_ms ? k_uptime_get() - listen_start_ms : 0);
++	wake_start_ms = 0;
++	listen_start_ms = 0;
++	txq_no_listen = false;
+ 	if (phase == PH_LISTEN) {
+ 		home_silent = home_heard ? 0 : (uint8_t)MIN(home_silent + 1, 255);
+ 		home_heard = false;
+@@ -796,6 +949,7 @@ static void go_to_sleep(void)
+ 	phase = PH_SLEEP;
+ 	if (ping_requested) {
+ 		ping_requested = false;
++		planned_due_ms = 0;
+ 		schedule_next(1);
+ 		return;
+ 	}
+@@ -807,12 +961,14 @@ static void go_to_sleep(void)
+ 		uint32_t wait_s = wait_ms > 1000 ? (uint32_t)(wait_ms / 1000) : 1U;
+ 
+ 		LOG_INF("test: %u report(s) left, next in %u s", test_left, wait_s);
++		planned_due_ms = 0;
++		wake_forced = true;
+ 		schedule_next(wait_s);
+ 		return;
+ 	}
+-	uint32_t s = next_interval_s();
++	uint32_t s = sleep_s_now();
+ 	save_mode();
+-	LOG_INF("sleeping %u s (mode %d)", s, mode);
++	LOG_INF("sleeping %u s (mode %d%s)", s, mode, wake_st.quiet ? ", quiet" : "");
+ 	schedule_next(s);
+ }
+ 
+@@ -841,6 +997,7 @@ static void try_tx(void)
+ 	}
+ 	if (radio.startSendRaw(txq[txq_i], (int)txq_len[txq_i])) {
+ 		phase = PH_TX;
++		tx_start_ms = k_uptime_get();
+ 		return;
+ 	}
+ 	if (++tx_tries > 30) {
+@@ -860,16 +1017,21 @@ static void try_tx(void)
+ /* one packet sent: next one after a short random gap, or open the RX window */
+ static void tx_finished(void)
+ {
++	if (tx_start_ms) {
++		en_tx_ms += (uint32_t)(k_uptime_get() - tx_start_ms);
++		tx_start_ms = 0;
++	}
+ 	if (++txq_i < txq_n) {
+ 		tx_tries = 0;
+ 		k_timer_start(&retry_timer, K_MSEC(300 + (sys_rand32_get() % 500)), K_NO_WAIT);
+ 		return;
+ 	}
+ 	radio_home();
+-	if (cfg.listen_s == 0) {
++	if (cfg.listen_s == 0 || txq_no_listen) {
+ 		go_to_sleep();
+ 	} else {
+ 		phase = PH_LISTEN;
++		listen_start_ms = k_uptime_get();
+ 		k_timer_start(&listen_timer, K_SECONDS(cfg.listen_s), K_NO_WAIT);
+ 		k_timer_start(&retx_timer, K_MSEC(RETX_AFTER_MS), K_NO_WAIT);
+ 	}
+@@ -943,8 +1105,73 @@ static bool txq_add_report(const lt_report_t *r, uint32_t n, uint8_t j)
+ static bool disc_start(uint32_t sec, bool quiet);
+ static void fill_neighbours(lt_report_t *r);
+ static void mesh_scan_clear(void);
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++enum ble_purpose { BLE_NONE, BLE_USER, BLE_PRESENCE, BLE_LOST, BLE_CMD, BLE_DUMP };
++static enum ble_purpose ble_purpose;
++static int ble_scan_begin(enum ble_purpose why, bool active, uint32_t sec);
++static void ble_scan_halt(void);
++static size_t ble_result_packets(uint32_t n, size_t max_packets, uint8_t seconds, bool active);
++static void ble_cmd_done(void);
++static uint8_t ble_cmd_packets = 2, ble_cmd_seconds = 8;
++#endif
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
++/* Wi-Fi scan driver hook (docs/design/wifi-positioning.md): boards with a Wi-Fi radio provide it. */
++extern "C" __weak size_t lt_wifi_scan(lt_wifi_ap_t *aps, size_t max, uint32_t timeout_ms)
++{
++	ARG_UNUSED(aps);
++	ARG_UNUSED(max);
++	ARG_UNUSED(timeout_ms);
++	return 0;
++}
++#endif
++
++/* the plaintext fields every report and history record share */
++static void report_fields(lt_report_t *r, bool with_fix, uint8_t pct, bool low)
++{
++	r->has_fix = with_fix && fix_valid;
++	if (r->has_fix) {
++		r->fix_time = fix_time;
++		r->lat_e7 = (int32_t)llround(fix_lat * 1e7);
++		r->lon_e7 = (int32_t)llround(fix_lon * 1e7);
++	} else {
++		/* the last fix the tracker remembers (its GPS time tells the app how old it is) */
++		r->fix_time = cfg.last_fix_time;
++		r->lat_e7 = cfg.last_lat_e7;
++		r->lon_e7 = cfg.last_lon_e7;
++	}
++	r->hacc_m = 255;
++	r->battery = pct;
++	r->mode = mode;
++	r->low_batt = low;
++	r->energy = lt_energy_encode(cfg.energy_uah / 1000);
++}
+ 
+-static void send_report(bool with_fix)
++/* A wake-up without a report (owner nearby): the fix goes to the history only, sealed as copy
++ * j=3 of the next counter. */
++static void hist_silent(const lt_wake_out_t *d)
++{
++	uint8_t pct = board.getBattPercent();
++	lt_report_t r = {};
++	struct histrec h = {};
++
++	report_fields(&r, true, pct, pct <= cfg.low_batt_pct);
++	r.quiet = true;
++	r.quiet_owner = d->reason == LT_QUIET_OWNER;
++	keys_for(n_cur);
++	h.magic = HIST_MAGIC;
++	h.n = n_cur;
++	h.j = LT_J_HIST_SILENT;
++	h.batt = pct;
++	h.mode = mode;
++	h.uptime_s = (uint32_t)(k_uptime_get() / 1000);
++	h.search_s = wake_ms ? (uint16_t)MIN((k_uptime_get() - wake_ms) / 1000, 65535) : 0;
++	h.flags = HF_FIX;
++	h.flags2 = HF2_QUIET | (r.quiet_owner ? HF2_OWNER : HF2_ZONE);
++	h.p_len = (uint8_t)lt_seal_report(keys.k.view, n_cur, LT_J_HIST_SILENT, &r, false, h.p);
++	hist_write(&h);
++}
++
++static void send_report(bool with_fix, const lt_wake_out_t *d)
+ {
+ 	k_timer_stop(&fix_timer);
+ 
+@@ -955,26 +1182,49 @@ static void send_report(bool with_fix)
+ 		LOG_WRN("battery %u %%, leaving mode %d", pct, mode);
+ 		mode = LT_MODE_IDLE;
+ 	}
++	if (d->epoch_skip) {
++		/* a long quiet stretch kept the ratchet still: whoever reads the key now cannot read back */
++		n_cur = (lt_epoch(n_cur) + 1) * LT_EPOCH_REPORTS;
++		cfg.n_next = n_cur;
++		LOG_INF("quiet ended after a long stretch: n -> %u (next epoch)", n_cur);
++	}
++	if (d->reset_home_silent) {
++		home_silent = 255; /* windows were not opened: nothing known about the home network */
++	}
+ 
+ 	lt_report_t r = {};
+-	r.has_fix = with_fix && fix_valid;
+-	if (r.has_fix) {
+-		r.fix_time = fix_time;
+-		r.lat_e7 = (int32_t)llround(fix_lat * 1e7);
+-		r.lon_e7 = (int32_t)llround(fix_lon * 1e7);
+-	} else {
+-		/* the last fix the tracker remembers (its GPS time tells the app how old it is) */
+-		r.fix_time = cfg.last_fix_time;
+-		r.lat_e7 = cfg.last_lat_e7;
+-		r.lon_e7 = cfg.last_lon_e7;
+-	}
+-	r.hacc_m = 255;
+-	r.battery = pct;
+-	r.mode = mode;
++	report_fields(&r, with_fix, pct, low);
+ 	r.cmd_ack = pending_ack;
+ 	r.cmd_seq = last_cmd_seq;
+-	r.low_batt = low;
+ 	fill_neighbours(&r); /* nearby repeaters, in every report (PROTOCOL.md 2) */
++	if (d->action == LT_WAKE_REPORT_QUIET) {
++		r.quiet = true;
++		r.quiet_owner = d->reason == LT_QUIET_OWNER;
++		r.next_in = lt_next_in_encode(d->quiet_next_s);
++		planned_due_ms = 0;
++	} else if (!test_left && !ping_requested) {
++		uint32_t s = next_interval_s();
++
++		planned_due_ms = k_uptime_get() + (int64_t)(cfg.listen_s + s) * 1000;
++		r.next_in = lt_next_in_encode(cfg.listen_s + s);
++	}
++	if (ble_sum_valid) {
++		r.has_ble = true;
++		r.ble_devices = ble_sum_devices;
++		r.ble_stable = ble_sum_stable;
++		r.ble_stable_rssi = ble_sum_rssi;
++		ble_sum_valid = false;
++	}
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
++	static lt_wifi_ap_t aps[24];
++	uint8_t wifi_pt[LT_REPORT_PT_LEN];
++	bool wifi_pkt = false;
++	size_t na = r.has_fix ? 0 : lt_wifi_scan(aps, ARRAY_SIZE(aps), 3000);
++
++	if (na && lt_wifi_select(aps, na, n_cur, &r, wifi_pt, &wifi_pkt)) {
++		r.has_ble = false;
++	}
++#endif
+ 	last_wake_fix = r.has_fix;
+ 	last_sent = r;
+ 	last_sent_valid = true;
+@@ -987,15 +1237,15 @@ static void send_report(bool with_fix)
+ 	keys_for(n_cur);
+ 	txq_reset();
+ 	txq_add_report(&r, n_cur, 0);
+-	LOG_INF("report n=%u fix=%d batt=%u%% low=%d mode=%d len=%u", n_cur, r.has_fix, pct, low, mode,
+-		(unsigned)txq_len[0]);
+-	checkpoint_counter();
++	LOG_INF("report n=%u fix=%d batt=%u%% low=%d mode=%d quiet=%d next_in=%u len=%u", n_cur, r.has_fix, pct, low,
++		mode, r.quiet, lt_next_in_decode(r.next_in), (unsigned)txq_len[0]);
+ 	{
+ 		struct histrec *h = &hist_cur;
+ 
+ 		memset(h, 0, sizeof(*h));
+ 		h->magic = HIST_MAGIC;
+ 		h->n = n_cur;
++		h->j = LT_J_HIST;
+ 		h->batt = pct;
+ 		h->mode = mode;
+ 		h->uptime_s = (uint32_t)(k_uptime_get() / 1000);
+@@ -1003,7 +1253,9 @@ static void send_report(bool with_fix)
+ 		h->nb_total = r.nb_total;
+ 		h->flags = (r.has_fix ? HF_FIX : 0) | (r.nb_discover ? HF_DISCOVER : 0) | (low ? HF_LOW : 0) |
+ 			   (nets == 2 ? HF_BORDER : 0);
+-		h->p_len = (uint8_t)lt_seal_report(keys.k.view, n_cur, HIST_J, &r, false, h->p);
++		h->flags2 = (r.quiet ? HF2_QUIET : 0) | (r.quiet ? (r.quiet_owner ? HF2_OWNER : HF2_ZONE) : 0) |
++			    (d->epoch_skip ? HF2_EPOCH_SKIP : 0) | (r.has_wifi ? HF2_WIFI : 0);
++		h->p_len = (uint8_t)lt_seal_report(keys.k.view, n_cur, LT_J_HIST, &r, false, h->p);
+ 		hist_open = true;
+ 		wake_ms = 0;
+ 	}
+@@ -1019,7 +1271,27 @@ static void send_report(bool with_fix)
+ 			LOG_INF("border: copy j=1 on %s's network", country_iso(alt_net.country));
+ 		}
+ 	}
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++	/* LOST: what Bluetooth heard during the GPS search, right after the report */
++	if (ble_purpose == BLE_LOST) {
++		ble_scan_halt();
++		if (ble_result_packets(n_cur, cfg.lost_ble_packets, 8, false)) {
++			hist_cur.flags2 |= HF2_BLE;
++		}
++		ble_purpose = BLE_NONE;
++	}
++#endif
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
++	if (wifi_pkt && mode == LT_MODE_LOST && txq_n < TXQ_MAX) {
++		size_t l = lt_build_extra_packet(keys.k.view, cfg.channel_mode ? chan_key : nullptr, n_cur, LT_J_WIFI,
++						 wifi_pt, LT_REPORT_PT_LEN, txq[txq_n], sizeof(txq[0]));
++		if (l) {
++			txq_len[txq_n++] = l;
++		}
++	}
++#endif
+ 	n_cur++;
++	checkpoint_counter();
+ 	pending_ack = false;
+ #if NOSTR
+ 	add_low_battery_dm(pct);
+@@ -1040,12 +1312,72 @@ static void send_report(bool with_fix)
+ 	try_tx();
+ }
+ 
++static bool lost_scan_pending; /* a fix came while the LOST scan still runs */
++
++/* The wake-up's search is over (fix, timeout, or the owner is here): decide and act. */
++static void wake_finish(bool with_fix)
++{
++	k_timer_stop(&fix_timer);
++	lost_scan_pending = false;
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++	if (ble_purpose == BLE_PRESENCE) {
++		ble_scan_halt(); /* the presence scan never extends a wake-up */
++		ble_purpose = BLE_NONE;
++	}
++#endif
++	lt_wake_in_t w = {};
++	lt_wake_out_t d;
++
++	w.now_s = (uint32_t)(k_uptime_get() / 1000);
++	w.mode = mode;
++	w.forced = wake_forced;
++	w.has_fix = with_fix && fix_valid;
++	if (w.has_fix) {
++		w.lat_e7 = (int32_t)llround(fix_lat * 1e7);
++		w.lon_e7 = (int32_t)llround(fix_lon * 1e7);
++	}
++	w.owner_seen = owner_seen;
++	w.zones = cfg.zones;
++	w.zone_count = cfg.zone_count;
++	lt_wake_decide(&wake_cfg, &w, &wake_st, &d);
++	wake_forced = false;
++	if (d.action != LT_WAKE_SILENT) {
++		send_report(with_fix, &d);
++		return;
++	}
++	LOG_INF("quiet (%s): no report", d.reason == LT_QUIET_ZONE ? "zone" : "owner");
++	if (d.reason == LT_QUIET_OWNER && w.has_fix) {
++		hist_silent(&d);
++	}
++	wake_ms = 0;
++	last_wake_fix = w.has_fix;
++	phase = PH_SLEEP;
++	go_to_sleep();
++}
++
+ static void start_report(void)
+ {
+ 	if (phase != PH_SLEEP) {
+ 		return;
+ 	}
+ 	wake_ms = k_uptime_get();
++	wake_start_ms = wake_ms;
++	owner_seen = false;
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++	if (mode == LT_MODE_LOST) {
++		bool due = cfg.lost_ble_every && (lost_reports++ % cfg.lost_ble_every) == 0;
++
++		if (due && ble_purpose == BLE_NONE) {
++			ble_scan_begin(BLE_LOST, false, 8);
++		}
++	} else {
++		lost_reports = 0;
++		if (mode == LT_MODE_IDLE && cfg.anchor_count && ble_purpose == BLE_NONE) {
++			/* owner presence: passive by default, at most as long as the GPS search */
++			ble_scan_begin(BLE_PRESENCE, cfg.anchor_active, 30);
++		}
++	}
++#endif
+ 	if (gps_is_available() && gps_is_enabled()) {
+ 		phase = PH_WAIT_FIX;
+ 		fix_valid = false;
+@@ -1056,21 +1388,36 @@ static void start_report(void)
+ 		LOG_INF("waiting up to %u s for a fix", to);
+ 		/* Indoors last time (or LOST): ask the repeaters around while the GPS searches.
+ 		 * One 8-byte zero-hop packet; answers come within seconds. */
+-		if ((!last_wake_fix || mode == LT_MODE_LOST) && !mesh_scanning) {
+-			disc_start(WAKE_DISCOVER_S, true);
++		if ((!last_wake_fix || mode == LT_MODE_LOST) && !mesh_scanning && !(wake_st.quiet && mode == LT_MODE_IDLE)) {
++			disc_start(WAKE_DISCOVER_S, true); /* not while quiet: a quiet tracker sends nothing */
+ 		}
+ 	} else {
+-		send_report(false);
++		wake_finish(false);
+ 	}
+ }
+ 
++/* A fix (or the end of the search) while a LOST scan still has seconds to go: wait for it. */
++
++static void search_done(bool with_fix)
++{
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++	if (ble_purpose == BLE_LOST && k_timer_remaining_get(&ble_tmr) > 0) {
++		lost_scan_pending = true;
++		k_timer_stop(&fix_timer);
++		fix_valid = fix_valid && with_fix;
++		return;
++	}
++#endif
++	wake_finish(with_fix);
++}
++
+ static void gps_fix_cb(double lat, double lon, int64_t utc)
+ {
+ 	if (utc > 1600000000) {
+ 		clock_unix = utc;
+ 		clock_uptime_ms = k_uptime_get();
+ 	}
+-	if (phase != PH_WAIT_FIX) {
++	if (phase != PH_WAIT_FIX || lost_scan_pending) {
+ 		return;
+ 	}
+ 	struct gps_position pos;
+@@ -1097,7 +1444,7 @@ static void gps_fix_cb(double lat, double lon, int64_t utc)
+ 		cfg.last_lon_e7 = (int32_t)llround(lon * 1e7);
+ 		save_cfg();
+ 	}
+-	send_report(true);
++	search_done(true);
+ }
+ 
+ /* ------------------------------------------------------------------ commands */
+@@ -1174,9 +1521,23 @@ static void apply_command(const lt_command_t *c)
+ 	case LT_OP_BUZZ:
+ 		buzz(c->args[0]);
+ 		break;
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++	case LT_OP_BLE_SCAN: {
++		/* now, in the window: the tracker is awake and the owner waits (PROTOCOL.md 3) */
++		uint8_t sec = c->args[0] ? MIN(c->args[0], 20) : 8;
++		uint8_t np = c->args[2] ? MIN(c->args[2], LT_BLE_MAX_PACKETS) : 2;
++
++		if (ble_scan_begin(BLE_CMD, c->args[1] & 1, sec) == 0) {
++			ble_cmd_seconds = sec;
++			ble_cmd_packets = np;
++		}
++		break;
++	}
++#endif
+ 	default:
+ 		return;
+ 	}
++	planned_due_ms = 0; /* a new mode or interval: the next wake-up is computed afresh */
+ 	last_cmd_seq = c->seq;
+ 	pending_ack = true;
+ 	save_mode();
+@@ -1214,6 +1575,12 @@ static void handle_rx(void)
+ 			apply_command(&c);
+ 			k_timer_stop(&listen_timer);
+ 			k_timer_stop(&retx_timer);
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++			if (ble_purpose == BLE_CMD) {
++				phase = PH_BLESCAN; /* packets go out when the scan ends */
++				return;
++			}
++#endif
+ 			go_to_sleep();
+ 			return;
+ 		}
+@@ -1462,7 +1829,7 @@ static void mesh_scan_print(void)
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
+ /* blescan / blesurvey: everything one address tells in its adverts (and scan responses
+  * when scanning actively). Tables are static and bounded: ~6.5 kB per scan, ~2.6 kB survey. */
+-#define BLE_MFG_MAX 12
++#define BLE_MFG_MAX 24
+ #define BLE_U16_MAX 4
+ 
+ struct ble_seen {
+@@ -1485,9 +1852,10 @@ struct ble_seen {
+ 	uint8_t u128[16];         /* first 128-bit uuid, little endian as on air */
+ 	uint16_t sd_uuid;         /* first 16-bit service data uuid, 0 none */
+ 	uint8_t sd_len;
+-	uint8_t sd[6];
++	uint8_t sd[12];
+ 	uint8_t name_kind;        /* 0 none, 1 shortened, 2 complete */
+-	char name[20];
++	bool anchor;              /* one of the owner's devices */
++	char name[30];
+ };
+ 
+ #define BLE_MAX 64
+@@ -1496,6 +1864,8 @@ static uint8_t ble_n;
+ static uint32_t ble_adv_total, ble_dropped;
+ static struct k_spinlock ble_lock;
+ static bool ble_ready, ble_scanning;
++static int64_t ble_scan_t0;
++static bool ble_scan_was_active;
+ 
+ static bool ble_ad(struct bt_data *d, void *user)
+ {
+@@ -1563,6 +1933,7 @@ static bool ble_ad(struct bt_data *d, void *user)
+ 
+ static void ble_merge(struct ble_seen *e, const struct ble_seen *t)
+ {
++	e->anchor |= t->anchor;
+ 	e->rssi_min = MIN(e->rssi_min, t->rssi_min);
+ 	e->rssi_max = MAX(e->rssi_max, t->rssi_max);
+ 	e->rssi_sum += t->rssi_sum;
+@@ -1614,6 +1985,57 @@ static void ble_merge(struct ble_seen *e, const struct ble_seen *t)
+ 	}
+ }
+ 
++/* Is this advert one of the owner's devices (cfg.anchors)? Only what the device itself keeps
++ * stable counts: its address, name, maker data prefix, service data prefix, or an RPA that
++ * resolves with its IRK. */
++static bool anchor_match(const struct ble_seen *t)
++{
++	uint8_t a[6];
++	/* the top bits say RPA only for random addresses; a public one may start with 0b01 */
++	bool rpa = t->addr.type == BT_ADDR_LE_RANDOM && BT_ADDR_IS_RPA(&t->addr.a);
++
++	for (int i = 0; i < 6; i++) {
++		a[i] = t->addr.a.val[5 - i];
++	}
++	for (uint8_t i = 0; i < cfg.anchor_count && i < ANCHORS_MAX; i++) {
++		const struct anchor *x = &cfg.anchors[i];
++
++		switch (x->kind) {
++		case ANCHOR_ADDR:
++			if (!memcmp(x->data, a, 6) && !rpa) {
++				return true;
++			}
++			break;
++		case ANCHOR_NAME:
++			if (t->name_kind && strlen(t->name) == x->len && !memcmp(t->name, x->data, x->len)) {
++				return true;
++			}
++			break;
++		case ANCHOR_MFG:
++			if (t->company != 0xFFFF && x->len >= 2 && sys_get_le16(x->data) == t->company &&
++			    t->mfg_len >= x->len - 2 && (size_t)(x->len - 2) <= sizeof(t->mfg) &&
++			    !memcmp(t->mfg, x->data + 2, x->len - 2)) {
++				return true;
++			}
++			break;
++		case ANCHOR_SVC:
++			if (t->sd_uuid && x->len >= 2 && sys_get_le16(x->data) == t->sd_uuid && t->sd_len >= x->len - 2 &&
++			    (size_t)(x->len - 2) <= sizeof(t->sd) && !memcmp(t->sd, x->data + 2, x->len - 2)) {
++				return true;
++			}
++			break;
++		case ANCHOR_IRK:
++			if (rpa ? lt_rpa_matches(x->data, a) : !memcmp(x->data + 16, a, 6)) {
++				return true;
++			}
++			break;
++		default:
++			break;
++		}
++	}
++	return false;
++}
++
+ static void ble_scan_cb(const bt_addr_le_t *addr, int8_t rssi, uint8_t type, struct net_buf_simple *ad)
+ {
+ 	struct ble_seen t = {};
+@@ -1627,6 +2049,11 @@ static void ble_scan_cb(const bt_addr_le_t *addr, int8_t rssi, uint8_t type, str
+ 	t.txp = 127;
+ 	t.company = 0xFFFF;
+ 	bt_data_parse(ad, ble_ad, &t);
++	t.anchor = cfg.anchor_count && anchor_match(&t);
++	if (t.anchor && ble_purpose == BLE_PRESENCE && !owner_seen) {
++		owner_seen = true;
++		k_event_post(&events, EV_OWNER);
++	}
+ 
+ 	k_spinlock_key_t key = k_spin_lock(&ble_lock);
+ 
+@@ -1753,11 +2180,14 @@ static void ble_print_dev(const struct ble_seen *e)
+ 	if (e->name_kind) {
+ 		ble_cat(b, sizeof(b), &l, " name%c=\"%s\"", e->name_kind == 2 ? 'C' : 'S', e->name);
+ 	}
++	if (e->anchor) {
++		ble_cat(b, sizeof(b), &l, " OWNER");
++	}
+ 	ble_cat(b, sizeof(b), &l, " fp=%04X\r\n", ble_fp(e));
+ 	ble_write(b, l);
+ }
+ 
+-static int ble_scan_start(bool active)
++static int ble_scan_start(bool active, bool full)
+ {
+ 	if (!ble_ready) {
+ 		int err = bt_enable(NULL);
+@@ -1774,7 +2204,7 @@ static int ble_scan_start(bool active)
+ 		.type = active ? BT_LE_SCAN_TYPE_ACTIVE : BT_LE_SCAN_TYPE_PASSIVE,
+ 		.options = BT_LE_SCAN_OPT_NONE,
+ 		.interval = BT_GAP_SCAN_FAST_INTERVAL,
+-		.window = BT_GAP_SCAN_FAST_WINDOW,
++		.window = (uint16_t)(full ? BT_GAP_SCAN_FAST_INTERVAL : BT_GAP_SCAN_FAST_WINDOW), /* full: 100 % duty */
+ 	};
+ 	int err = bt_le_scan_start(&p, ble_scan_cb);
+ 
+@@ -1930,9 +2360,50 @@ static void bsv_final(void)
+ /* ble_tmr fired: end a scan, or start the next survey round */
+ static void ble_timer(void)
+ {
++	if (ble_purpose == BLE_PRESENCE) {
++		ble_scan_halt(); /* the GPS is still searching; decide when it is done */
++		return;
++	}
++	if (ble_purpose == BLE_LOST) {
++		ble_scan_halt();
++		if (lost_scan_pending) {
++			wake_finish(fix_valid);
++		}
++		return;
++	}
++	if (ble_purpose == BLE_CMD) {
++		ble_cmd_done();
++		return;
++	}
++	if (ble_purpose == BLE_DUMP) {
++		/* blepkt: the packets BLE_SCAN would send now, printed instead of sent */
++		ble_scan_halt();
++		ble_purpose = BLE_NONE;
++		if (phase != PH_SLEEP && phase != PH_WAIT_FIX) { /* the TX queue is free in these */
++			out("ERR busy (phase %d)\r\nEND\r\n", phase);
++			return;
++		}
++		txq_reset();
++		uint32_t dn = n_report_valid ? n_report : n_cur;
++		size_t q = ble_result_packets(dn, ble_cmd_packets, ble_cmd_seconds, ble_scan_was_active);
++		for (size_t k = 0; k < q; k++) {
++			char hx[2 * sizeof(txq[0]) + 1];
++
++			hex(hx, txq[k], txq_len[k]);
++			out("B %u %u ", dn, (unsigned)(LT_J_BLE + k));
++			for (size_t o = 0; hx[o]; o += 160) {
++				out("%.160s", hx + o); /* out() takes 200 bytes a call */
++			}
++			out("\r\n");
++		}
++		out("END %u\r\n", (unsigned)q);
++		txq_reset();
++		return;
++	}
+ 	if (ble_scanning) {
+ 		if (!bsv.on) {
+ 			ble_scan_print();
++			ble_purpose = BLE_NONE;
+ 			return;
+ 		}
+ 		bt_le_scan_stop();
+@@ -1941,13 +2412,14 @@ static void ble_timer(void)
+ 		if (++bsv.done >= bsv.rounds) {
+ 			bsv_final();
+ 			bsv.on = false;
++			ble_purpose = BLE_NONE;
+ 			return;
+ 		}
+ 		bsv.gap = true;
+ 		k_timer_start(&ble_tmr, bsv.gap_s ? K_SECONDS(bsv.gap_s) : K_MSEC(50), K_NO_WAIT);
+ 	} else if (bsv.on && bsv.gap) {
+ 		bsv.gap = false;
+-		int err = ble_scan_start(bsv.active);
++		int err = ble_scan_start(bsv.active, false);
+ 
+ 		if (err) {
+ 			out("ERR bluetooth %d\r\nEND\r\n", err);
+@@ -1957,6 +2429,367 @@ static void ble_timer(void)
+ 		k_timer_start(&ble_tmr, K_SECONDS(bsv.scan_s), K_NO_WAIT);
+ 	}
+ }
++
++/* ---- owner presence, BLE packets (PROTOCOL.md 2.3), blepair ---- */
++
++static int ble_scan_begin(enum ble_purpose why, bool active, uint32_t sec)
++{
++	if (ble_scanning || bsv.on) {
++		return -EBUSY;
++	}
++	int err = ble_scan_start(active, why != BLE_USER);
++
++	if (err) {
++		LOG_WRN("BLE scan: %d", err);
++		return err;
++	}
++	ble_purpose = why;
++	ble_scan_t0 = k_uptime_get();
++	ble_scan_was_active = active;
++	k_timer_start(&ble_tmr, K_SECONDS(sec), K_NO_WAIT);
++	return 0;
++}
++
++/* stop scanning, keep the table and the purpose */
++static void ble_scan_halt(void)
++{
++	k_timer_stop(&ble_tmr);
++	if (ble_scanning) {
++		bt_le_scan_stop();
++		ble_scanning = false;
++		en_ble_ms += (uint32_t)(k_uptime_get() - ble_scan_t0);
++	}
++}
++
++static bool ble_stable(const struct ble_seen *e)
++{
++	return e->addr.type == BT_ADDR_LE_PUBLIC || BT_ADDR_IS_STATIC(&e->addr.a);
++}
++
++static uint8_t ble_kind(const struct ble_seen *e)
++{
++	if (e->addr.type == BT_ADDR_LE_PUBLIC) {
++		return LT_ADDR_PUBLIC;
++	}
++	return BT_ADDR_IS_STATIC(&e->addr.a) ? LT_ADDR_STATIC : BT_ADDR_IS_RPA(&e->addr.a) ? LT_ADDR_RPA : LT_ADDR_NRPA;
++}
++
++static void ble_ad_put(lt_ble_dev_t *d, uint8_t type, const uint8_t *data, size_t len)
++{
++	if (d->ad_len + 2 + len > sizeof(d->ad)) {
++		return;
++	}
++	d->ad[d->ad_len++] = (uint8_t)(len + 1);
++	d->ad[d->ad_len++] = type;
++	memcpy(d->ad + d->ad_len, data, len);
++	d->ad_len += (uint8_t)len;
++}
++
++/* the record of one device: names and data first, then what identifies the kind of device */
++static void ble_to_dev(const struct ble_seen *e, lt_ble_dev_t *d)
++{
++	memset(d, 0, sizeof(*d));
++	for (int i = 0; i < 6; i++) {
++		d->addr[i] = e->addr.a.val[5 - i];
++	}
++	d->info = (uint8_t)(ble_kind(e) | ((e->props & (BIT(0) | BIT(1))) ? LT_BI_CONNECTABLE : 0) |
++			    (e->rsp ? LT_BI_SCAN_RSP : 0) | (e->anchor ? LT_BI_ANCHOR : 0));
++	d->rssi = e->rssi_max;
++	d->heard = (uint8_t)MIN(e->heard, 255);
++	if (e->name_kind) {
++		ble_ad_put(d, e->name_kind == 2 ? BT_DATA_NAME_COMPLETE : BT_DATA_NAME_SHORTENED, (const uint8_t *)e->name,
++			   strlen(e->name));
++	}
++	if (e->company != 0xFFFF) {
++		uint8_t m[2 + BLE_MFG_MAX];
++
++		sys_put_le16(e->company, m);
++		size_t l = MIN((size_t)e->mfg_len, sizeof(e->mfg));
++		memcpy(m + 2, e->mfg, l);
++		ble_ad_put(d, BT_DATA_MANUFACTURER_DATA, m, 2 + l);
++	}
++	if (e->sd_uuid) {
++		uint8_t m[2 + sizeof(e->sd)];
++
++		sys_put_le16(e->sd_uuid, m);
++		size_t l = MIN((size_t)e->sd_len, sizeof(e->sd));
++		memcpy(m + 2, e->sd, l);
++		ble_ad_put(d, BT_DATA_SVC_DATA16, m, 2 + l);
++	}
++	if (e->appearance) {
++		uint8_t m[2];
++
++		sys_put_le16(e->appearance, m);
++		ble_ad_put(d, BT_DATA_GAP_APPEARANCE, m, 2);
++	}
++	if (e->n16) {
++		uint8_t m[2 * BLE_U16_MAX];
++
++		for (uint8_t i = 0; i < e->n16; i++) {
++			sys_put_le16(e->u16[i], m + 2 * i);
++		}
++		ble_ad_put(d, BT_DATA_UUID16_SOME, m, 2u * e->n16);
++	}
++	if (e->txp != 127) {
++		uint8_t t = (uint8_t)e->txp;
++
++		ble_ad_put(d, BT_DATA_TX_POWER, &t, 1);
++	}
++	if (e->n128) {
++		ble_ad_put(d, BT_DATA_UUID128_SOME, e->u128, 16);
++	}
++}
++
++/* order of importance: the owner's devices, stable addresses, named rotating ones, the rest; louder first */
++static int ble_rank(const struct ble_seen *e)
++{
++	return e->anchor ? 0 : ble_stable(e) ? 1 : e->name_kind ? 2 : 3;
++}
++
++/* Summarise the last scan (for the next report) and queue up to max_packets BLE packets as copies
++ * j = 5 + k of report n. Returns the number queued. */
++static size_t ble_result_packets(uint32_t n, size_t max_packets, uint8_t seconds, bool active)
++{
++	static lt_ble_dev_t devs[BLE_MAX];
++	static uint8_t pts[LT_BLE_MAX_PACKETS][LT_BLE_PT_LEN];
++	uint8_t idx[BLE_MAX];
++	lt_ble_survey_t sv = {};
++	int8_t best = 0;
++
++	sv.seconds = seconds;
++	sv.active = active;
++	sv.devices = (uint8_t)MIN(ble_n, 255);
++	for (uint8_t i = 0; i < ble_n; i++) {
++		const struct ble_seen *e = &ble_tab[i];
++
++		idx[i] = i;
++		if (ble_stable(e)) {
++			sv.stable++;
++			if (!best || e->rssi_max > best) {
++				best = MIN(e->rssi_max, (int8_t)-1);
++			}
++		} else {
++			sv.rotating++;
++			sv.rotating_apple += e->company == 0x004C;
++			sv.rotating_microsoft += e->company == 0x0006;
++		}
++	}
++	ble_sum_valid = true;
++	ble_sum_devices = sv.devices;
++	ble_sum_stable = sv.stable;
++	ble_sum_rssi = best;
++	if (!max_packets) {
++		return 0;
++	}
++	for (uint8_t i = 1; i < ble_n; i++) {
++		for (uint8_t j = i; j > 0; j--) {
++			const struct ble_seen *a = &ble_tab[idx[j]], *b = &ble_tab[idx[j - 1]];
++
++			if (ble_rank(a) > ble_rank(b) || (ble_rank(a) == ble_rank(b) && a->rssi_max <= b->rssi_max)) {
++				break;
++			}
++			uint8_t x = idx[j];
++			idx[j] = idx[j - 1];
++			idx[j - 1] = x;
++		}
++	}
++	for (uint8_t i = 0; i < ble_n; i++) {
++		ble_to_dev(&ble_tab[idx[i]], &devs[i]);
++	}
++	size_t np = lt_ble_pack(&sv, devs, ble_n, max_packets, pts), q = 0;
++
++	keys_for(n);
++	for (size_t k = 0; k < np && txq_n < TXQ_MAX; k++) {
++		size_t l = lt_build_extra_packet(keys.k.view, cfg.channel_mode ? chan_key : nullptr, n,
++						 (uint8_t)(LT_J_BLE + k), pts[k], LT_BLE_PT_LEN, txq[txq_n], sizeof(txq[0]));
++		if (l) {
++			txq_alt[txq_n] = false;
++			txq_len[txq_n++] = l;
++			q++;
++		}
++	}
++	LOG_INF("BLE: %u device(s), %u packet(s) for n=%u", ble_n, (unsigned)q, n);
++	return q;
++}
++
++/* BLE_SCAN finished: send the packets for the report the command answered, then sleep */
++static void ble_cmd_done(void)
++{
++	ble_scan_halt();
++	txq_reset();
++	size_t q = ble_result_packets(n_report, ble_cmd_packets, ble_cmd_seconds, ble_scan_was_active);
++
++	ble_purpose = BLE_NONE;
++	if (hist_open) {
++		hist_cur.flags2 |= HF2_BLE;
++	}
++	if (!q) {
++		go_to_sleep();
++		return;
++	}
++	txq_no_listen = true;
++	txq_route_all();
++	radio.recoverRxState();
++	try_tx();
++}
++
++#if IS_ENABLED(CONFIG_BT_SMP) && IS_ENABLED(CONFIG_BT_PERIPHERAL)
++/* ---- blepair (experiment): the owner's phone bonds with the tracker for a short window, the
++ * tracker keeps the phone's IRK as an anchor and later resolves its private addresses passively.
++ * Outside the window nothing advertises and nothing can connect. */
++static struct bt_conn *pair_conn;
++static bool pair_on;
++static int64_t pair_until_ms;
++static volatile int pair_event; /* 1 connected, 2 bonded, 3 failed, 4 disconnected */
++static volatile int pair_err;
++static bt_addr_le_t pair_peer;
++
++static void pair_connected(struct bt_conn *conn, uint8_t err)
++{
++	if (err || !pair_on) {
++		return;
++	}
++	pair_conn = bt_conn_ref(conn);
++	pair_event = 1;
++	k_event_post(&events, EV_PAIR);
++}
++
++static void pair_disconnected(struct bt_conn *conn, uint8_t reason)
++{
++	if (conn != pair_conn) {
++		return;
++	}
++	bt_conn_unref(pair_conn);
++	pair_conn = NULL;
++	pair_err = reason;
++	pair_event = 4;
++	k_event_post(&events, EV_PAIR);
++}
++
++BT_CONN_CB_DEFINE(pair_conn_cb) = {
++	.connected = pair_connected,
++	.disconnected = pair_disconnected,
++};
++
++static void pair_complete(struct bt_conn *conn, bool bonded)
++{
++	bt_addr_le_copy(&pair_peer, bt_conn_get_dst(conn)); /* identity address once resolved */
++	pair_err = bonded ? 0 : -1;
++	pair_event = bonded ? 2 : 3;
++	k_event_post(&events, EV_PAIR);
++}
++
++static void pair_failed(struct bt_conn *conn, enum bt_security_err reason)
++{
++	ARG_UNUSED(conn);
++	pair_err = reason;
++	pair_event = 3;
++	k_event_post(&events, EV_PAIR);
++}
++
++static struct bt_conn_auth_info_cb pair_info_cb = {
++	.pairing_complete = pair_complete,
++	.pairing_failed = pair_failed,
++};
++
++static void pair_stop(void)
++{
++	bt_le_adv_stop();
++	if (pair_conn) {
++		bt_conn_disconnect(pair_conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
++	}
++	pair_on = false;
++	k_timer_stop(&pair_tmr);
++}
++
++static const uint8_t pair_flags = BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR;
++static const struct bt_data pair_ad[] = {
++	{BT_DATA_FLAGS, 1, &pair_flags},
++	{BT_DATA_NAME_COMPLETE, 8, (const uint8_t *)"LibreTag"},
++};
++
++static int pair_start(uint32_t sec)
++{
++	static bool cb_set;
++
++	if (!ble_ready) {
++		int err = bt_enable(NULL);
++
++		if (err && err != -EALREADY) {
++			return err;
++		}
++		ble_ready = true;
++	}
++	if (!cb_set) {
++		bt_conn_auth_info_cb_register(&pair_info_cb);
++		cb_set = true;
++	}
++	bt_unpair(BT_ID_DEFAULT, NULL); /* bonds live only for the window; the IRK is kept as an anchor */
++	struct bt_le_adv_param p = BT_LE_ADV_PARAM_INIT(BT_LE_ADV_OPT_CONN | BT_LE_ADV_OPT_USE_IDENTITY,
++							BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL);
++	int err = bt_le_adv_start(&p, pair_ad, ARRAY_SIZE(pair_ad), NULL, 0);
++
++	if (err) {
++		return err;
++	}
++	pair_on = true;
++	pair_until_ms = k_uptime_get() + (int64_t)sec * 1000;
++	k_timer_start(&pair_tmr, K_SECONDS(sec), K_NO_WAIT);
++	return 0;
++}
++
++static void pair_handle(void)
++{
++	int ev = pair_event;
++	char a[BT_ADDR_LE_STR_LEN];
++
++	pair_event = 0;
++	if (ev == 1) {
++		out("PAIR connected, waiting for the phone to bond\r\n");
++	} else if (ev == 2) {
++		struct bt_keys *k = bt_keys_find(BT_KEYS_IRK, BT_ID_DEFAULT, &pair_peer);
++
++		bt_addr_le_to_str(&pair_peer, a, sizeof(a));
++		if (!k) {
++			out("PAIR bonded with %s, but it sent no IRK (no private address to resolve)\r\nEND\r\n", a);
++		} else if (cfg.anchor_count >= ANCHORS_MAX) {
++			out("ERR anchor list full\r\nEND\r\n");
++		} else {
++			struct anchor *x = &cfg.anchors[cfg.anchor_count++];
++			char h[33];
++
++			memset(x, 0, sizeof(*x));
++			x->kind = ANCHOR_IRK;
++			x->len = 22;
++			for (int i = 0; i < 16; i++) {
++				x->data[i] = k->irk.val[15 - i]; /* SMP order is little endian */
++			}
++			for (int i = 0; i < 6; i++) {
++				x->data[16 + i] = pair_peer.a.val[5 - i];
++			}
++			save_cfg();
++			hex(h, x->data, 16);
++			out("PAIR bonded with %s, anchor %u = irk %s\r\nEND\r\n", a, cfg.anchor_count - 1, h);
++		}
++		pair_stop();
++		bt_unpair(BT_ID_DEFAULT, NULL);
++	} else if (ev == 3) {
++		out("PAIR failed (%d)\r\n", pair_err);
++	} else if (ev == 4) {
++		out("PAIR disconnected (0x%02x)\r\n", pair_err);
++		if (pair_on) {
++			/* still in the window: advertise again for another try */
++			pair_stop();
++			int64_t left = pair_until_ms - k_uptime_get();
++			if (left > 2000) {
++				pair_start((uint32_t)(left / 1000));
++			} else {
++				out("PAIR window closed\r\nEND\r\n");
++			}
++		}
++	}
++}
++#endif
+ #endif /* CONFIG_BT_OBSERVER */
+ 
+ /* Zero-hop CTL_TYPE_NODE_DISCOVER_REQ: every repeater in direct range answers once with the
+@@ -2101,6 +2934,8 @@ static bool cli_needs_unlock(const char *c)
+ static char line[160];
+ static size_t line_len;
+ 
++static void print_quiet(void);
++
+ static void print_status(void)
+ {
+ 	char k[2 * LT_K0_SIZE + 1];
+@@ -2151,6 +2986,8 @@ static void print_status(void)
+ 	}
+ 	out("network %s: country %s, region %s\r\n", cfg.region_manual ? "manual" : "auto (GPS)",
+ 	    country_iso(cfg.country), cfg.scope[0] ? cfg.scope : "none");
++	print_quiet();
++	out("energy used since full: %u mAh (estimate)\r\n", (unsigned)(cfg.energy_uah / 1000));
+ 	out("battery %u%% (%u mV) phase=%d gps=%s last_fix=%s %.6f,%.6f\r\n", board.getBattPercent(),
+ 	    board.getBattMilliVolts(), phase, gps_is_available() ? "yes" : "no",
+ 	    fix_valid ? "yes" : "no", fix_lat, fix_lon);
+@@ -2224,12 +3061,240 @@ static bool cli_nostr(int argc, char **argv)
+ }
+ #endif
+ 
++/* zone / anchor / quiet / lostble / blepair (PROTOCOL.md 6): USB only, never over the radio */
++static int parse_mac(const char *s, uint8_t *a)
++{
++	unsigned v[6];
++
++	if (sscanf(s, "%2x:%2x:%2x:%2x:%2x:%2x", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) != 6) {
++		return parse_hex(s, a, 6);
++	}
++	for (int i = 0; i < 6; i++) {
++		a[i] = (uint8_t)v[i];
++	}
++	return 0;
++}
++
++static void print_anchor(uint8_t i)
++{
++	const struct anchor *x = &cfg.anchors[i];
++	char h[2 * sizeof(x->data) + 1];
++
++	switch (x->kind) {
++	case ANCHOR_ADDR:
++		out("ANCHOR %u addr %02X:%02X:%02X:%02X:%02X:%02X\r\n", i, x->data[0], x->data[1], x->data[2], x->data[3],
++		    x->data[4], x->data[5]);
++		break;
++	case ANCHOR_NAME:
++		out("ANCHOR %u name %.*s\r\n", i, x->len, (const char *)x->data);
++		break;
++	case ANCHOR_MFG:
++	case ANCHOR_SVC:
++		hex(h, x->data + 2, x->len - 2);
++		out("ANCHOR %u %s %04x %s\r\n", i, x->kind == ANCHOR_MFG ? "mfg" : "svc", sys_get_le16(x->data), h);
++		break;
++	case ANCHOR_IRK:
++		hex(h, x->data, 16);
++		out("ANCHOR %u irk %s %02X:%02X:%02X:%02X:%02X:%02X\r\n", i, h, x->data[16], x->data[17], x->data[18],
++		    x->data[19], x->data[20], x->data[21]);
++		break;
++	default:
++		out("ANCHOR %u ?\r\n", i);
++	}
++}
++
++static void print_quiet(void)
++{
++	uint32_t now = (uint32_t)(k_uptime_get() / 1000);
++
++	if (!wake_st.quiet) {
++		out("QUIET none, %u zone(s), %u anchor(s)\r\n", cfg.zone_count, cfg.anchor_count);
++		return;
++	}
++	uint32_t hb = wake_st.reason == LT_QUIET_ZONE ? wake_cfg.heartbeat_s : wake_cfg.owner_cap_s;
++	out("QUIET %s since %u s, last report %u s ago, next report in %u s, zone %d\r\n",
++	    wake_st.reason == LT_QUIET_ZONE ? "zone" : "owner", now - wake_st.quiet_since_s, now - wake_st.last_tx_s,
++	    wake_st.last_tx_s + hb > now ? wake_st.last_tx_s + hb - now : 0, wake_st.zone);
++}
++
++static bool cli_quiet(int argc, char **argv)
++{
++	const char *c = argv[0];
++	const char *sub = argc >= 2 ? argv[1] : "list";
++
++	if (!strcmp(c, "zone")) {
++		if (!strcmp(sub, "add") && argc == 5) {
++			double la = strtod(argv[2], NULL), lo = strtod(argv[3], NULL);
++			int r = atoi(argv[4]);
++
++			if (cfg.zone_count >= ZONES_MAX || la < -90 || la > 90 || lo < -180 || lo > 180 || r < 20 ||
++			    r > 5000) {
++				out("ERR zone add <lat> <lon> <radius 20..5000 m>, at most %u\r\n", ZONES_MAX);
++				return true;
++			}
++			lt_zone_t *z = &cfg.zones[cfg.zone_count++];
++			z->lat_e7 = (int32_t)llround(la * 1e7);
++			z->lon_e7 = (int32_t)llround(lo * 1e7);
++			z->r_m = (uint16_t)r;
++			save_cfg();
++			out("OK zone %u\r\n", cfg.zone_count - 1);
++		} else if (!strcmp(sub, "del") && argc == 3 && atoi(argv[2]) < cfg.zone_count) {
++			int i = atoi(argv[2]);
++			memmove(&cfg.zones[i], &cfg.zones[i + 1], (cfg.zone_count - i - 1) * sizeof(cfg.zones[0]));
++			cfg.zone_count--;
++			lt_wake_state_init(&wake_st); /* zone indexes moved */
++			save_cfg();
++			out("OK\r\n");
++		} else if (!strcmp(sub, "clear")) {
++			cfg.zone_count = 0;
++			lt_wake_state_init(&wake_st);
++			save_cfg();
++			out("OK\r\n");
++		} else if (!strcmp(sub, "list")) {
++			for (uint8_t i = 0; i < cfg.zone_count; i++) {
++				out("ZONE %u %.7f %.7f %u\r\n", i, cfg.zones[i].lat_e7 / 1e7, cfg.zones[i].lon_e7 / 1e7,
++				    cfg.zones[i].r_m);
++			}
++			out("END %u\r\n", cfg.zone_count);
++		} else {
++			out("ERR zone add <lat> <lon> <r_m> | list | del <i> | clear\r\n");
++		}
++		return true;
++	}
++	if (!strcmp(c, "anchor")) {
++		if (!strcmp(sub, "add") && argc >= 4) {
++			struct anchor x = {};
++			const char *k = argv[2];
++			bool ok = true;
++
++			if (!strcmp(k, "addr")) {
++				x.kind = ANCHOR_ADDR;
++				x.len = 6;
++				ok = parse_mac(argv[3], x.data) == 0;
++			} else if (!strcmp(k, "name")) {
++				/* the rest of the line, single spaces */
++				size_t l = 0;
++				for (int i = 3; i < argc && ok; i++) {
++					size_t w = strlen(argv[i]);
++					ok = l + w + (i > 3) <= sizeof(x.data);
++					if (ok) {
++						if (i > 3) {
++							x.data[l++] = ' ';
++						}
++						memcpy(x.data + l, argv[i], w);
++						l += w;
++					}
++				}
++				x.kind = ANCHOR_NAME;
++				x.len = (uint8_t)l;
++			} else if ((!strcmp(k, "mfg") || !strcmp(k, "svc")) && argc >= 4) {
++				uint16_t id = (uint16_t)strtoul(argv[3], NULL, 16);
++				size_t pl = argc >= 5 ? strlen(argv[4]) / 2 : 0;
++
++				x.kind = !strcmp(k, "mfg") ? ANCHOR_MFG : ANCHOR_SVC;
++				sys_put_le16(id, x.data);
++				ok = pl <= (x.kind == ANCHOR_MFG ? BLE_MFG_MAX : 12) &&
++				     (pl == 0 || parse_hex(argv[4], x.data + 2, pl) == 0);
++				x.len = (uint8_t)(2 + pl);
++			} else if (!strcmp(k, "irk")) {
++				x.kind = ANCHOR_IRK;
++				x.len = 22;
++				ok = parse_hex(argv[3], x.data, 16) == 0 && (argc < 5 || parse_mac(argv[4], x.data + 16) == 0);
++			} else {
++				ok = false;
++			}
++			if (!ok || cfg.anchor_count >= ANCHORS_MAX) {
++				out("ERR anchor add addr <aa:bb:..> | name <text> | mfg <company hex> [prefix hex] | "
++				    "svc <uuid16 hex> [prefix hex] | irk <hex32> [identity]; at most %u\r\n", ANCHORS_MAX);
++				return true;
++			}
++			cfg.anchors[cfg.anchor_count++] = x;
++			save_cfg();
++			print_anchor(cfg.anchor_count - 1);
++		} else if (!strcmp(sub, "del") && argc == 3 && atoi(argv[2]) < cfg.anchor_count) {
++			int i = atoi(argv[2]);
++			memmove(&cfg.anchors[i], &cfg.anchors[i + 1], (cfg.anchor_count - i - 1) * sizeof(cfg.anchors[0]));
++			cfg.anchor_count--;
++			save_cfg();
++			out("OK\r\n");
++		} else if (!strcmp(sub, "clear")) {
++			cfg.anchor_count = 0;
++			save_cfg();
++			out("OK\r\n");
++		} else if (!strcmp(sub, "gps") && argc == 3) {
++			cfg.owner_gps = !strcmp(argv[2], "on");
++			save_cfg();
++			out("OK owner present: %s\r\n", cfg.owner_gps ? "fix kept in the history" : "GPS off");
++		} else if (!strcmp(sub, "scan") && argc == 3) {
++			cfg.anchor_active = !strcmp(argv[2], "active");
++			save_cfg();
++			out("OK presence scan %s\r\n", cfg.anchor_active ? "active" : "passive");
++		} else if (!strcmp(sub, "list")) {
++			for (uint8_t i = 0; i < cfg.anchor_count; i++) {
++				print_anchor(i);
++			}
++			out("END %u gps=%s scan=%s\r\n", cfg.anchor_count, cfg.owner_gps ? "on" : "off",
++			    cfg.anchor_active ? "active" : "passive");
++		} else {
++			out("ERR anchor add <kind> <value> | list | del <i> | clear | gps on|off | scan active|passive\r\n");
++		}
++		return true;
++	}
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++	if (!strcmp(c, "blepkt")) {
++		/* blepkt [s] [packets] [active]: BLE_SCAN without the radio, packets printed as `B n j hex` */
++		ble_cmd_seconds = (uint8_t)(argc >= 2 ? CLAMP(atoi(argv[1]), 1, 20) : 8);
++		ble_cmd_packets = (uint8_t)(argc >= 3 ? CLAMP(atoi(argv[2]), 1, LT_BLE_MAX_PACKETS) : 2);
++		int err = ble_scan_begin(BLE_DUMP, argc >= 4 && !strcmp(argv[3], "active"), ble_cmd_seconds);
++
++		if (err) {
++			out("ERR bluetooth %d\r\n", err);
++		} else {
++			out("OK %u s\r\n", ble_cmd_seconds);
++		}
++		return true;
++	}
++#endif
++	if (!strcmp(c, "quiet")) {
++		print_quiet();
++		return true;
++	}
++	if (!strcmp(c, "lostble") && argc >= 2) {
++		cfg.lost_ble_every = (uint8_t)CLAMP(atoi(argv[1]), 0, 255);
++		if (argc >= 3) {
++			cfg.lost_ble_packets = (uint8_t)CLAMP(atoi(argv[2]), 0, LT_BLE_MAX_PACKETS);
++		}
++		save_cfg();
++		out("OK LOST: BLE every %u report(s), %u packet(s)\r\n", cfg.lost_ble_every, cfg.lost_ble_packets);
++		return true;
++	}
++#if IS_ENABLED(CONFIG_BT_SMP) && IS_ENABLED(CONFIG_BT_PERIPHERAL)
++	if (!strcmp(c, "blepair")) {
++		int sec = argc >= 2 ? CLAMP(atoi(argv[1]), 10, 300) : 120;
++
++		if (pair_on) {
++			pair_stop();
++			out("OK stopped\r\nEND\r\n");
++			return true;
++		}
++		int err = pair_start((uint32_t)sec);
++		if (err) {
++			out("ERR bluetooth %d\r\n", err);
++		} else {
++			out("OK advertising as \"LibreTag\" for %d s: pair from the phone's Bluetooth settings\r\n", sec);
++		}
++		return true;
++	}
++#endif
++	return false;
++}
++
+ static void cli_exec(char *l)
+ {
+-	char *argv[6];
++	char *argv[10];
+ 	int argc = 0;
+ 
+-	for (char *t = strtok(l, " \t"); t && argc < 6; t = strtok(NULL, " \t")) {
++	for (char *t = strtok(l, " \t"); t && argc < 10; t = strtok(NULL, " \t")) {
+ 		argv[argc++] = t;
+ 	}
+ 	if (argc == 0) {
+@@ -2245,6 +3310,9 @@ static void cli_exec(char *l)
+ 		return;
+ 	}
+ #endif
++	if (cli_quiet(argc, argv)) {
++		return;
++	}
+ 
+ 	if (!strcmp(c, "help")) {
+ 		/* one line per out(): its buffer is 200 bytes */
+@@ -2255,7 +3323,9 @@ static void cli_exec(char *l)
+ 		out("radio <MHz> <bwkHz> <sf> <cr> | power <dBm> | pathhash 1|2|3 | region <name>|none\r\n");
+ 		out("network auto|manual | where <lat> <lon> | test [count] [interval_s] | gps | reboot | dfu\r\n");
+ 		out("meshscan [s] | discover [s] | neighbours | noise [n] | blescan [s] [passive]\r\n");
+-		out("blesurvey <rounds> <scan_s> <gap_s> [passive] [quiet] | blestop\r\n");
++		out("blesurvey <rounds> <scan_s> <gap_s> [passive] [quiet] | blestop | blepair [s]\r\n");
++		out("zone add <lat> <lon> <r_m>|list|del <i>|clear | quiet | lostble <every> [packets]\r\n");
++		out("anchor add addr|name|mfg|svc|irk <value> | anchor list|del <i>|clear|gps on|off|scan active|passive\r\n");
+ #if NOSTR
+ 		out("nostr | owner <npub|hex|off> | dmalert on|off | buzz [s]\r\n");
+ #endif
+@@ -2342,6 +3412,7 @@ static void cli_exec(char *l)
+ 	} else if (!strcmp(c, "report")) {
+ 		if (phase == PH_SLEEP) {
+ 			k_timer_stop(&report_timer);
++			wake_forced = true;
+ 			start_report();
+ 			out("OK\r\n");
+ 		} else {
+@@ -2404,30 +3475,42 @@ static void cli_exec(char *l)
+ 		static uint32_t skip;
+ 
+ 		skip = total > want ? total - want : 0;
+-		out("LOG %u of %u report(s): n uptime_s search_s batt mode repeaters flags\r\n",
++		out("LOG %u of %u record(s): seq n j uptime_s search_s batt mode repeaters flags\r\n",
+ 		    (unsigned)(total - skip), (unsigned)total);
+ 		hist_each(0, [](const struct histrec *h) {
+ 			if (skip) {
+ 				skip--;
+ 				return;
+ 			}
+-			out("L %u %u %u %u %u %u %s%s%s%s%s%s%s%s\r\n", (unsigned)h->n, (unsigned)h->uptime_s,
+-			    h->search_s, h->batt, h->mode, h->nb_total, h->flags & HF_FIX ? "fix " : "nofix ",
+-			    h->flags & HF_RELAYED ? "relayed " : "not-relayed ", h->flags & HF_RETX ? "retx " : "",
+-			    h->flags & HF_DROPPED ? "DROPPED " : "", h->flags & HF_CMD ? "cmd " : "",
+-			    h->flags & HF_BORDER ? "border " : "", h->flags & HF_DISCOVER ? "discover " : "",
+-			    h->flags & HF_LOW ? "low" : "");
++			bool silent = h->j == LT_J_HIST_SILENT;
++
++			out("L %u %u %u %u %u %u %u %u %s%s%s%s%s%s%s%s%s%s%s%s%s\r\n", (unsigned)h->seq, (unsigned)h->n,
++			    h->j ? h->j : LT_J_HIST, (unsigned)h->uptime_s, h->search_s, h->batt, h->mode, h->nb_total,
++			    h->flags & HF_FIX ? "fix " : "nofix ",
++			    silent ? "silent " : h->flags & HF_RELAYED ? "relayed " : "not-relayed ",
++			    h->flags & HF_RETX ? "retx " : "", h->flags & HF_DROPPED ? "DROPPED " : "",
++			    h->flags & HF_CMD ? "cmd " : "", h->flags & HF_BORDER ? "border " : "",
++			    h->flags & HF_DISCOVER ? "discover " : "", h->flags & HF_LOW ? "low " : "",
++			    h->flags2 & HF2_QUIET ? "quiet " : "", h->flags2 & HF2_OWNER ? "owner " : "",
++			    h->flags2 & HF2_ZONE ? "zone " : "", h->flags2 & HF2_EPOCH_SKIP ? "epoch-skip " : "",
++			    h->flags2 & HF2_BLE ? "ble" : "");
+ 		});
+ 		out("END\r\n");
+ 	} else if (!strcmp(c, "history")) {
+-		/* history [from_n]: sealed reports for the app (opened with K0), oldest first */
++		/* history [from_n]: sealed records for the app (opened with K0 as copy j of n), oldest first;
++		 * `H <seq> <n> <j> <flags> <hex P>`, then `END <count>` (PROTOCOL.md 6) */
++		static uint32_t cnt;
++
++		cnt = 0;
+ 		hist_each(argc >= 2 ? (uint32_t)strtoul(argv[1], NULL, 10) : 0, [](const struct histrec *h) {
+ 			char hx[2 * sizeof(h->p) + 1];
+ 
+ 			hex(hx, h->p, MIN(h->p_len, sizeof(h->p)));
+-			out("H %u %u %s\r\n", (unsigned)h->n, h->flags, hx);
++			out("H %u %u %u %u %s\r\n", (unsigned)h->seq, (unsigned)h->n, h->j ? h->j : LT_J_HIST,
++			    (unsigned)(h->flags | (h->flags2 << 8)), hx);
++			cnt++;
+ 		});
+-		out("END\r\n");
++		out("END %u\r\n", (unsigned)cnt);
+ 	} else if (!strcmp(c, "neighbours")) {
+ 		mesh_scan_print();
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
+@@ -2435,11 +3518,12 @@ static void cli_exec(char *l)
+ 		/* blescan [s] [passive]: list Bluetooth LE devices around */
+ 		int sec = argc >= 2 ? atoi(argv[1]) : 20;
+ 		bool active = !(argc >= 3 && !strcmp(argv[2], "passive"));
+-		int err = (ble_scanning || bsv.on) ? -EBUSY : ble_scan_start(active);
++		int err = (ble_scanning || bsv.on || ble_purpose != BLE_NONE) ? -EBUSY : ble_scan_start(active, false);
+ 
+ 		if (err) {
+ 			out("ERR bluetooth %d\r\n", err);
+ 		} else {
++			ble_purpose = BLE_USER;
+ 			k_timer_start(&ble_tmr, K_SECONDS(CLAMP(sec, 2, 600)), K_NO_WAIT);
+ 			out("OK %s BLE scan %d s\r\n", active ? "active" : "passive", CLAMP(sec, 2, 600));
+ 		}
+@@ -2452,7 +3536,7 @@ static void cli_exec(char *l)
+ 			active &= strcmp(argv[i], "passive") != 0;
+ 			quiet |= !strcmp(argv[i], "quiet");
+ 		}
+-		if (ble_scanning || bsv.on) {
++		if (ble_scanning || bsv.on || ble_purpose != BLE_NONE) {
+ 			out("ERR busy\r\n");
+ 		} else {
+ 			bsv.rounds = (uint8_t)CLAMP(argc >= 2 ? atoi(argv[1]) : 10, 1, 32);
+@@ -2462,13 +3546,14 @@ static void cli_exec(char *l)
+ 			bsv.quiet = quiet;
+ 			bsv.done = 0;
+ 			bsv_ntr = bsv_nfp = 0;
+-			int err = ble_scan_start(active);
++			int err = ble_scan_start(active, false);
+ 
+ 			if (err) {
+ 				out("ERR bluetooth %d\r\n", err);
+ 			} else {
+ 				bsv.on = true;
+ 				bsv.gap = false;
++				ble_purpose = BLE_USER;
+ 				k_timer_start(&ble_tmr, K_SECONDS(bsv.scan_s), K_NO_WAIT);
+ 				out("OK BLE survey %u x %u s, gap %u s, %s\r\n", bsv.rounds, bsv.scan_s, bsv.gap_s,
+ 				    active ? "active" : "passive");
+@@ -2481,6 +3566,7 @@ static void cli_exec(char *l)
+ 			ble_scanning = false;
+ 		}
+ 		bsv.on = false;
++		ble_purpose = BLE_NONE;
+ 		out("OK\r\n");
+ #endif
+ 	} else if (!strcmp(c, "gps")) {
+@@ -2489,8 +3575,10 @@ static void cli_exec(char *l)
+ 
+ 		gps_format_diagnostics(d, sizeof(d));
+ 		out("%s\r\n", d);
+-		out("waiting for fix: %s, cold-start window %s\r\n", phase == PH_WAIT_FIX ? "yes" : "no",
+-		    first_fix_pending ? "pending" : "spent");
++		out("waiting for fix: %s, cold-start window %s, uptime %u s, fix timer %u ms, next wake %u ms\r\n",
++		    phase == PH_WAIT_FIX ? "yes" : "no", first_fix_pending ? "pending" : "spent",
++		    (unsigned)(k_uptime_get() / 1000), (unsigned)k_timer_remaining_get(&fix_timer),
++		    (unsigned)k_timer_remaining_get(&report_timer));
+ 	} else if (!strcmp(c, "test") && argc <= 3) {
+ 		/* test [count] [interval_s]: one report now, the rest interval_s apart */
+ 		int cnt = argc >= 2 ? atoi(argv[1]) : 3;
+@@ -2499,6 +3587,7 @@ static void cli_exec(char *l)
+ 		test_left = (uint8_t)CLAMP(cnt, 1, 20);
+ 		test_interval_s = (uint32_t)CLAMP(ivs, 30, 3600);
+ 		test_due_ms = k_uptime_get();
++		wake_forced = true;
+ 		if (phase == PH_SLEEP) {
+ 			k_timer_stop(&report_timer);
+ 			start_report();
+@@ -2693,6 +3782,16 @@ int main(void)
+ 		gps_enable(true);
+ 	}
+ 
++	lt_wake_cfg_default(&wake_cfg);
++	lt_wake_state_init(&wake_st);
++#if ZEPHCORE_USB_STACK && DT_HAS_COMPAT_STATUS_OKAY(zephyr_cdc_acm_uart) && \
++	!IS_ENABLED(CONFIG_CDC_ACM_SERIAL_INITIALIZE_AT_BOOT)
++	zephcore_usbd_set_dtr_cb([](bool on) {
++		if (!on) {
++			k_event_post(&events, EV_USB_LINE);
++		}
++	});
++#endif
+ 	board.captureBootVoltage();
+ 	LOG_INF("LibreTag tracker up, n=%u", n_cur);
+ 	schedule_next(5);
+@@ -2712,12 +3811,42 @@ int main(void)
+ 			start_report();
+ 		}
+ 		if ((ev & EV_FIX_TIMEOUT) && phase == PH_WAIT_FIX) {
+-			LOG_INF("no fix in time, reporting without position");
++			LOG_INF("no fix in time");
+ 			/* The long cold-start window is spent once; indoors it would otherwise
+ 			 * keep the GPS on for minutes at every wake-up. */
+ 			first_fix_pending = false;
+ 			gps_stop_acquiring(); /* or the module searches on for minutes */
+-			send_report(false);
++			search_done(false);
++		}
++		if ((ev & EV_OWNER) && phase == PH_WAIT_FIX) {
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++			if (!cfg.owner_gps) {
++				LOG_INF("owner nearby: GPS off, deciding now");
++				gps_stop_acquiring();
++				fix_valid = false;
++				wake_finish(false);
++			} else if (ble_purpose == BLE_PRESENCE) {
++				ble_scan_halt(); /* known; the fix still goes to the history */
++			}
++#endif
++		}
++#if IS_ENABLED(CONFIG_BT_SMP) && IS_ENABLED(CONFIG_BT_PERIPHERAL)
++		if (ev & EV_PAIR) {
++			if (pair_event) {
++				pair_handle();
++			} else if (pair_on && k_uptime_get() >= pair_until_ms) {
++				pair_stop();
++				out("PAIR window closed\r\nEND\r\n");
++			}
++		}
++#endif
++		if (ev & EV_USB_LINE) {
++			/* the port closed: the unlock was for that connection only */
++			if (usb_session) {
++				LOG_INF("USB session ended (DTR dropped)");
++			}
++			usb_session = false;
++			usb_challenge_valid = false;
+ 		}
+ 		if ((ev & EV_TX_RETRY) && phase != PH_SLEEP) {
+ 			try_tx();

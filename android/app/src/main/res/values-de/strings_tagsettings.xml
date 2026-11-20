@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <string name="menu_tag_settings">Tracker-Einstellungen</string>
+    <string name="ts_title">Tracker-Einstellungen</string>
+    <string name="ts_edit">Ändern</string>
+    <string name="ts_reports">Meldungen</string>
+    <string name="ts_away_reports">Unterwegs meldet er sich</string>
+    <string name="ts_per_charge">Etwa %1$s pro Ladung bei diesem Tempo.</string>
+    <string name="ts_listens">Hört auf Befehle</string>
+    <string name="ts_listens_with_report">bei jeder Meldung</string>
+    <string name="ts_cmd_waits">Ein Befehl wartet höchstens %1$s.</string>
+    <string name="ts_quiet">Ruhe</string>
+    <string name="ts_devices_near">Solange meine Geräte in der Nähe sind</string>
+    <string name="ts_devices_none">Noch keine Geräte gewählt</string>
+    <string name="ts_devices_people_note">Für Personen aus: Jemand könnte dein Handy mitnehmen.</string>
+    <string name="ts_still">Wenn er sich nicht bewegt</string>
+    <string name="ts_still_after">Ruhig nach %1$s an einem Ort</string>
+    <string name="ts_still_off">Meldet auch, wenn er stillsteht</string>
+    <string name="ts_still_sheet_after">Wird ruhig nach</string>
+    <string name="ts_still_sheet_life">Lebenszeichen in der Ruhe</string>
+    <string name="ts_needs_07">Braucht Firmware 0.7 oder neuer</string>
+    <string name="ts_tell">Benachrichtige mich</string>
+    <string name="ts_not_heard">Nicht gehört, wenn erwartet</string>
+    <string name="ts_not_heard_sub">%1$s nach fälliger Meldung (%2$s)</string>
+    <string name="ts_low_batt">Akku schwach</string>
+    <string name="ts_low_batt_sub">Unter %1$d %%, wieder bei %2$d %%</string>
+    <string name="ts_goes_out">geht raus ~%1$s</string>
+    <string name="ts_waits_cable">wartet auf den Tracker</string>
+    <plurals name="ts_changes_wait">
+        <item quantity="one">%d Änderung wartet auf den Tracker.</item>
+        <item quantity="other">%d Änderungen warten auf den Tracker.</item>
+    </plurals>
+    <string name="ts_nostr">Nostr</string>
+    <string name="set_look">Darstellung</string>
+    <string name="set_notif_allowed">Benachrichtigungen: erlaubt</string>
+    <string name="set_notif_blocked">In den Android-Einstellungen blockiert</string>
+    <string name="set_preview">Vorschau</string>
+    <string name="wifi2_title">Position per WLAN</string>
+    <string name="wifi2_service">Dienst</string>
+    <string name="wifi2_off_sub">Meldungen ohne GPS nutzen nur Repeater.</string>
+    <string name="wifi2_beacondb_sub">Offene Datenbank. Sie lernt, welche Netze beim Tracker sind.</string>
+    <string name="wifi2_grapheneos_sub">Apple-Daten. Apple sieht deine Adresse nicht.</string>
+    <string name="wifi2_apple_sub">Apple sieht bei jeder Abfrage die Adresse deines Handys.</string>
+    <string name="wifi2_when">Abfragen</string>
+    <string name="wifi2_tap">Nur auf Tipp</string>
+    <string name="wifi2_lost">Im Modus Verloren</string>
+    <string name="wifi2_always">Jede Meldung ohne GPS</string>
+    <string name="wifi2_sum_tap">Nichts wird gesendet, bis du bei einer Meldung auf Abfragen tippst.</string>
+    <string name="wifi2_sum_lost">Im Modus Verloren geht jede Meldung ohne GPS an %1$s.</string>
+    <string name="wifi2_sum_always">Jede Meldung ohne GPS sendet die Netze, die der Tracker gehört hat, an %1$s.</string>
+    <string name="wifi2_sum_places">Meldungen von deinen Orten werden nicht abgefragt.</string>
+    <string name="wifi2_consent">Die App sendet die WLAN-Netze, die ein Tracker gehört hat, an %1$s, und der Dienst antwortet mit einer groben Position. Sonst geht nichts mit, und die Ergebnisse bleiben auf diesem Handy.</string>
+</resources>

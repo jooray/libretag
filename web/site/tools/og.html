@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face{font-family:"Archivo";font-weight:800;src:url(../fonts/archivo_extrabold.woff2) format("woff2")}
+@font-face{font-family:"Archivo";font-weight:500;src:url(../fonts/archivo_medium.woff2) format("woff2")}
+@font-face{font-family:"Archivo Narrow";font-weight:700;src:url(../fonts/archivo_narrow_bold.woff2) format("woff2")}
+*{box-sizing:border-box;margin:0}
+body{width:1200px;height:630px;background:#1A1C1E;color:#F1F0EC;font-family:Archivo,sans-serif;display:flex;overflow:hidden}
+.l{width:700px;padding:64px 0 56px 72px;display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:14px;font:800 34px/1 Archivo}
+.brand img{width:56px;height:56px;border-radius:12px}
+h1{font:800 62px/1.04 Archivo;letter-spacing:-.02em;margin-top:auto}
+p{font:500 27px/1.35 Archivo;color:#CFCDC7;margin-top:22px;max-width:560px}
+.r{flex:1;position:relative}
+.r img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:35% 50%}
+.plate{position:absolute;left:-60px;bottom:48px;right:36px;background:#fff;color:#1E1E1E;border:3px solid #1E1E1E;border-radius:12px;padding:16px 20px;display:flex;gap:16px;align-items:center;box-shadow:0 10px 28px rgba(0,0,0,.35)}
+.plate b{font:800 26px Archivo;display:block}
+.plate span{font:700 21px "Archivo Narrow"}
+.bl{width:52px;height:52px;flex:none}
+</style></head><body>
+<div class="l"><div class="brand"><img src="../img/icon-512.png" alt="">LibreTag</div>
+<h1 id="h"></h1><p id="p"></p></div>
+<div class="r"><img src="../img/hero-trail.webp" alt="">
+<div class="plate"><svg class="bl" viewBox="0 0 28 28"><rect x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg>
+<div><b id="n"></b><span id="s"></span></div></div></div>
+<script>
+var sk=location.hash==="#sk";
+var t=sk?["GPS tag, ktorý spí a polohu povie len tebe.","Raz za hodinu sa ozve cez LoRa. Bez SIM karty, bez cloudu, bez účtu.","Auto","Ozvalo sa pred 12 min · ďalšie hlásenie ~14:31"]:["A GPS tag that sleeps and tells only you.","It reports once an hour over LoRa. No SIM card, no cloud, no account.","Car","Heard 12 min ago · next ~14:31"];
+h.textContent=t[0];p.textContent=t[1];n.textContent=t[2];s.textContent=t[3];
+</script></body></html>

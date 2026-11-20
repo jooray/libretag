@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <!-- Places list -->
+    <string name="places_title">Miesta</string>
+    <string name="places_lead">Tu je %1$s ticho.</string>
+    <string name="places_empty">Zatiaľ žiadne miesta. Pridaj miesto, kde %1$s zvyčajne býva, a bude tam ticho.</string>
+    <string name="place_add">Pridať miesto</string>
+    <string name="place_add_here">Pridať miesto, kde je teraz %1$s</string>
+    <string name="place_add_map">Na mape</string>
+    <string name="place_add_wifi">Kde je lokátor teraz, podľa Wi-Fi</string>
+    <string name="place_add_btn">Pridať miesto</string>
+    <string name="place_needs_cable">Pripoj lokátor, keď je na tom mieste: káblom, alebo ho reštartuj a pripoj cez Bluetooth.</string>
+    <string name="place_on_tag">V lokátore</string>
+    <string name="place_waits_cable">Čaká na lokátor</string>
+    <string name="place_waits_cable_sub">Kým nepripojíš %1$s, hlási sa ďalej odtiaľto.</string>
+    <string name="place_writing">Zapisujem…</string>
+    <string name="place_writing_to">Zapisujem do lokátora %1$s…</string>
+    <string name="place_saved_on">Uložené v lokátore %1$s.</string>
+    <string name="place_not_written">Nezapísané</string>
+    <string name="place_app_only">Len v aplikácii</string>
+    <string name="place_app_only_sub">Tento firmvér miesta ukladať nevie, preto sa %1$s ďalej hlási odtiaľto.</string>
+    <string name="place_name">Názov</string>
+    <string name="place_name_empty">Daj miestu názov.</string>
+    <string name="place_name_taken">Iné miesto už má tento názov.</string>
+    <string name="place_size">Veľkosť</string>
+    <string name="place_move_hint">Ťukni na mapu a miesto sa presunie. Modrou úchytkou zmeníš veľkosť.</string>
+    <string name="place_tap_hint">Ťukni na mapu tam, kde %1$s zvyčajne býva.</string>
+    <string name="place_move">Presunúť na mape</string>
+    <string name="place_tell_leave">Upozorni ma, keď odíde</string>
+    <string name="place_tell_arrive">Upozorni ma, keď príde</string>
+    <string name="place_not_with_you">Nie, keď odíde s tebou.</string>
+    <string name="place_delete">Odstrániť miesto</string>
+    <string name="place_delete_cable">Na odstránenie pripoj lokátor.</string>
+    <!-- Wi-Fi snap sheet -->
+    <string name="snap_start">Spustiť</string>
+    <string name="snap_step_listen">Počúvam siete Wi-Fi · %1$d z %2$d</string>
+    <string name="snap_step_listen_short">Počúvam siete Wi-Fi</string>
+    <string name="snap_step_save">Ukladám do lokátora</string>
+    <string name="snap_step_check">Overujem, či lokátor miesto spoznáva</string>
+    <string name="snap_wait">Asi %1$d s. Nechaj lokátor, kde je.</string>
+    <string name="snap_ok">%1$s uložené. Lokátor toto miesto spoznáva.</string>
+    <string name="snap_weak">Uložené, ale zhoda je slabá. Lokátor tu možno nestíchne.</string>
+    <string name="snap_unchecked">%1$s uložené. Overenie sa nedokončilo, neskôr ťukni na Overiť tu.</string>
+    <string name="snap_none">V dosahu nie je žiadna sieť Wi-Fi, nič sa neuložilo.</string>
+    <string name="snap_no_answer">Lokátor neodpovedal. Skontroluj spojenie.</string>
+    <string name="snap_keep">Ponechať</string>
+    <string name="place_check_here">Overiť tu</string>
+    <string name="place_check_ok">Spoznané</string>
+    <string name="place_check_weak">Slabé</string>
+    <string name="place_check_no">Nespoznané</string>
+    <!-- Add tag wizard, four steps -->
+    <string name="wz2_s2">Názov</string>
+    <string name="wz2_s3">Kde býva</string>
+    <string name="wz2_rest_lead">Pridaj miesto, kde %1$s býva. Bude tam ticho.</string>
+    <string name="wz2_skip">Preskočiť</string>
+    <string name="wz2_mark_row">Značka: %1$s</string>
+    <string name="wz2_change">Zmeniť</string>
+    <string name="wz2_done_reports">Keď je preč, hlási každú hodinu.</string>
+    <string name="wz2_done_quiet">Na mieste %1$s je ticho.</string>
+    <string name="wz2_done_tell">Dáme ti vedieť, keď sa neozve alebo mu dochádza batéria.</string>
+    <string name="wz2_devices_title">Ticho, kým si pri ňom</string>
+    <string name="wz2_devices_text">Vyber telefón, hodinky alebo iné zariadenia, ktoré nosíš. Kým je jedno z nich blízko, je %1$s ticho.</string>
+    <string name="wz2_devices_go">Vybrať zariadenia</string>
+    <string name="wz2_pair_failed">Spárovanie sa nedokončilo. Nechaj kábel zapojený a skús to znova.</string>
+    <string name="wz2_partial_text">Otvor Nastavenia lokátora s pripojeným lokátorom a zapíš ich znova.</string>
+    <!-- Known devices -->
+    <string name="kd_lead_short">Kým je nablízku niektoré z nich, je %1$s ticho.</string>
+</resources>

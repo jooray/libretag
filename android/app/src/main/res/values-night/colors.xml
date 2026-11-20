@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="light_bars">false</bool>
+    <color name="bg">#1A1C1E</color>
+    <color name="surf2">#222528</color>
+    <color name="surf3">#2C3034</color>
+    <color name="sheet">#202326</color>
+    <color name="ink">#F1F0EC</color>
+    <color name="ink2">#CFCDC7</color>
+    <color name="ink3">#AAA8A2</color>
+    <color name="line">#363A3F</color>
+    <color name="outline">#8F8D88</color>
+    <color name="plate">#E6E4DF</color>
+    <color name="plate_bg">#1F2225</color>
+    <color name="sel">#2C3034</color>
+    <color name="primary">#F1F0EC</color>
+    <color name="on_primary">#1A1C1E</color>
+    <color name="tonal">#30353A</color>
+    <color name="on_tonal">#F1F0EC</color>
+    <color name="inverse">#E6E4DF</color>
+    <color name="on_inverse">#1E1E1E</color>
+    <color name="inverse_act">#1F5FB4</color>
+    <color name="crit">#D2232B</color>
+    <color name="ok">#55B862</color>
+    <color name="focus">#8DB8FF</color>
+    <color name="on_focus">#0E1A2C</color>
+    <color name="chip">#2C3034</color>
+    <color name="map_paper">#1F2225</color>
+    <color name="scrim">#99000000</color>
+</resources>

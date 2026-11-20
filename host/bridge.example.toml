@@ -1,0 +1,104 @@
+# nostrmesh bridge configuration (docs/nostr-mesh-bridge.md 5.8)
+# Copy to bridge.toml and edit. Run: uv run nostrmesh run -c bridge.toml
+
+[radio]
+adapter = "companion_serial"      # or "kiss" (node flashed with the KISS modem firmware)
+port = "/dev/cu.usbmodem1101"     # Linux: /dev/ttyACM0
+channels = ["#nostr", "#roadstr", "#libretag"]
+add_channels = false              # true: add missing hashtag channels to free slots on the node
+# region = "sk"                   # local_api: the flood scope for commands, a name from the node's region
+                                  # catalogue (regions.list; "sk" in Slovakia). Checked at start; without it
+                                  # commands flood in the node's default scope. KISS and companion serial floods are unscoped.
+
+[bridge]                          # stable identity (PROTOCOL.md 4.1): signs claims, receipts, announcements
+# key = "bridge.key"              # make it with: uv run nostrmesh bridge-key -o bridge.key (mode 600)
+# name = "my bridge"              # shown in the announcement
+
+[relays]
+publish = ["wss://nostr.cypherpunk.today", "wss://nos.lol", "wss://relay.primal.net"]  # same set as the app and the Android bridge
+# subscribe = [...]               # defaults to publish
+# auth_key = "bridge.nsec"        # NIP-42: answer AUTH challenges with this key (nsec/hex or a file); unset = never
+
+[uplink]                          # mesh -> relays, on by default
+enabled = true
+rate_global_per_min = 60
+rate_per_pubkey_per_min = 6
+rate_per_pubkey_per_hour = 60
+allow_fragments = false           # note/generic; DMs may always be fragmented
+unregistered_dm = false           # publish DMs between keys not in the register
+unregistered_expiring_dm = true   # but expiring DMs (dm4x, 14 d) from any key, e.g. a tracker's low battery
+dm_inbox_relays = true            # also publish a DM to the recipient's inbox relays (10050, 10002 read)
+dm_inbox_max = 6                  # at most this many extra relays per DM
+profiles = { "road.report" = true, "road.vote" = true, "dm4.ref" = true, "dm4.full" = true, "note" = false, "generic" = false }
+
+[downlink]                        # relays -> mesh, OFF by default
+enabled = false
+hold_min_s = 3
+hold_max_s = 15
+rate_global_per_hour = 20
+rate_per_author_per_hour = 4
+dm_per_hour = 6
+dm_per_device_per_hour = 4
+min_gap_s = 20
+geofence = { lat = 48.70, lon = 21.25, radius_km = 40 }
+profiles = { "road.report" = false, "road.vote" = false, "dm4.ref" = false }
+
+[libretag]                        # LT2 on #libretag (PROTOCOL.md 4); the bridge holds no tracker key
+uplink = true                     # heard reports -> kind 4243, fresh key per event, after 0-5 s
+dedup_min_relays = 2              # skip when the same y + content is already on this many relays
+mailbox = true                    # kind 4244 commands, sent once right after the matching report
+# commands go zero-hop when the report was heard directly, otherwise flood (0.7.3; max_hops is ignored)
+claim = true                      # agree with other bridges over Nostr (kind 24244) who sends
+timed_commands = true             # 0.7 checks: entries with "at" + "via" go out at "at" (zero-hop or flood) if report "via" was caught
+report_path_ttl_s = 172800        # keep the path of each caught report (by x) for 48 h
+timed_claim_lead_s = 5            # claim this long before "at", decide at "at"
+timed_max_late_s = 60             # drop entries whose "at" is further in the past than this
+# abuse limits (PROTOCOL.md 4 "Limits"): anyone can publish a 4244, and "via" is public on the relays
+future_max_s = 60                 # created_at at most this far ahead
+timed_max_after_report_s = 90000  # "at" <= heard_at(via) + 25 h (heartbeat 24 h + 1 h)
+timed_per_via_max = 12            # timed entries kept per "via" (earlier seen first)
+timed_via_gap_s = 600             # one timed transmission per "via" per 10 min
+timed_per_hour = 20               # timed transmissions per rolling hour, all together
+rx_per_min = 30                   # new #libretag packets per minute (own limit, not uplink.rate_global)
+rx_per_first_hop_per_min = 10     # of those, per first repeater of the path; heard directly = one key; no path = skipped
+airtime_pct = 0.1                 # #libretag downlink airtime per rolling hour, separate from [airtime]
+mailbox_relay_share = 0.34        # one relay fills at most a third of the mailbox
+# signed mailbox (PROTOCOL.md 4.2): a heard report commits to its mailbox key; only entries signed by a key
+# that matches and was here before the report count. No proof of work.
+anchor_lead_s = 60                # a key must have been here this long before the report to lock
+late_max_s = 60                   # an entry from a locked key up to 60 s after the report goes out at once
+keys_per_y = 8                    # keys kept per report tag (first seen stay)
+group_ack = true                  # drop the rest of a command group ["g"] once the tracker answered
+ack_window_s = 180                # a report this soon after our timed transmission may be its answer
+mailbox_cap = 200000              # tags in all (was 10,000: one GPU minute filled it)
+publish_delay_min_s = 2           # reports wait 2-5 s before publishing: above claim_wait_s, so only a bridge
+publish_delay_max_s = 5           # that heard a report can prove it in its claim
+# targeting, cost and identity (PROTOCOL.md 4.1)
+# networks = ["sk"]               # networks served: announcement "d", and entries with another "r" are skipped
+# peers = []                      # bridge keys (hex or npub) whose claims always count
+receipts = false                  # publish "heard" receipts (kind 4245) so apps can pick this bridge
+announce = true                   # kind 38244 at start and daily (needs [bridge] key)
+accept_open = true                # entries that name no bridge
+timed_airtime_share = 0.5         # timed entries use at most half of airtime_pct; the rest answers reports
+open_floods_per_hour = 6          # floods for entries that name no bridge
+
+[airtime]                         # own transmissions: LoRa time-on-air budget, silent when spent (kept in the ledger)
+budget_pct = 0.1                  # per rolling hour (3.6 s), everything except #libretag
+sf = 7                            # radio preset for the airtime formula: must match the node (SK/CZ/HU: 7 / 62.5 kHz / 4/5)
+bw_hz = 62500                     # a Local API node that reports its preset overrides these, with a warning
+cr = 5
+
+[ledger]
+# path = "ledger.sqlite"          # default ~/.config/nostrmesh/ledger.sqlite
+retention_days = 30
+outbox_ttl_s = 1209600            # events no relay took are retried this long (14 d, capped by their expiration)
+
+[watchdog]
+rx_silence_s = 1800               # nothing from the radio for 30 min: exit 3, launchd/systemd restarts us (0 = off)
+
+[status]
+# path = "status.json"            # default ~/.config/nostrmesh/status.json; `nostrmesh status` reads it
+interval_s = 3600                 # heartbeat: log line + status file
+
+# [registry]
+# path = "devices.toml"           # sensitive: chmod 600, keep out of public repos

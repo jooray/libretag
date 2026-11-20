@@ -1,0 +1,1094 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 01:55:05 +0100
+Subject: [PATCH 02/40] LibreTag tracker: LT2 (WIP, builds, not yet on
+ hardware)
+
+---
+ zephcore/boards/common/tracker.conf |   5 +
+ zephcore/src/main_tracker.cpp       | 674 ++++++++++++++++------------
+ 2 files changed, 381 insertions(+), 298 deletions(-)
+
+diff --git a/zephcore/boards/common/tracker.conf b/zephcore/boards/common/tracker.conf
+index 43827ba..2de526a 100644
+--- a/zephcore/boards/common/tracker.conf
++++ b/zephcore/boards/common/tracker.conf
+@@ -16,3 +16,8 @@ CONFIG_ENTROPY_GENERATOR=y
+ # The USB CDC port carries the text CLI; keep the console driver off it.
+ CONFIG_UART_CONSOLE=n
+ CONFIG_SHELL=n
++
++# The tracker keeps its keys in raw pages of storage_partition (PROTOCOL.md 1, ratchet with a
++# real erase); nothing else may mount that partition.
++CONFIG_SETTINGS=n
++CONFIG_NVS=n
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 7c17346..af881d6 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -24,6 +24,9 @@
+ #include <zephyr/random/random.h>
+ #include <zephyr/sys/util.h>
+ #include <zephyr/sys/byteorder.h>
++#include <zephyr/sys/crc.h>
++#include <zephyr/storage/flash_map.h>
++#include <zephyr/drivers/pwm.h>
+ #include <zephyr/spinlock.h>
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
+ #include <zephyr/bluetooth/bluetooth.h>
+@@ -93,9 +96,10 @@ extern "C" void bt_ctlr_assert_handle(char *file, uint32_t line)
+ #define EV_LISTEN_END  BIT(MESH_EVENT_ROLE_BASE + 2)
+ #define EV_TX_RETRY    BIT(MESH_EVENT_ROLE_BASE + 3)
+ #define EV_SCAN_END    BIT(MESH_EVENT_ROLE_BASE + 4)
++#define EV_RETX        BIT(MESH_EVENT_ROLE_BASE + 5)
+ #define EV_ALL (MESH_EVENT_LORA_RX | MESH_EVENT_LORA_TX_DONE | MESH_EVENT_CLI_RX | \
+ 		MESH_EVENT_GPS_ACTION | EV_REPORT_DUE | EV_FIX_TIMEOUT | EV_LISTEN_END | EV_TX_RETRY | \
+-		EV_SCAN_END)
++		EV_SCAN_END | EV_RETX)
+ 
+ static struct k_event events;
+ 
+@@ -108,6 +112,7 @@ TIMER(fix_timer, EV_FIX_TIMEOUT);
+ TIMER(listen_timer, EV_LISTEN_END);
+ TIMER(retry_timer, EV_TX_RETRY);
+ TIMER(scan_timer, EV_SCAN_END);
++TIMER(retx_timer, EV_RETX);
+ 
+ static void post_lora_rx(void *) { k_event_post(&events, MESH_EVENT_LORA_RX); }
+ static void post_lora_tx_done(void *) { k_event_post(&events, MESH_EVENT_LORA_TX_DONE); }
+@@ -132,12 +137,13 @@ static NodePrefs prefs;
+ #define STATE_MAGIC_V1 0x4C544731u /* "LTG1" */
+ #define STATE_MAGIC_V2 0x4C544732u /* "LTG2": v1 + Nostr fields appended */
+ #define STATE_MAGIC_V3 0x4C544733u /* "LTG3": v2 + network (path hash size, region) */
+-#define STATE_MAGIC 0x4C544734u    /* "LTG4": v3 + last fix, mode, last command */
++#define STATE_MAGIC_V4 0x4C544734u /* "LTG4": v3 + last fix, mode, last command */
++#define STATE_MAGIC 0x4C544735u    /* "LTG5": v4 + reports slow down while still */
+ #define N_CHECKPOINT 16
+ 
+ struct persisted {
+ 	uint32_t magic;
+-	uint8_t key[LT_KEY_SIZE];
++	uint8_t legacy_key[32];   /* LT1 key; moved to the key pages as K0 on the first LT2 boot */
+ 	uint32_t n_next;          /* counter to use after a reboot (checkpointed ahead) */
+ 	uint16_t interval_min;
+ 	uint16_t listen_s;
+@@ -170,11 +176,14 @@ struct persisted {
+ 	uint8_t last_cmd_seq;     /* acknowledged in reports; 0 after a reboot faked ACKs */
+ 	uint16_t mode_left_min;   /* minutes of TRACK/LOST left when saved */
+ 	uint16_t track_interval_s;
++	/* v5 */
++	uint16_t still_max_min;   /* 0 off; else IDLE interval doubles while fixes do not move, up to this */
+ };
+ 
+ #define V1_SIZE offsetof(struct persisted, nostr_sk)
+ #define V2_SIZE offsetof(struct persisted, path_hash_size)
+ #define V3_SIZE offsetof(struct persisted, last_fix_time)
++#define V4_SIZE offsetof(struct persisted, still_max_min)
+ #define BORDER_M 3000U /* within this of a border, the neighbour's network is a candidate */
+ /* Second copy on the neighbour's network only when the home network was silent in this many
+  * listen windows in a row: if home repeaters are audible (often true just across a border), they
+@@ -193,8 +202,6 @@ static enum phase phase = PH_SLEEP;
+ static uint32_t n_cur;            /* next report counter */
+ static uint32_t n_report;         /* counter of the last encrypted report: commands are bound to it */
+ static bool n_report_valid;
+-static uint32_t n_report_alt;     /* the copy on the neighbour's network, if any */
+-static bool n_report_alt_valid;
+ static lt_mode_t mode = LT_MODE_IDLE;
+ static uint32_t track_interval_s = 120;
+ static int64_t mode_until_ms;
+@@ -213,6 +220,8 @@ static uint8_t test_left;
+ static uint32_t test_interval_s;
+ static int64_t test_due_ms; /* when the last test report was due; the next is interval_s later */
+ static bool first_fix_pending = true;
++static uint16_t still_factor = 1; /* IDLE interval multiplier while the tracker does not move */
++#define STILL_RADIUS_M 50.0
+ 
+ /* packets of one wake-up, sent back to back before the LISTEN window */
+ #define TXQ_MAX 4
+@@ -225,12 +234,41 @@ static uint32_t report_cycle;
+ 
+ #if NOSTR
+ static uint8_t nostr_key[16]; /* #nostr channel */
+-static uint8_t my_pk[32];
++static uint8_t my_pk[32];     /* of the DM key (PROTOCOL.md 1, dm_sk) */
+ static bool nostr_ok;         /* secp256k1 and AES-256 self-test passed */
+ static bool low_alert_sent;
+-static uint8_t last_dm_id[8];
++#define LOW_DM_PCT 10         /* below this the tracker DMs the owner itself (PROTOCOL.md 5) */
+ #endif
+ 
++/* Keys (PROTOCOL.md 1) live in two raw 4 KB pages of storage_partition, written alternately;
++ * after a good write the other page is erased, so a ratcheted-away key is really gone (a
++ * LittleFS rewrite would leave the old block readable). */
++#define KEYS_MAGIC 0x4C544B32u /* "LTK2" */
++#define KEYS_PAGE 4096
++struct keyrec {
++	uint32_t magic;
++	uint32_t seq;
++	uint8_t locked;   /* USB console locked (PROTOCOL.md 6) */
++	uint8_t has_k0;   /* K0 kept until the app locks the tracker after pairing */
++	uint8_t pad[2];
++	uint8_t k0[LT_K0_SIZE];
++	lt_keys_t k;
++	uint32_t crc;
++};
++static struct keyrec keys;
++static bool usb_session;          /* `auth` passed on this connection */
++static int64_t usb_session_until;
++static uint8_t usb_challenge[16];
++static bool usb_challenge_valid;
++
++/* implicit acknowledgement: a repeater relaying our own report means the first hop has it */
++static uint8_t sent_payload[LT_REPORT_P_LEN_STEALTH + 16];
++static size_t sent_payload_len;
++static bool sent_acked;
++static bool retx_done;
++static bool side_tx_pending;      /* a packet outside the TX queue (discover, retransmission) */
++#define RETX_AFTER_MS 8000
++
+ /* wall clock: GNSS time anchored to uptime */
+ static int64_t clock_unix;
+ static int64_t clock_uptime_ms;
+@@ -291,6 +329,63 @@ static bool save_cfg(void)
+ 	return w == (ssize_t)sizeof(cfg);
+ }
+ 
++static const struct flash_area *keys_fa;
++
++static uint32_t keyrec_crc(const struct keyrec *r)
++{
++	return crc32_ieee((const uint8_t *)r, offsetof(struct keyrec, crc));
++}
++
++static bool keys_read(int page, struct keyrec *r)
++{
++	return flash_area_read(keys_fa, page * KEYS_PAGE, r, sizeof(*r)) == 0 && r->magic == KEYS_MAGIC &&
++	       r->crc == keyrec_crc(r);
++}
++
++static bool keys_save(void)
++{
++	if (!keys_fa) {
++		return false;
++	}
++	keys.magic = KEYS_MAGIC;
++	keys.seq++;
++	keys.crc = keyrec_crc(&keys);
++	int page = keys.seq & 1;
++	struct keyrec back;
++
++	if (flash_area_erase(keys_fa, page * KEYS_PAGE, KEYS_PAGE) ||
++	    flash_area_write(keys_fa, page * KEYS_PAGE, &keys, sizeof(keys)) || !keys_read(page, &back) ||
++	    back.seq != keys.seq) {
++		LOG_ERR("key page %d write failed", page);
++		return false;
++	}
++	/* the previous page holds the previous epoch's keys: erase it */
++	flash_area_erase(keys_fa, (1 - page) * KEYS_PAGE, KEYS_PAGE);
++	return true;
++}
++
++static void keys_new(const uint8_t *k0)
++{
++	memset(&keys.k0, 0, sizeof(keys.k0));
++	if (k0) {
++		memcpy(keys.k0, k0, LT_K0_SIZE);
++	} else {
++		rng.random(keys.k0, LT_K0_SIZE);
++	}
++	keys.has_k0 = 1;
++	keys.locked = 0;
++	lt_keys_from_k0(keys.k0, &keys.k);
++}
++
++/* Keys for report n: ratchet forward when n entered a new epoch. */
++static void keys_for(uint32_t n)
++{
++	if (lt_epoch(n) > keys.k.epoch) {
++		lt_keys_advance(&keys.k, lt_epoch(n));
++		keys_save();
++	}
++}
++
+ static void defaults(void)
+ {
+ 	memset(&cfg, 0, sizeof(cfg));
+@@ -305,11 +400,8 @@ static void defaults(void)
+ 	cfg.sf = prefs.sf;
+ 	cfg.cr = prefs.cr;
+ 	cfg.tx_power = prefs.tx_power_dbm;
+-	rng.random(cfg.key, sizeof(cfg.key));
+-	/* One packet per wake-up by default: no inbox poll (the owner's bridge recognises the
+-	 * regular report, it knows the key), no low-battery DM (the app reads LOW_BATT). */
+-	cfg.inbox_every = 0;
+-	cfg.dm_alerts = 0;
++	/* the low-battery DM (below 10 %, PROTOCOL.md 5) goes out once an owner is set */
++	cfg.dm_alerts = 1;
+ 	cfg.path_hash_size = 1; /* until the first fix picks the country's network */
+ }
+ 
+@@ -329,9 +421,9 @@ static void load_cfg(void)
+ 		ok = r == (ssize_t)sizeof(cfg) && cfg.magic == STATE_MAGIC;
+ 		uint32_t was = cfg.magic;
+ 		size_t keep = was == STATE_MAGIC_V1 ? V1_SIZE : was == STATE_MAGIC_V2 ? V2_SIZE :
+-			      was == STATE_MAGIC_V3 ? V3_SIZE : 0;
++			      was == STATE_MAGIC_V3 ? V3_SIZE : was == STATE_MAGIC_V4 ? V4_SIZE : 0;
+ 		if (!ok && keep && r >= (ssize_t)keep) {
+-			LOG_INF("migrating LibreTag state %08x -> v4", was);
++			LOG_INF("migrating LibreTag state %08x -> v5", was);
+ 			memset((uint8_t *)&cfg + keep, 0, sizeof(cfg) - keep);
+ 			cfg.magic = STATE_MAGIC;
+ 			if (keep < V3_SIZE) {
+@@ -342,7 +434,7 @@ static void load_cfg(void)
+ 		}
+ 	}
+ 	if (!ok) {
+-		LOG_WRN("no LibreTag state, generating a new key");
++		LOG_WRN("no LibreTag state, defaults");
+ 		defaults();
+ 	}
+ 	/* LOST/TRACK and the last command survive a reboot (a brownout must not end LOST) */
+@@ -357,6 +449,35 @@ static void load_cfg(void)
+ 	n_cur = cfg.n_next;
+ 	cfg.n_next = n_cur + N_CHECKPOINT;
+ 	save_cfg();
++
++	struct keyrec a, b;
++	bool ka = false, kb = false;
++
++	if (flash_area_open(FIXED_PARTITION_ID(storage_partition), &keys_fa) != 0) {
++		keys_fa = NULL;
++		LOG_ERR("no key partition");
++	} else {
++		ka = keys_read(0, &a);
++		kb = keys_read(1, &b);
++	}
++	if (ka || kb) {
++		keys = (ka && (!kb || a.seq > b.seq)) ? a : b;
++	} else {
++		bool legacy = false;
++
++		for (size_t i = 0; i < sizeof(cfg.legacy_key); i++) {
++			legacy |= cfg.legacy_key[i] != 0;
++		}
++		/* first LT2 boot of a paired tracker: its LT1 key becomes K0, the app keeps it */
++		keys_new(legacy ? cfg.legacy_key : NULL);
++		LOG_WRN("%s", legacy ? "LT1 key moved to K0" : "new K0");
++		keys_save();
++		if (legacy) {
++			memset(cfg.legacy_key, 0, sizeof(cfg.legacy_key));
++			save_cfg();
++		}
++	}
++	keys_for(n_cur);
+ }
+ 
+ /* Persist mode changes (and the remaining time, coarsely) so a reboot resumes them. */
+@@ -521,7 +642,7 @@ static uint32_t next_interval_s(void)
+ 	}
+ 	uint32_t base = (mode == LT_MODE_TRACK || mode == LT_MODE_LOST)
+ 				? track_interval_s
+-				: (uint32_t)cfg.interval_min * 60U;
++				: (uint32_t)cfg.interval_min * 60U * still_factor;
+ 	/* +-10 % jitter so the period is not a fingerprint */
+ 	int32_t span = (int32_t)base / 5;
+ 	int32_t j = span > 0 ? (int32_t)(sys_rand32_get() % (uint32_t)span) - span / 2 : 0;
+@@ -615,6 +736,7 @@ static void tx_finished(void)
+ 	} else {
+ 		phase = PH_LISTEN;
+ 		k_timer_start(&listen_timer, K_SECONDS(cfg.listen_s), K_NO_WAIT);
++		k_timer_start(&retx_timer, K_MSEC(RETX_AFTER_MS), K_NO_WAIT);
+ 	}
+ }
+ 
+@@ -645,75 +767,37 @@ static bool txq_add_dm(const char *text)
+ 		return false;
+ 	}
+ 	rng.random(iv, sizeof(iv));
+-	size_t l = lt_nostr_dm_frame(cfg.nostr_sk, cfg.owner, t, text, MIN(strlen(text), LT_NOSTR_DM_REF_MAX_TEXT),
++	size_t l = lt_nostr_dm_frame(keys.k.dm_sk, cfg.owner, t, text, MIN(strlen(text), LT_NOSTR_DM_REF_MAX_TEXT),
+ 				     iv, true, fr, sizeof(fr));
+ 	return l && txq_add_nostr(fr, l);
+ }
+ 
+-static bool txq_add_poll(void)
+-{
+-	uint8_t fr[LT_NOSTR_POLL_FRAME_LEN];
+-	uint32_t t = now_unix();
+-
+-	return nostr_ok && t && lt_nostr_poll_frame(cfg.nostr_sk, t, fr) && txq_add_nostr(fr, sizeof(fr));
+-}
+-
+-static const char *mode_name(lt_mode_t m)
+-{
+-	static const char *names[] = {"IDLE", "TRACK", "LISTEN", "LOST"};
+-
+-	return m <= LT_MODE_LOST ? names[m] : "?";
+-}
+-
+-/* Is this wake-up's report the public one? LOST mode: always; else every k-th (public <k>). */
+-static bool public_due(void)
+-{
+-	return nostr_ok && now_unix() &&
+-	       (mode == LT_MODE_LOST || (cfg.public_every && report_cycle % cfg.public_every == 0));
+-}
+-
+-/* Optional extras, both off by default: low-battery DM and the inbox poll. */
+-static void add_nostr_extras(uint8_t pct, bool low)
++/* Below LOW_DM_PCT, once: the owner gets a DM even if the app is not running (PROTOCOL.md 5). */
++static void add_low_battery_dm(uint8_t pct)
+ {
+-	if (!nostr_ok || !now_unix()) {
++	if (!nostr_ok || !now_unix() || !cfg.has_owner || !cfg.dm_alerts) {
+ 		return;
+ 	}
+-	bool dm_sent = false;
+-	if (cfg.dm_alerts && low && !low_alert_sent) {
+-		char msg[48];
++	if (pct < LOW_DM_PCT && !low_alert_sent) {
++		char msg[60];
+ 
+-		snprintf(msg, sizeof(msg), "LibreTag: battery %u%%, mode %s", pct, mode_name(mode));
+-		dm_sent = txq_add_dm(msg);
+-		low_alert_sent = dm_sent;
++		snprintf(msg, sizeof(msg), "LibreTag: battery %u %%, charge me soon.", pct);
++		low_alert_sent = txq_add_dm(msg);
+ 	}
+-	if (pct > cfg.low_batt_pct + 10) {
++	if (pct > LOW_DM_PCT + 15) {
+ 		low_alert_sent = false;
+ 	}
+-	/* a DM uplink opens the bridge's queue too, so the poll is only needed without one */
+-	if (!dm_sent && cfg.has_owner && cfg.inbox_every && report_cycle % cfg.inbox_every == 0) {
+-		txq_add_poll();
+-	}
+ }
+ #endif
+ 
+-/* One report into the TX queue: public (#nostr) or the encrypted one. */
+-static bool txq_add_report(const lt_report_t *r, uint32_t n, bool pub)
++/* Report n, copy j, into the TX queue (PROTOCOL.md 2). */
++static bool txq_add_report(const lt_report_t *r, uint32_t n, uint8_t j)
+ {
+ 	if (txq_n >= TXQ_MAX) {
+ 		return false;
+ 	}
+-#if NOSTR
+-	if (pub) {
+-		uint8_t pt[LT_REPORT_PT_LEN], fr[LT_NOSTR_PUBLIC_FRAME_LEN];
+-
+-		lt_report_encode(r, pt);
+-		return lt_nostr_public_frame(cfg.key, n, pt, r->time, fr) && txq_add_nostr(fr, sizeof(fr));
+-	}
+-#else
+-	ARG_UNUSED(pub);
+-#endif
+-	size_t l = cfg.channel_mode ? lt_build_channel_report_packet(cfg.key, chan_key, n, r, txq[txq_n])
+-				    : lt_build_report_packet(cfg.key, n, r, txq[txq_n]);
++	size_t l = cfg.channel_mode ? lt_build_channel_report_packet(keys.k.view, chan_key, n, j, r, txq[txq_n])
++				    : lt_build_stealth_report_packet(keys.k.view, n, j, r, txq[txq_n]);
+ 	if (!l) {
+ 		return false;
+ 	}
+@@ -739,21 +823,23 @@ static void send_report(bool with_fix)
+ 
+ 	lt_report_t r = {};
+ 	r.has_fix = with_fix && fix_valid;
+-	r.time = r.has_fix ? fix_time : now_unix();
+-	r.lat_e7 = r.has_fix ? (int32_t)llround(fix_lat * 1e7) : 0;
+-	r.lon_e7 = r.has_fix ? (int32_t)llround(fix_lon * 1e7) : 0;
+-	r.alt_m = r.has_fix ? (int16_t)CLAMP(fix_alt_m, -32768, 32767) : 0;
++	if (r.has_fix) {
++		r.fix_time = fix_time;
++		r.lat_e7 = (int32_t)llround(fix_lat * 1e7);
++		r.lon_e7 = (int32_t)llround(fix_lon * 1e7);
++	} else {
++		/* the last fix the tracker remembers (its GPS time tells the app how old it is) */
++		r.fix_time = cfg.last_fix_time;
++		r.lat_e7 = cfg.last_lat_e7;
++		r.lon_e7 = cfg.last_lon_e7;
++	}
+ 	r.hacc_m = 255;
+-	r.speed_kmh = 255;
+-	r.heading = 0xFFFF;
+ 	r.battery = pct;
+ 	r.mode = mode;
+ 	r.cmd_ack = pending_ack;
+ 	r.cmd_seq = last_cmd_seq;
+ 	r.low_batt = low;
+-	if (!r.has_fix) {
+-		fill_neighbours(&r); /* last fix and nearby repeaters (PROTOCOL.md 3) */
+-	}
++	fill_neighbours(&r); /* nearby repeaters, in every report (PROTOCOL.md 2) */
+ 	last_wake_fix = r.has_fix;
+ 	last_sent = r;
+ 	last_sent_valid = true;
+@@ -763,45 +849,40 @@ static void send_report(bool with_fix)
+ 
+ 	size_t nets = plan_networks(&r);
+ 
++	keys_for(n_cur);
+ 	txq_reset();
+-	bool pub = false;
+-#if NOSTR
+-	/* The public report REPLACES the encrypted one: one packet per wake-up either way. It
+-	 * carries the same sealed report, so the owner's app still opens it (on #nostr). */
+-	pub = public_due() && r.time;
+-#endif
+-	if (!txq_add_report(&r, n_cur, pub) && pub) {
+-		pub = false;
+-		txq_add_report(&r, n_cur, false);
+-	}
+-	LOG_INF("%s report n=%u fix=%d batt=%u%% low=%d mode=%d len=%u", pub ? "public" : "private", n_cur,
+-		r.has_fix, pct, low, mode, (unsigned)txq_len[0]);
++	txq_add_report(&r, n_cur, 0);
++	LOG_INF("report n=%u fix=%d batt=%u%% low=%d mode=%d len=%u", n_cur, r.has_fix, pct, low, mode,
++		(unsigned)txq_len[0]);
+ 	checkpoint_counter();
+-	n_report = n_cur; /* app commands are bound to this report, public or not */
++	n_report = n_cur; /* app commands are bound to this report */
+ 	n_report_valid = true;
+-	n_report_alt_valid = false;
+-	n_cur++;
+-	/* Near a border, the same report once more on the neighbour's network. A new counter
+-	 * makes it a different packet: repeaters that heard the first copy would drop an
+-	 * identical second one. */
++	/* Near a border, the same report as copy j=1 on the neighbour's network: the tag
++	 * differs, so repeaters there do not drop it as a duplicate. */
+ 	if (nets == 2) {
+ 		int i = txq_n;
+ 
+-		checkpoint_counter();
+-		if (txq_add_report(&r, n_cur, pub)) {
++		if (txq_add_report(&r, n_cur, 1)) {
+ 			txq_alt[i] = true;
+-			n_report_alt = n_cur;
+-			n_report_alt_valid = true;
+-			LOG_INF("border: copy n=%u on %s's network", n_cur, country_iso(alt_net.country));
+-			n_cur++;
++			LOG_INF("border: copy j=1 on %s's network", country_iso(alt_net.country));
+ 		}
+ 	}
++	n_cur++;
+ 	pending_ack = false;
+ #if NOSTR
+-	add_nostr_extras(pct, low);
++	add_low_battery_dm(pct);
+ #endif
+ 	report_cycle++;
+ 	txq_route_all();
++	{
++		const uint8_t *gp;
++		size_t gl = lt_packet_grp_payload(txq[0], txq_len[0], &gp);
++
++		sent_payload_len = MIN(gl, sizeof(sent_payload));
++		memcpy(sent_payload, gp, sent_payload_len);
++		sent_acked = false;
++		retx_done = false;
++	}
+ 
+ 	radio.recoverRxState(); /* wake the chip; TX goes out from RX (LBT) */
+ 	try_tx();
+@@ -847,6 +928,15 @@ static void gps_fix_cb(double lat, double lon, int64_t utc)
+ 	fix_alt_m = pos.altitude_mm / 1000;
+ 	fix_time = utc > 0 ? (uint32_t)utc : now_unix();
+ 	first_fix_pending = false;
++	if (cfg.still_max_min && cfg.last_fix_time) {
++		double kx = 111320.0 * cos(lat * 0.017453292519943295);
++		double dx = (lon - cfg.last_lon_e7 / 1e7) * kx, dy = (lat - cfg.last_lat_e7 / 1e7) * 110540.0;
++		uint16_t cap = (uint16_t)MAX(1, cfg.still_max_min / MAX(cfg.interval_min, 1));
++
++		still_factor = sqrt(dx * dx + dy * dy) < STILL_RADIUS_M ? (uint16_t)MIN(still_factor * 2, cap) : 1;
++	} else {
++		still_factor = 1;
++	}
+ 	if (fix_time) {
+ 		/* the next report without a fix carries this (with its GPS time) */
+ 		cfg.last_fix_time = fix_time;
+@@ -861,8 +951,48 @@ static void gps_fix_cb(double lat, double lon, int64_t utc)
+ 
+ static uint16_t u16le(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }
+ 
++#if DT_NODE_EXISTS(DT_ALIAS(buzzer))
++static const struct pwm_dt_spec buzzer_pwm = PWM_DT_SPEC_GET(DT_ALIAS(buzzer));
++static int buzz_left; /* quarter-second steps */
++static void buzz_step(struct k_work *w);
++static K_WORK_DELAYABLE_DEFINE(buzz_work, buzz_step);
++
++static void buzz_step(struct k_work *w)
++{
++	ARG_UNUSED(w);
++	uint32_t period = PWM_HZ(2700);
++
++	if (buzz_left <= 0) {
++		pwm_set_dt(&buzzer_pwm, period, 0);
++		return;
++	}
++	pwm_set_dt(&buzzer_pwm, period, (buzz_left & 1) ? period / 2 : 0);
++	buzz_left--;
++	k_work_reschedule(&buzz_work, K_MSEC(250));
++}
++
++/* Beep on and off for `seconds` (BUZZ command): finding the tracker in a car or a bag. */
++static void buzz(uint8_t seconds)
++{
++	if (!pwm_is_ready_dt(&buzzer_pwm)) {
++		return;
++	}
++	buzz_left = seconds * 4;
++	k_work_reschedule(&buzz_work, K_NO_WAIT);
++}
++#else
++static void buzz(uint8_t seconds)
++{
++	LOG_INF("buzz %u s: no buzzer on this board", seconds);
++}
++#endif
++
+ static void apply_command(const lt_command_t *c)
+ {
++	if (c->seq == last_cmd_seq && last_cmd_seq != 0) {
++		pending_ack = true; /* already done (a second copy): acknowledge again, do not repeat */
++		return;
++	}
+ 	switch (c->op) {
+ 	case LT_OP_SET_MODE: {
+ 		uint8_t m = c->args[0];
+@@ -876,9 +1006,6 @@ static void apply_command(const lt_command_t *c)
+ 		mode_until_ms = k_uptime_get() + (int64_t)(dur_min ? dur_min : 120) * 60000;
+ 		break;
+ 	}
+-	case LT_OP_PING:
+-		ping_requested = true;
+-		break;
+ 	case LT_OP_SET_IDLE: {
+ 		uint16_t iv = u16le(c->args), ls = u16le(c->args + 2);
+ 
+@@ -892,7 +1019,7 @@ static void apply_command(const lt_command_t *c)
+ 		break;
+ 	}
+ 	case LT_OP_BUZZ:
+-		LOG_INF("buzz %u s (not implemented on this board yet)", c->args[0]);
++		buzz(c->args[0]);
+ 		break;
+ 	default:
+ 		return;
+@@ -903,107 +1030,6 @@ static void apply_command(const lt_command_t *c)
+ 	LOG_INF("command op=%u seq=%u applied", c->op, c->seq);
+ }
+ 
+-#if NOSTR
+-static bool word(const char **p, const char *w)
+-{
+-	size_t l = strlen(w);
+-
+-	if (strncasecmp(*p, w, l) || ((*p)[l] && (*p)[l] != ' ')) {
+-		return false;
+-	}
+-	*p += l;
+-	while (**p == ' ') {
+-		(*p)++;
+-	}
+-	return true;
+-}
+-
+-/* A text command from the owner; returns the reply DM. */
+-static void dm_command(const char *t, char *reply, size_t cap)
+-{
+-	if (word(&t, "ping") || word(&t, "report")) {
+-		ping_requested = true;
+-		snprintf(reply, cap, "ok, report follows");
+-	} else if (word(&t, "status")) {
+-		if (fix_valid) {
+-			snprintf(reply, cap, "b%u%% %s %.5f,%.5f", board.getBattPercent(), mode_name(mode), fix_lat,
+-				 fix_lon);
+-		} else {
+-			snprintf(reply, cap, "b%u%% %s nofix", board.getBattPercent(), mode_name(mode));
+-		}
+-	} else if (word(&t, "track")) {
+-		int mins = atoi(t), ivs = 0;
+-		const char *sp = strchr(t, ' ');
+-
+-		if (sp) {
+-			ivs = atoi(sp + 1);
+-		}
+-		mode = LT_MODE_TRACK;
+-		track_interval_s = ivs >= 30 ? (uint32_t)ivs : 120;
+-		mode_until_ms = k_uptime_get() + (int64_t)(mins > 0 ? mins : 60) * 60000;
+-		snprintf(reply, cap, "ok track %d min every %u s", mins > 0 ? mins : 60, track_interval_s);
+-	} else if (word(&t, "lost")) {
+-		int mins = atoi(t);
+-
+-		mode = LT_MODE_LOST;
+-		track_interval_s = (uint32_t)(mins >= 5 ? mins : 30) * 60U;
+-		mode_until_ms = k_uptime_get() + 24LL * 3600 * 1000;
+-		snprintf(reply, cap, "ok LOST 24 h, public report every %u min", track_interval_s / 60);
+-	} else if (word(&t, "idle")) {
+-		mode = LT_MODE_IDLE;
+-		snprintf(reply, cap, "ok idle, every %u min", cfg.interval_min);
+-	} else if (word(&t, "public")) {
+-		cfg.public_every = (uint8_t)CLAMP(atoi(t), 0, 255);
+-		save_cfg();
+-		snprintf(reply, cap, "ok public every %u", cfg.public_every);
+-	} else {
+-		snprintf(reply, cap, "cmds: ping status track [min s] lost [min] idle public k");
+-	}
+-}
+-
+-/* DM from the owner on #nostr: verify, decrypt, act, answer. */
+-static bool handle_nostr_rx(const uint8_t *raw, size_t len)
+-{
+-	const uint8_t *p;
+-	uint8_t frame[LT_NOSTR_MAX_FRAME + 16];
+-	char text[LT_NOSTR_DM_REF_MAX_TEXT + 64], reply[LT_NOSTR_DM_REF_MAX_TEXT + 1];
+-	lt_dm_info_t info;
+-	size_t pl = lt_packet_grp_payload(raw, len, &p);
+-
+-	if (!pl || !nostr_ok || !cfg.has_owner) {
+-		return false;
+-	}
+-	int fl = lt_channel_unwrap(nostr_key, LT_NOSTR_DATA_TYPE, p, pl, frame, sizeof(frame));
+-	if (fl <= 0) {
+-		return false;
+-	}
+-	int tl = lt_nostr_open_dm(frame, (size_t)fl, cfg.nostr_sk, my_pk, cfg.owner, text, sizeof(text), &info);
+-	if (tl < 0) {
+-		if (tl != -1) {
+-			LOG_WRN("DM for us rejected (%d)", tl);
+-		}
+-		return false;
+-	}
+-	if (info.created_at < cfg.last_dm_at ||
+-	    (info.created_at == cfg.last_dm_at && !memcmp(info.id, last_dm_id, sizeof(last_dm_id)))) {
+-		return false; /* replay or a second copy */
+-	}
+-	cfg.last_dm_at = info.created_at;
+-	memcpy(last_dm_id, info.id, sizeof(last_dm_id));
+-	save_cfg();
+-	LOG_INF("DM from owner: %s", text);
+-	dm_command(text, reply, sizeof(reply));
+-	txq_reset();
+-	if (txq_add_dm(reply)) {
+-		k_timer_stop(&listen_timer);
+-		txq_route_all();
+-		radio.recoverRxState();
+-		try_tx(); /* then a fresh LISTEN window: the owner may write again */
+-	}
+-	return true;
+-}
+-#endif
+-
+ static void mesh_scan_record(const uint8_t *b, size_t n, int16_t rssi, int8_t snr);
+ 
+ static void handle_rx(void)
+@@ -1019,30 +1045,25 @@ static void handle_rx(void)
+ 		if (phase != PH_LISTEN) {
+ 			continue;
+ 		}
+-		lt_command_t c;
+-		bool ok = false;
+-
+-		for (int k = 0; k < 2 && !ok; k++) {
+-			uint32_t n = k ? n_report_alt : n_report;
++		if (!sent_acked && sent_payload_len) {
++			const uint8_t *gp;
++			size_t gl = lt_packet_grp_payload(buf, (size_t)len, &gp);
+ 
+-			if (!(k ? n_report_alt_valid : n_report_valid)) {
+-				continue;
++			if (gl == sent_payload_len && !memcmp(gp, sent_payload, gl)) {
++				sent_acked = true; /* a repeater relayed our report */
++				k_timer_stop(&retx_timer);
+ 			}
+-			ok = cfg.channel_mode
+-				     ? lt_parse_channel_command_packet(cfg.key, chan_key, n, buf, (size_t)len, &c)
+-				     : lt_parse_command_packet(cfg.key, n, buf, (size_t)len, &c);
+ 		}
+-		if (ok) {
++		lt_command_t c;
++
++		if (n_report_valid &&
++		    lt_parse_channel_command_packet(keys.k.cmd, chan_key, n_report, buf, (size_t)len, &c)) {
+ 			apply_command(&c);
+ 			k_timer_stop(&listen_timer);
++			k_timer_stop(&retx_timer);
+ 			go_to_sleep();
+ 			return;
+ 		}
+-#if NOSTR
+-		if (handle_nostr_rx(buf, (size_t)len)) {
+-			return;
+-		}
+-#endif
+ 	}
+ }
+ 
+@@ -1092,7 +1113,6 @@ struct mesh_disc {
+ static struct mesh_disc mesh_disc[MESH_DISC_MAX];
+ static uint8_t mesh_disc_n;
+ static uint32_t disc_tag;
+-static bool disc_tx_pending;
+ static bool disc_quiet;      /* automatic discover at a wake-up: no CLI output */
+ 
+ static void mesh_scan_clear(void)
+@@ -1439,7 +1459,7 @@ static bool disc_start(uint32_t sec, bool quiet)
+ 		mesh_scanning = false;
+ 		return false;
+ 	}
+-	disc_tx_pending = true;
++	side_tx_pending = true;
+ 	k_timer_start(&scan_timer, K_SECONDS(sec), K_NO_WAIT);
+ 	return true;
+ }
+@@ -1447,9 +1467,6 @@ static bool disc_start(uint32_t sec, bool quiet)
+ /* The report without a fix: the two loudest repeaters (discover answers, else heard ones). */
+ static void fill_neighbours(lt_report_t *r)
+ {
+-	r->last_fix_time = cfg.last_fix_time;
+-	r->last_lat_e7 = cfg.last_lat_e7;
+-	r->last_lon_e7 = cfg.last_lon_e7;
+ 	if (mesh_disc_n) {
+ 		uint8_t idx[MESH_DISC_MAX];
+ 
+@@ -1465,9 +1482,9 @@ static void fill_neighbours(lt_report_t *r)
+ 				}
+ 			}
+ 		}
+-		r->nb_from_discover = true;
++		r->nb_discover = true;
+ 		r->nb_total = mesh_disc_n;
+-		r->nb_count = (uint8_t)MIN(mesh_disc_n, LT_REPORT_MAX_NB);
++		r->nb_count = (uint8_t)MIN(mesh_disc_n, LT_MAX_NB);
+ 		for (uint8_t i = 0; i < r->nb_count; i++) {
+ 			memcpy(r->nb[i].hash, mesh_disc[idx[i]].key, 2);
+ 			r->nb[i].snr4 = mesh_disc[idx[i]].their_snr4;
+@@ -1475,16 +1492,16 @@ static void fill_neighbours(lt_report_t *r)
+ 		return;
+ 	}
+ 	/* passive: repeaters heard directly since this wake-up began (2-byte hashes only) */
+-	uint8_t best[LT_REPORT_MAX_NB] = {0xFF, 0xFF};
++	uint8_t best[LT_MAX_NB] = {0xFF, 0xFF};
+ 
+ 	for (uint8_t i = 0; i < mesh_nb_n; i++) {
+ 		if (mesh_nb[i].hash_size < 2) {
+ 			continue;
+ 		}
+ 		r->nb_total++;
+-		for (uint8_t k = 0; k < LT_REPORT_MAX_NB; k++) {
++		for (uint8_t k = 0; k < LT_MAX_NB; k++) {
+ 			if (best[k] == 0xFF || mesh_nb[i].snr_max > mesh_nb[best[k]].snr_max) {
+-				for (uint8_t m = LT_REPORT_MAX_NB - 1; m > k; m--) {
++				for (uint8_t m = LT_MAX_NB - 1; m > k; m--) {
+ 					best[m] = best[m - 1];
+ 				}
+ 				best[k] = i;
+@@ -1492,7 +1509,7 @@ static void fill_neighbours(lt_report_t *r)
+ 			}
+ 		}
+ 	}
+-	for (uint8_t k = 0; k < LT_REPORT_MAX_NB && best[k] != 0xFF; k++) {
++	for (uint8_t k = 0; k < LT_MAX_NB && best[k] != 0xFF; k++) {
+ 		memcpy(r->nb[k].hash, mesh_nb[best[k]].hash, 2);
+ 		r->nb[k].snr4 = (int8_t)CLAMP(mesh_nb[best[k]].snr_max * 4, -128, 127);
+ 		r->nb_count++;
+@@ -1540,15 +1557,43 @@ static void scan_end(void)
+ static void print_nostr(void);
+ #endif
+ 
++#define USB_SESSION_MS (10 * 60 * 1000)
++
++static bool usb_unlocked(void)
++{
++	return usb_session && k_uptime_get() < usb_session_until;
++}
++
++/* What a locked console still answers: reading the state, diagnostics, a reset of the pairing. */
++static bool cli_needs_unlock(const char *c)
++{
++	static const char *const open_cmds[] = {"help", "status", "version", "challenge", "auth", "unpair",
++						"where", "gps", "noise", "meshscan", "discover", "neighbours",
++						"blescan", "nostr", "buzz", "report", "test"};
++
++	for (size_t i = 0; i < ARRAY_SIZE(open_cmds); i++) {
++		if (!strcmp(c, open_cmds[i])) {
++			return false;
++		}
++	}
++	return true;
++}
++
+ static char line[160];
+ static size_t line_len;
+ 
+ static void print_status(void)
+ {
+-	char k[2 * LT_KEY_SIZE + 1];
++	char k[2 * LT_K0_SIZE + 1];
+ 
+-	hex(k, cfg.key, LT_KEY_SIZE);
+-	out("LIBRETAG KEY %s\r\n", k);
++	hex(k, keys.k.id, LT_ID_SIZE);
++	out("LIBRETAG ID %s\r\n", k);
++	if (keys.locked) {
++		out("locked%s\r\n", usb_unlocked() ? " (unlocked for this connection)" : ": challenge, then auth <hex>");
++	} else if (keys.has_k0) {
++		hex(k, keys.k0, LT_K0_SIZE);
++		out("LIBRETAG KEY %s\r\n", k);
++	}
+ 	out("firmware LibreTag %s, ZephCore %s\r\n", LT_FW_VERSION, LT_ZEPHCORE_BASE);
+ 	out("n=%u mode=%d interval=%umin listen=%us fixto=%us transport=%s\r\n", n_cur, mode,
+ 	    cfg.interval_min, cfg.listen_s, cfg.fix_timeout_s, cfg.channel_mode ? "channel" : "stealth");
+@@ -1562,16 +1607,18 @@ static void print_status(void)
+ 
+ 		if (q->has_fix) {
+ 			out("last report: fix %.5f,%.5f\r\n", q->lat_e7 / 1e7, q->lon_e7 / 1e7);
++		} else if (q->fix_time) {
++			out("last report: no fix; last fix %u s ago\r\n",
++			    now_unix() ? (unsigned)(now_unix() - q->fix_time) : 0U);
+ 		} else {
+-			out("last report: no fix; last fix %s%u s ago; %u repeater(s)%s:", q->last_fix_time ? "" : "never ",
+-			    q->last_fix_time && now_unix() ? (unsigned)(now_unix() - q->last_fix_time) : 0U, q->nb_total,
+-			    q->nb_from_discover ? " answered discover" : " heard");
+-			for (uint8_t i = 0; i < q->nb_count; i++) {
+-				out(" %02x%02x snr %d.%02d", q->nb[i].hash[0], q->nb[i].hash[1], q->nb[i].snr4 / 4,
+-				    (abs(q->nb[i].snr4) % 4) * 25);
+-			}
+-			out("\r\n");
++			out("last report: no fix, never had one\r\n");
+ 		}
++		out("  %u repeater(s)%s:", q->nb_total, q->nb_discover ? " answered discover" : " heard");
++		for (uint8_t i = 0; i < q->nb_count; i++) {
++			out(" %02x%02x snr %d.%02d", q->nb[i].hash[0], q->nb[i].hash[1], q->nb[i].snr4 / 4,
++			    (abs(q->nb[i].snr4) % 4) * 25);
++		}
++		out("\r\n");
+ 	}
+ 	if (home_silent == 255) {
+ 		out("home network: not heard yet (a border copy goes out if one applies)\r\n");
+@@ -1621,11 +1668,11 @@ static void print_nostr(void)
+ 	} else {
+ 		out("owner none (DMs off): owner <npub|hex>\r\n");
+ 	}
+-	out("public every %u (LOST: always) | inbox poll every %u | low-battery DM %s | clock %s\r\n",
+-	    cfg.public_every, cfg.inbox_every, cfg.dm_alerts ? "on" : "off", now_unix() ? "ok" : "none (no fix yet)");
++	out("low-battery DM (below %u %%) %s | clock %s\r\n", LOW_DM_PCT, cfg.dm_alerts ? "on" : "off",
++	    now_unix() ? "ok" : "none (no fix yet)");
+ }
+ 
+-static bool cli_nostr(int argc, char **argv, char *rest)
++static bool cli_nostr(int argc, char **argv)
+ {
+ 	const char *c = argv[0];
+ 
+@@ -1636,40 +1683,16 @@ static bool cli_nostr(int argc, char **argv, char *rest)
+ 			cfg.has_owner = 0;
+ 		} else if (lt_parse_pubkey(argv[1], cfg.owner)) {
+ 			cfg.has_owner = 1;
+-			cfg.last_dm_at = 0;
+ 		} else {
+ 			out("ERR need npub1... or 64 hex\r\n");
+ 			return true;
+ 		}
+ 		save_cfg();
+ 		print_nostr();
+-	} else if (!strcmp(c, "public") && argc == 2) {
+-		cfg.public_every = (uint8_t)CLAMP(atoi(argv[1]), 0, 255);
+-		save_cfg();
+-		out("OK\r\n");
+-	} else if (!strcmp(c, "inbox") && argc == 2) {
+-		cfg.inbox_every = (uint8_t)CLAMP(atoi(argv[1]), 0, 255);
+-		save_cfg();
+-		out("OK\r\n");
+ 	} else if (!strcmp(c, "dmalert") && argc == 2) {
+ 		cfg.dm_alerts = !strcmp(argv[1], "on");
+ 		save_cfg();
+ 		out("OK\r\n");
+-	} else if (!strcmp(c, "dm") && rest && *rest) {
+-		if (phase != PH_SLEEP) {
+-			out("ERR busy (phase %d)\r\n", phase);
+-			return true;
+-		}
+-		txq_reset();
+-		if (!txq_add_dm(rest)) {
+-			out("ERR no owner, no clock (needs one GNSS fix) or self-test failed\r\n");
+-			return true;
+-		}
+-		k_timer_stop(&report_timer);
+-		txq_route_all();
+-		radio.recoverRxState();
+-		try_tx();
+-		out("OK sent, listening %u s for an answer\r\n", cfg.listen_s);
+ 	} else {
+ 		return false;
+ 	}
+@@ -1681,13 +1704,6 @@ static void cli_exec(char *l)
+ {
+ 	char *argv[6];
+ 	int argc = 0;
+-#if NOSTR
+-	char *rest = NULL;
+-
+-	if (!strncmp(l, "dm ", 3)) {
+-		rest = l + 3; /* free text, not tokenised */
+-	}
+-#endif
+ 
+ 	for (char *t = strtok(l, " \t"); t && argc < 6; t = strtok(NULL, " \t")) {
+ 		argv[argc++] = t;
+@@ -1696,28 +1712,83 @@ static void cli_exec(char *l)
+ 		return;
+ 	}
+ 	const char *c = argv[0];
++	if (keys.locked && !usb_unlocked() && cli_needs_unlock(c)) {
++		out("ERR locked: challenge, then auth <hex> (or unpair to reset)\r\n");
++		return;
++	}
+ #if NOSTR
+-	if (cli_nostr(argc, argv, rest)) {
++	if (cli_nostr(argc, argv)) {
+ 		return;
+ 	}
+ #endif
+ 
+ 	if (!strcmp(c, "help")) {
+ 		/* one line per out(): its buffer is 200 bytes */
+-		out("status | key [hex64] | newkey | report | interval <min> | listen <s> | fixto <s>\r\n");
++		out("status | version | challenge | auth <hex> | lock | unpair | key <hex64> | newkey\r\n");
++		out("report | interval <min> | listen <s> | fixto <s> | still <max_min>\r\n");
+ 		out("track <interval_s> <minutes> | idle | transport channel|stealth\r\n");
+ 		out("radio <MHz> <bwkHz> <sf> <cr> | power <dBm> | pathhash 1|2|3 | region <name>|none\r\n");
+ 		out("network auto|manual | where <lat> <lon> | test [count] [interval_s] | gps | reboot | dfu\r\n");
+ 		out("meshscan [s] | discover [s] | neighbours | noise [n] | blescan [s] [passive]\r\n");
+ #if NOSTR
+-		out("nostr | owner <npub|hex|off> | dm <text> | public <k> | inbox <k> | dmalert on|off\r\n");
++		out("nostr | owner <npub|hex|off> | dmalert on|off | buzz [s]\r\n");
+ #endif
+ 	} else if (!strcmp(c, "version")) {
+ 		out("LibreTag tracker %s on ZephCore %s, board %s\r\n", LT_FW_VERSION, LT_ZEPHCORE_BASE, CONFIG_BOARD);
+ 	} else if (!strcmp(c, "status") || (!strcmp(c, "key") && argc == 1)) {
+ 		print_status();
++	} else if (!strcmp(c, "challenge")) {
++		char h[33];
++
++		rng.random(usb_challenge, sizeof(usb_challenge));
++		usb_challenge_valid = true;
++		hex(h, usb_challenge, sizeof(usb_challenge));
++		out("CHALLENGE %s\r\n", h);
++	} else if (!strcmp(c, "auth") && argc == 2) {
++		uint8_t want[16], got[16];
++
++		if (!usb_challenge_valid || parse_hex(argv[1], got, sizeof(got))) {
++			out("ERR challenge first\r\n");
++			return;
++		}
++		usb_challenge_valid = false; /* one try per challenge */
++		lt_usb_auth(keys.k.usb_key, usb_challenge, want);
++		uint8_t d = 0;
++		for (size_t i = 0; i < sizeof(want); i++) {
++			d |= want[i] ^ got[i];
++		}
++		if (d) {
++			out("ERR auth\r\n");
++		} else {
++			usb_session = true;
++			usb_session_until = k_uptime_get() + USB_SESSION_MS;
++			out("OK unlocked\r\n");
++		}
++	} else if (!strcmp(c, "lock")) {
++		/* after pairing: K0 leaves the tracker, the console needs auth from now on */
++		memset(keys.k0, 0, sizeof(keys.k0));
++		keys.has_k0 = 0;
++		keys.locked = 1;
++		usb_session = false;
++		out(keys_save() ? "OK locked\r\n" : "ERR key page\r\n");
++	} else if (!strcmp(c, "unpair")) {
++		/* factory reset of the pairing: new K0, counter from 0, no owner */
++		keys_new(NULL);
++		keys_save();
++		n_cur = 0;
++		cfg.n_next = N_CHECKPOINT;
++		cfg.has_owner = 0;
++		cfg.last_cmd_seq = 0;
++		last_cmd_seq = 0;
++		save_cfg();
++		usb_session = false;
++		print_status();
+ 	} else if (!strcmp(c, "key") && argc == 2) {
+-		if (parse_hex(argv[1], cfg.key, LT_KEY_SIZE) == 0) {
++		uint8_t k0[LT_K0_SIZE];
++
++		if (parse_hex(argv[1], k0, LT_K0_SIZE) == 0) {
++			keys_new(k0);
++			keys_save();
+ 			n_cur = 0;
+ 			cfg.n_next = N_CHECKPOINT;
+ 			save_cfg();
+@@ -1726,11 +1797,19 @@ static void cli_exec(char *l)
+ 			out("ERR need 64 hex chars\r\n");
+ 		}
+ 	} else if (!strcmp(c, "newkey")) {
+-		rng.random(cfg.key, LT_KEY_SIZE);
++		keys_new(NULL);
++		keys_save();
+ 		n_cur = 0;
+ 		cfg.n_next = N_CHECKPOINT;
+ 		save_cfg();
+ 		print_status();
++	} else if (!strcmp(c, "buzz")) {
++		buzz(argc >= 2 ? (uint8_t)CLAMP(atoi(argv[1]), 1, 60) : 3);
++		out("OK\r\n");
++	} else if (!strcmp(c, "still") && argc == 2) {
++		cfg.still_max_min = (uint16_t)CLAMP(atoi(argv[1]), 0, 1440);
++		save_cfg();
++		out("OK %s\r\n", cfg.still_max_min ? "reports slow down while the tracker does not move" : "off");
+ 	} else if (!strcmp(c, "report")) {
+ 		if (phase == PH_SLEEP) {
+ 			k_timer_stop(&report_timer);
+@@ -1946,22 +2025,11 @@ static void nostr_init(void)
+ 	static const uint8_t ct[16] = {0x8e, 0xa2, 0xb7, 0xca, 0x51, 0x67, 0x45, 0xbf,
+ 				       0xea, 0xfc, 0x49, 0x90, 0x4b, 0x49, 0x60, 0x89};
+ 	uint8_t o[16], msg[32] = {1}, sig[64];
+-	bool have = false;
+-
+ 	lt_channel_key(LT_NOSTR_CHANNEL, nostr_key);
+-	for (int i = 0; i < 32; i++) {
+-		have |= cfg.nostr_sk[i] != 0;
+-	}
+-	for (int tries = 0; (!have || !lt_secp_pubkey(cfg.nostr_sk, my_pk)) && tries < 8; tries++) {
+-		rng.random(cfg.nostr_sk, sizeof(cfg.nostr_sk));
+-		have = true;
+-		save_cfg();
+-		LOG_INF("generated the Nostr device key");
+-	}
+ 	lt_aes256_encrypt_block(k256, pt, o);
+ 	bool aes_ok = !memcmp(o, ct, 16);
+ 	int64_t t0 = k_uptime_get();
+-	bool sig_ok = lt_secp_pubkey(cfg.nostr_sk, my_pk) && lt_secp_sign(cfg.nostr_sk, msg, sig);
++	bool sig_ok = lt_secp_pubkey(keys.k.dm_sk, my_pk) && lt_secp_sign(keys.k.dm_sk, msg, sig);
+ 	int64_t t1 = k_uptime_get();
+ 	sig_ok = sig_ok && lt_secp_verify(my_pk, msg, sig);
+ 	int64_t t2 = k_uptime_get();
+@@ -2050,10 +2118,20 @@ int main(void)
+ 		if ((ev & EV_TX_RETRY) && phase != PH_SLEEP) {
+ 			try_tx();
+ 		}
+-		if ((ev & MESH_EVENT_LORA_TX_DONE) && disc_tx_pending && phase != PH_TX && radio.isSendComplete()) {
++		if ((ev & MESH_EVENT_LORA_TX_DONE) && side_tx_pending && phase != PH_TX && radio.isSendComplete()) {
+ 			radio.onSendFinished();
+-			disc_tx_pending = false;
+-			radio.recoverRxState(); /* back to receiving the answers */
++			side_tx_pending = false;
++			radio.recoverRxState(); /* back to receiving (answers, commands) */
++		}
++		if ((ev & EV_RETX) && phase == PH_LISTEN && !sent_acked && !retx_done && txq_n > 0 &&
++		    !side_tx_pending) {
++			/* nobody relayed the report: the same bytes once more (repeaters that did hear
++			 * it drop the copy, so this costs the mesh nothing when it was not needed) */
++			retx_done = true;
++			if (radio.startSendRaw(txq[0], (int)txq_len[0])) {
++				side_tx_pending = true;
++				LOG_INF("report not relayed, sent again");
++			}
+ 		}
+ 		if ((ev & MESH_EVENT_LORA_TX_DONE) && radio.isSendComplete() && phase == PH_TX) {
+ 			radio.onSendFinished();

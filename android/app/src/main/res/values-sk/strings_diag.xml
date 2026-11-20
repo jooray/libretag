@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Diagnostika lokátora (aplikácia 0.12, docs/design/tag-diagnosis.md): prečo je lokátor oneskorený.
+     Vety v riadkoch (dg_row_*) sa vojdú do riadka zoznamu: najviac 44 znakov aj s vyplnenými hodnotami. -->
+<resources>
+    <plurals name="st_missed">
+        <item quantity="one">%1$d hlásenie vynechané · ďalšie %2$s</item>
+        <item quantity="few">%1$d hlásenia vynechané · ďalšie %2$s</item>
+        <item quantity="many">%1$d hlásenia vynechané · ďalšie %2$s</item>
+        <item quantity="other">%1$d hlásení vynechaných · ďalšie %2$s</item>
+    </plurals>
+
+    <!-- row sentences -->
+    <string name="dg_row_bootloader">V režime aktualizácie · nehlási</string>
+    <string name="dg_row_esp_download">V režime sťahovania · nehlási</string>
+    <string name="dg_row_tx_floor">Batéria je príliš slabá na hlásenie</string>
+    <plurals name="dg_row_reset_loop">
+        <item quantity="one">Reštartuje sa dokola · %1$d raz po sebe</item>
+        <item quantity="few">Reštartuje sa dokola · %1$d razy po sebe</item>
+        <item quantity="many">Reštartuje sa dokola · %1$d razu po sebe</item>
+        <item quantity="other">Reštartuje sa dokola · %1$d ráz po sebe</item>
+    </plurals>
+    <string name="dg_row_on_cable">Na kábli</string>
+    <string name="dg_row_counter_ahead">Hlásenia mimo rozsahu aplikácie</string>
+    <string name="dg_row_firmware_too_old">Firmvér %1$s je pre aplikáciu príliš starý</string>
+    <string name="dg_row_phone_offline">Telefón je offline · ozval sa %1$s</string>
+    <string name="dg_row_relays_down">Relaye nedostupné · ozval sa %1$s</string>
+    <string name="dg_row_just_back">Hľadám vynechané hlásenia…</string>
+    <string name="dg_row_not_delivered">Hlásenie %1$s · na tvojich relayoch nie je</string>
+    <string name="dg_row_with_you">S tebou · mlčí zámerne</string>
+    <string name="dg_row_restarted_here">Reštart pri tebe %1$s · hlásenie čoskoro</string>
+    <plurals name="dg_row_restarting">
+        <item quantity="one">Reštartuje sa · %1$d raz od %2$s</item>
+        <item quantity="few">Reštartuje sa · %1$d razy od %2$s</item>
+        <item quantity="many">Reštartuje sa · %1$d razu od %2$s</item>
+        <item quantity="other">Reštartuje sa · %1$d ráz od %2$s</item>
+    </plurals>
+    <string name="dg_row_update_unfinished">Ticho od aktualizácie (%1$s)</string>
+    <string name="dg_row_battery_empty">Batéria asi vybitá · %1$s (%2$s)</string>
+    <string name="dg_row_battery_empty_unknown">Batéria asi vybitá</string>
+    <string name="dg_row_schedule_pending">Nový plán na ceste · najneskôr %1$s</string>
+    <string name="dg_row_schedule_mismatch">Hlási %1$s, aplikácia %2$s</string>
+    <string name="dg_row_schedule_unsent">Plán ešte nie je v lokátore</string>
+    <string name="dg_row_out_of_range">Ticho %1$s · žiadny repeater v dosahu</string>
+    <string name="dg_row_node_down">Tvoj uzol je vypnutý · ozval sa %1$s</string>
+    <string name="dg_row_maybe_with_you">Ticho %1$s · možno je pri tebe</string>
+    <string name="dg_row_maybe_quiet_place">Ticho %1$s · možno mlčí v zóne %2$s</string>
+    <string name="dg_row_after_cable">Ticho od kábla · %1$s</string>
+    <string name="dg_row_phone_clock">Hodiny telefónu idú zle</string>
+
+    <!-- the Why card -->
+    <string name="dg_why">Prečo</string>
+    <string name="dg_card_missed">Jedno hlásenie nedorazilo. V zdieľanom mesh sa to stáva. Ďalšie má prísť okolo %1$s.</string>
+    <string name="dg_card_bootloader">Lokátor na kábli čaká na firmvér a kým sa nereštartuje, nehlási. Ak si ho aktualizovať nechcel, raz stlač jeho tlačidlo reset.</string>
+    <string name="dg_card_esp_download">Lokátor na kábli je v režime sťahovania, takže firmvér nebeží.</string>
+    <string name="dg_card_tx_floor">Batéria má pod 3,25 V, preto lokátor mlčí, aby sa nereštartoval. Sám začne hlásiť nad 3,35 V alebo na nabíjačke.</string>
+    <string name="dg_card_reset_loop">Lokátor sa reštartoval %1$d-krát za sebou (%2$s). Po každom reštarte čaká s prvým hlásením dlhšie, teraz %3$s. Zvyčajne za to môže slabá batéria alebo uvoľnený konektor.</string>
+    <string name="dg_card_on_cable">Pripojený k tomuto telefónu. Posledné hlásenie %1$s, ďalšie %2$s.</string>
+    <string name="dg_card_counter_ahead">Počítadlo hlásení lokátora je ďaleko pred počítadlom aplikácie, preto aplikácia jeho hlásenia nenájde.</string>
+    <string name="dg_card_firmware_too_old">Aplikácia číta hlásenia z firmvéru %2$s a novšieho. Lokátor má %1$s. Aktualizuj ho cez kábel.</string>
+    <string name="dg_card_phone_offline">Telefón nemá internet ani uzol MeshCore, takže nemôže prijímať hlásenia. Lokátor sa naposledy ozval %1$s. Aplikácia to skontroluje znova, keď sa spojenie vráti.</string>
+    <plurals name="dg_card_relays_down">
+        <item quantity="one">Tvoj relay neodpovedá. Hlásenia, ktoré mosty publikovali, čakajú tam.</item>
+        <item quantity="few">Ani jeden z tvojich %1$d relayov neodpovedá. Hlásenia, ktoré mosty publikovali, čakajú tam.</item>
+        <item quantity="many">Ani jeden z tvojich %1$d relayov neodpovedá. Hlásenia, ktoré mosty publikovali, čakajú tam.</item>
+        <item quantity="other">Ani jeden z tvojich %1$d relayov neodpovedá. Hlásenia, ktoré mosty publikovali, čakajú tam.</item>
+    </plurals>
+    <string name="dg_card_just_back">Telefón nemohol prijímať od %1$s do %2$s. Pýtam sa relayov na hlásenia z tohto obdobia.</string>
+    <string name="dg_card_not_delivered">Most zachytil lokátor %1$s (%2$s), ale hlásenie na tvojich relayoch nie je. Lokátor funguje.</string>
+    <string name="dg_card_not_delivered_add">Most zachytil lokátor %1$s (%2$s), ale hlásenie na tvojich relayoch nie je. Lokátor funguje. Pridaj niektorý z relayov mosta, aby ti jeho hlásenia chodili.</string>
+    <string name="dg_card_with_you">Telefón zachytil lokátor cez Bluetooth %1$s a lokátor vidí jedno z tvojich zariadení. Kým si nablízku, mlčí a najneskôr %2$s sa ohlási.</string>
+    <string name="dg_card_with_you_console">Cez Bluetooth lokátor %1$s oznámil, že vidí jedno z tvojich zariadení. Kým si nablízku, mlčí a najneskôr %2$s sa ohlási.</string>
+    <string name="dg_card_restarted_here">Telefón zachytil štart lokátora %1$s. Prvé hlásenie príde asi 30 s po reštarte.</string>
+    <string name="dg_card_restarting">Lokátor sa reštartoval %1$s. Zvyčajne za to môže slabá batéria.</string>
+    <string name="dg_card_update_unfinished">Aktualizácia sa začala %1$s a lokátor sa odvtedy neozval. Možno je ešte v režime aktualizácie, kde čaká bez časového limitu. Pripoj ho k telefónu a over to.</string>
+    <string name="dg_card_battery_empty">Posledné hlásenie (%1$s) uvádzalo %2$s. Pod približne 7 %% lokátor prestane hlásiť. Nabi ho.</string>
+    <string name="dg_card_schedule_pending">Zmenil si plán na %1$s. Kým ho lokátor nepotvrdí, ďalšie hlásenie môže prísť podľa ktoréhokoľvek plánu, najneskôr %2$s.</string>
+    <string name="dg_card_schedule_mismatch">Lokátor hlási %1$s. Aplikácia má %2$s. Kým sa nezhodnú, príkazy môžu lokátor minúť.</string>
+    <string name="dg_card_schedule_unsent">Zmenené nastavenia treba ešte zapísať cez kábel. Dovtedy má lokátor starý plán.</string>
+    <string name="dg_card_out_of_range">Posledné dve hlásenia nezachytil žiadny repeater, lokátor môže byť mimo dosahu mesh. Skúša to ďalej %1$s.</string>
+    <string name="dg_card_node_down">Hlásenia tohto lokátora chodili cez tvoj uzol MeshCore, ktorý nie je pripojený od %1$s.</string>
+    <string name="dg_card_maybe_with_you">Lokátor mlčí, keď vidí tvoje zariadenia, a hlásenie, ktoré to oznamovalo, sa mohlo stratiť. Telefón sa ho môže spýtať cez Bluetooth pri ďalšom prebudení, okolo %1$s.</string>
+    <string name="dg_card_maybe_with_you_plain">Lokátor mlčí, keď vidí tvoje zariadenia, a hlásenie, ktoré to oznamovalo, sa mohlo stratiť.</string>
+    <string name="dg_card_maybe_quiet_place">Posledná poloha bola v zóne %1$s. Lokátor tam mlčí a hlásenie, ktoré to oznamovalo, sa mohlo stratiť.</string>
+    <string name="dg_card_after_cable">Odkedy bol lokátor na kábli (%1$s), nič neprišlo. Ak ho aktualizoval počítač, môže byť ešte v režime aktualizácie. Pripoj ho k telefónu a over to.</string>
+    <plurals name="dg_card_phone_clock">
+        <item quantity="one">Hodiny telefónu sa líšia asi o %1$d min. Od nich závisia očakávané časy a časované príkazy.</item>
+        <item quantity="few">Hodiny telefónu sa líšia asi o %1$d min. Od nich závisia očakávané časy a časované príkazy.</item>
+        <item quantity="many">Hodiny telefónu sa líšia asi o %1$d min. Od nich závisia očakávané časy a časované príkazy.</item>
+        <item quantity="other">Hodiny telefónu sa líšia asi o %1$d min. Od nich závisia očakávané časy a časované príkazy.</item>
+    </plurals>
+    <string name="dg_card_unknown">Od %1$s žiadne hlásenie a nič to nevysvetľuje. Poloha a batéria nižšie sú z tej doby.</string>
+    <string name="dg_card_asking">Pýtam sa pri ďalšom prebudení, okolo %1$s. Maj telefón pri lokátore.</string>
+    <string name="dg_card_not_here">Nie je tu: lokátor %1$s cez Bluetooth neodpovedal.</string>
+
+    <!-- findings without a silence -->
+    <string name="dg_find_node_down">Tvoj uzol MeshCore nie je pripojený a hlásenia tohto lokátora chodili len cez neho.</string>
+    <string name="dg_find_battery_cliff">Batéria klesla o %1$d bodov od predošlého hlásenia.</string>
+    <string name="dg_find_no_gps_run">Od %1$s bez GPS polohy.</string>
+    <string name="dg_find_counter_back">Hlásenie (%1$s) prišlo so starším počítadlom. Nepoužíva rovnaký kľúč aj druhý lokátor?</string>
+    <string name="dg_find_counter_ahead">Počítadlo hlásení lokátora je ďaleko pred tým, čo aplikácia pozná.</string>
+    <string name="dg_find_firmware_behind">Lokátor má firmvér %1$s, dostupný je %2$s.</string>
+    <string name="dg_find_flood_cap">Lokátor vyčerpal denný limit vysielania, preto teraz hlási len %1$s, aby šetril mesh.</string>
+    <string name="dg_find_restarting">Lokátor sa od %1$s niekoľkokrát reštartoval.</string>
+
+    <!-- actions -->
+    <string name="dg_act_finish_update">Dokončiť aktualizáciu</string>
+    <string name="dg_act_update_firmware">Aktualizovať firmvér</string>
+    <string name="dg_act_how_to_restart">Ako reštartovať</string>
+    <string name="dg_act_restart">Reštartovať lokátor</string>
+    <string name="dg_act_read_log">Prečítať záznam</string>
+    <string name="dg_act_open_ble">Otvoriť cez Bluetooth</string>
+    <string name="dg_act_check_here">Skontrolovať, či je tu</string>
+    <string name="dg_act_send_report">Poslať hlásenie hneď</string>
+    <string name="dg_act_connections">Spojenia</string>
+    <string name="dg_act_try_again">Skúsiť znova</string>
+    <string name="dg_act_add_relay">Pridať relay</string>
+    <string name="dg_act_use_tag_schedule">Použiť plán lokátora</string>
+    <string name="dg_act_send_mine">Poslať môj znova</string>
+    <string name="dg_act_catch_up">Dohnať</string>
+    <string name="dg_act_date_settings">Nastavenia dátumu a času</string>
+    <string name="dg_act_open_map">Otvoriť na mape</string>
+    <string name="dg_act_service">Pripojiť a skontrolovať</string>
+    <string name="dg_all_checks">Všetky kontroly</string>
+    <string name="dg_hide_checks">Skryť kontroly</string>
+    <string name="dg_how_to_restart_title">Reštart lokátora</string>
+    <string name="dg_how_to_restart_text">Raz stlač tlačidlo reset. Ak lokátor zostane v režime aktualizácie, má neúplný firmvér: pripoj ho k telefónu a zvoľ Dokončiť aktualizáciu.</string>
+    <string name="dg_add_relay_title">Pridať tento relay?</string>
+    <string name="dg_add_relay_text">%1$s je relay, na ktorý publikuje most. Most to tvrdí sám o sebe, preto ho pridaj, len ak mu veríš. Aplikácia potom číta hlásenia aj z neho.</string>
+    <string name="dg_add_relay_ok">Pridať</string>
+    <string name="dg_relay_added">Relay pridaný</string>
+    <string name="dg_restart_sent">Reštartujem lokátor…</string>
+    <string name="dg_report_sent">Lokátor dostal pokyn hlásiť</string>
+    <string name="dg_schedule_adopted">Aplikácia teraz používa plán lokátora</string>
+    <string name="dg_caught_up">Hľadám hlásenia od počítadla lokátora</string>
+    <string name="dg_no_console">Najprv pripoj lokátor káblom alebo cez Bluetooth.</string>
+
+    <!-- the checklist: key, then value -->
+    <string name="dg_chk_online">Telefón online</string>
+    <string name="dg_chk_relays">Relaye</string>
+    <string name="dg_chk_node">Vlastný uzol</string>
+    <string name="dg_chk_bridges">Mosty, ktoré ho zachytili</string>
+    <string name="dg_chk_last_report">Posledné hlásenie</string>
+    <string name="dg_chk_lost">Stratené hlásenia (7 dní)</string>
+    <string name="dg_chk_battery">Batéria vtedy</string>
+    <string name="dg_chk_bluetooth">Bluetooth</string>
+    <string name="dg_chk_cable">Kábel</string>
+    <string name="dg_chk_restarts">Reštarty</string>
+    <string name="dg_chk_schedule">Plán</string>
+    <string name="dg_chk_firmware">Firmvér</string>
+    <string name="dg_chk_clock">Hodiny telefónu</string>
+    <string name="dg_val_yes">áno</string>
+    <string name="dg_val_no">nie</string>
+    <string name="dg_val_unknown">neznáme</string>
+    <string name="dg_val_relays">%1$d z %2$d pripojených</string>
+    <string name="dg_val_node_up">pripojený</string>
+    <string name="dg_val_node_down">nepripojený od %1$s</string>
+    <string name="dg_val_node_down_never">nepripojený</string>
+    <string name="dg_val_node_never">nenastavený</string>
+    <string name="dg_val_bridges">naposledy %1$s, %2$s</string>
+    <string name="dg_val_none_known">žiadne známe</string>
+    <string name="dg_val_last_report">%1$s · %2$s · č. %3$d</string>
+    <string name="dg_val_lost">%1$d z %2$d</string>
+    <string name="dg_val_battery">%1$s (%2$s)</string>
+    <string name="dg_val_ble_heard">zachytený %1$s</string>
+    <string name="dg_val_ble_not">tento telefón ho nezachytil</string>
+    <string name="dg_val_cable_tag">pripojený teraz</string>
+    <string name="dg_val_cable_boot">teraz v režime aktualizácie</string>
+    <string name="dg_val_cable_esp">teraz v režime sťahovania</string>
+    <string name="dg_val_cable_last">naposledy pripojený %1$s</string>
+    <string name="dg_val_cable_never">nikdy nepripojený</string>
+    <plurals name="dg_val_restarts">
+        <item quantity="one">%1$d, posledný %2$s</item>
+        <item quantity="few">%1$d, posledný %2$s</item>
+        <item quantity="many">%1$d, posledný %2$s</item>
+        <item quantity="other">%1$d, posledný %2$s</item>
+    </plurals>
+    <string name="dg_val_schedule">hlási %1$s, počúva %2$s</string>
+    <string name="dg_val_firmware_current">%1$s · aktuálny</string>
+    <string name="dg_val_firmware_behind">%1$s · dostupný %2$s</string>
+    <string name="dg_val_firmware_old">%1$s · príliš starý</string>
+    <string name="dg_val_clock_ok">v poriadku</string>
+    <plurals name="dg_val_clock_off">
+        <item quantity="one">odchýlka asi %1$d min</item>
+        <item quantity="few">odchýlka asi %1$d min</item>
+        <item quantity="many">odchýlka asi %1$d min</item>
+        <item quantity="other">odchýlka asi %1$d min</item>
+    </plurals>
+    <string name="dg_hops">skoky: %1$s</string>
+    <string name="dg_hops_direct">priamo</string>
+
+    <!-- notifications -->
+    <string name="notif_silent_cause">%1$s. %2$s</string>
+    <string name="notif_restart_title">%1$s sa stále reštartuje</string>
+    <string name="notif_restart_text">Zvyčajne slabá batéria alebo uvoľnený konektor. Otvor lokátor a pozri, kedy sa reštartoval.</string>
+    <string name="notif_update_title">%1$s môže byť ešte v režime aktualizácie</string>
+    <string name="notif_update_text">Od začiatku aktualizácie sa neozval. Raz stlač jeho tlačidlo reset alebo ho pripoj k telefónu.</string>
+    <string name="notif_blind_title">LibreTag nemôže prijímať hlásenia</string>
+    <string name="notif_blind_text">Telefón už 2 hodiny nedosiahne na relaye ani na tvoj uzol a lokátor je strážený.</string>
+
+    <!-- home strip: a bootloader on the cable that fits no tag -->
+    <string name="dg_strip_bootloader">Lokátor na kábli je v režime aktualizácie. Kým sa nereštartuje, nehlási.</string>
+
+    <!-- map pill suffixes -->
+    <string name="dg_pill_with_you">s tebou</string>
+    <string name="dg_pill_cable">na kábli</string>
+
+    <!-- Settings -->
+    <string name="set_ble_sightings">Všímať si moje lokátory cez Bluetooth</string>
+    <string name="set_ble_sightings_sub">Telefón na pozadí počúva Bluetooth signál tvojich lokátorov, aby vedel, kedy sa lokátor reštartoval alebo je pri tebe. Nepoužíva tvoju polohu.</string>
+
+    <!-- Track: how often and how long (app 0.12) -->
+    <string name="cmd_track_for">Sledovať %1$s, %2$s</string>
+    <string name="track_choose_title2">Sledovať lokátor</string>
+    <string name="track_how_often">Ako často</string>
+    <string name="track_how_long">Ako dlho</string>
+    <plurals name="track_reports">
+        <item quantity="one">%1$d hlásenie, do %2$s</item>
+        <item quantity="few">%1$d hlásenia, do %2$s</item>
+        <item quantity="many">%1$d hlásenia, do %2$s</item>
+        <item quantity="other">%1$d hlásení, do %2$s</item>
+    </plurals>
+    <string name="track_cap_warn">Toľko lokátor za deň poslať nesmie. Asi po %1$s spomalí na jedno hlásenie za hodinu, aby nezahltil mesh.</string>
+    <string name="track_choose_ok_for">Sledovať %1$s</string>
+</resources>

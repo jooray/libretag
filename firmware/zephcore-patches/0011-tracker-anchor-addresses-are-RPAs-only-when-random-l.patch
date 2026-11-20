@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 12:34:10 +0100
+Subject: [PATCH 11/40] tracker: anchor addresses are RPAs only when random;
+ low-battery DM as dm4x.ref (NIP-40 expiration); gps shows timers
+
+---
+ zephcore/src/main_tracker.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 5b16e7c..25d98fd 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -1065,7 +1065,7 @@ static bool txq_add_dm(const char *text)
+ 	}
+ 	rng.random(iv, sizeof(iv));
+ 	size_t l = lt_nostr_dm_frame(keys.k.dm_sk, cfg.owner, t, text, MIN(strlen(text), LT_NOSTR_DM_REF_MAX_TEXT),
+-				     iv, true, fr, sizeof(fr));
++				     iv, true, true, fr, sizeof(fr)); /* dm4x.ref: expires on relays after 14 d */
+ 	return l && txq_add_nostr(fr, l);
+ }
+ 

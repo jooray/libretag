@@ -1,0 +1,136 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 21:43:09 +0100
+Subject: [PATCH 16/40] tracker: LOST sends no discover when the GPS gets a
+ fix; without a fix it sends one after the search (unless one already ran in
+ this wake-up), before the report; no GPS goes the same way; discover receiver
+ time counted as RX in the energy estimate
+
+---
+ zephcore/src/main_tracker.cpp | 48 +++++++++++++++++++++++++++++------
+ 1 file changed, 40 insertions(+), 8 deletions(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 5f877a1..0839838 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -280,6 +280,7 @@ static int8_t ble_sum_rssi;
+ /* energy estimate: phase times of this wake-up */
+ static int64_t en_mark_ms;        /* last time the estimate was brought up to date */
+ static uint32_t en_tx_ms, en_ble_ms;
++static uint32_t en_disc_rx_ms;    /* LOST: receiver time of the discover after a search without a fix (GPS off) */
+ static int64_t tx_start_ms;
+ /* 0.7 checks: after report n_report (transmission start chk_t0_ms), while quiet in IDLE, wake-up k
+  * falls at chk_t0_ms + lt_check_offset(); the app computes the same times from C_e(n). */
+@@ -951,9 +952,10 @@ static void energy_wake_end(int64_t wake_start_ms, int64_t listen_ms)
+ 	en_check_rx_ms = 0;
+ 	energy_add(UA_TX, en_tx_ms);
+ 	energy_add(UA_BLE, en_ble_ms);
+-	energy_add(UA_AWAKE, awake - listen_ms - en_tx_ms);
++	energy_add(UA_RX, en_disc_rx_ms); /* GPS already off: the receiver instead of the search */
++	energy_add(UA_AWAKE, awake - listen_ms - en_tx_ms - en_disc_rx_ms);
+ 	en_mark_ms = now;
+-	en_tx_ms = en_ble_ms = 0;
++	en_tx_ms = en_ble_ms = en_disc_rx_ms = 0;
+ 	/* on a charger (or full) the count starts again */
+ 	if (board.getBattMilliVolts() >= 4150) {
+ 		cfg.energy_uah = 0;
+@@ -1478,12 +1480,16 @@ static void send_report(bool with_fix, const lt_wake_out_t *d)
+ }
+ 
+ static bool lost_scan_pending; /* a fix came while the LOST scan still runs */
++static bool wake_disc;         /* this wake-up already sent a discover */
++static bool lost_disc_wait;    /* LOST, no fix: waiting for the answers to the discover */
++static int64_t lost_disc_ms;   /* its start, for the energy estimate */
+ 
+ /* The wake-up's search is over (fix, timeout, or the owner is here): decide and act. */
+ static void wake_finish(bool with_fix)
+ {
+ 	k_timer_stop(&fix_timer);
+ 	lost_scan_pending = false;
++	lost_disc_wait = false;
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
+ 	if (ble_purpose == BLE_PRESENCE) {
+ 		ble_scan_halt(); /* the presence scan never extends a wake-up */
+@@ -1530,6 +1536,8 @@ static void wake_finish(bool with_fix)
+ 	go_to_sleep();
+ }
+ 
++static void search_done(bool with_fix);
++
+ static void start_report(void)
+ {
+ 	if (phase != PH_SLEEP) {
+@@ -1539,6 +1547,8 @@ static void start_report(void)
+ 	wake_start_ms = wake_ms;
+ 	owner_seen = false;
+ 	check_cmd = false;
++	wake_disc = false;
++	lost_disc_wait = false;
+ 	if (wake_st.quiet && mode == LT_MODE_IDLE && !wake_forced && chk_k && !chk_hb && cfg.check_s &&
+ 	    n_report_valid) {
+ 		/* 0.7: check k after report n: receive from t_k - g_k to t_k + check_s + g_k, alongside the
+@@ -1579,13 +1589,16 @@ static void start_report(void)
+ 						: cfg.fix_timeout_s;
+ 		k_timer_start(&fix_timer, K_SECONDS(to), K_NO_WAIT);
+ 		LOG_INF("waiting up to %u s for a fix", to);
+-		/* Indoors last time (or LOST): ask the repeaters around while the GPS searches.
+-		 * One 8-byte zero-hop packet; answers come within seconds. */
+-		if ((!last_wake_fix || mode == LT_MODE_LOST) && !mesh_scanning && !(wake_st.quiet && mode == LT_MODE_IDLE)) {
+-			disc_start(WAKE_DISCOVER_S, true); /* not while quiet: a quiet tracker sends nothing */
++		/* Indoors last time: ask the repeaters around while the GPS searches.
++		 * One 8-byte zero-hop packet; answers come within seconds. LOST with a fix sends
++		 * no discover; without one, search_done() sends it after the search. */
++		if (!last_wake_fix && !mesh_scanning && !(wake_st.quiet && mode == LT_MODE_IDLE)) {
++			wake_disc = disc_start(WAKE_DISCOVER_S, true); /* not while quiet: a quiet tracker sends nothing */
+ 		}
+ 	} else {
+-		wake_finish(false);
++		phase = PH_WAIT_FIX; /* no GPS: the search ended without a fix */
++		fix_valid = false;
++		search_done(false);
+ 	}
+ }
+ 
+@@ -1593,6 +1606,19 @@ static void start_report(void)
+ 
+ static void search_done(bool with_fix)
+ {
++	if (!with_fix && mode == LT_MODE_LOST && !wake_disc && !mesh_scanning) {
++		/* LOST without a fix and no discover yet: ask the repeaters around before the report,
++		 * so it carries their answers. The GPS is off by now; the LOST scan may run on. */
++		k_timer_stop(&fix_timer);
++		fix_valid = false;
++		wake_disc = true;
++		if (disc_start(WAKE_DISCOVER_S, true)) {
++			lost_disc_wait = true;
++			lost_disc_ms = k_uptime_get();
++			LOG_INF("LOST without a fix: discover, %u s", WAKE_DISCOVER_S);
++			return;
++		}
++	}
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
+ 	if (ble_purpose == BLE_LOST && k_timer_remaining_get(&ble_tmr) > 0) {
+ 		lost_scan_pending = true;
+@@ -1610,7 +1636,7 @@ static void gps_fix_cb(double lat, double lon, int64_t utc)
+ 		clock_unix = utc;
+ 		clock_uptime_ms = k_uptime_get();
+ 	}
+-	if (phase != PH_WAIT_FIX || lost_scan_pending) {
++	if (phase != PH_WAIT_FIX || lost_scan_pending || lost_disc_wait) {
+ 		return;
+ 	}
+ 	struct gps_position pos;
+@@ -4145,6 +4171,12 @@ int main(void)
+ 		}
+ 		if (ev & EV_SCAN_END) {
+ 			scan_end();
++			if (lost_disc_wait && phase == PH_WAIT_FIX) {
++				/* the discover after a LOST search without a fix is over: report */
++				lost_disc_wait = false;
++				en_disc_rx_ms += (uint32_t)(k_uptime_get() - lost_disc_ms);
++				search_done(false);
++			}
+ 		}
+ 		if ((ev & EV_CHECK_END) && check_rx) {
+ 			/* the check's window is over: no command */

@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <string name="channel_places">Orte</string>
+    <string name="channel_places_desc">Tracker hat einen seiner Orte verlassen oder erreicht</string>
+
+    <!-- Status: the list row and the detail's plate (ui-review section 3) -->
+    <string name="st_heard">Gemeldet %1$s</string>
+    <string name="st_heard_late">Gemeldet %1$s · spät</string>
+    <string name="st_left">%1$s verlassen %2$s</string>
+    <string name="st_left_wifi">WLAN-Ort verlassen %1$s</string>
+    <string name="st_quiet_place">%1$s · still</string>
+    <string name="st_quiet_wifi_place">WLAN-Ort · still</string>
+    <string name="st_quiet_with_you">Bei dir · still</string>
+    <string name="st_quiet_still">Bewegt sich nicht · still</string>
+    <string name="st_quiet_parked2">Geparkt · still</string>
+    <string name="st_not_heard">Seit %1$s keine Meldung · erwartet %2$s</string>
+    <string name="st_lost2">Modus Verloren · %1$s</string>
+
+    <!-- The plate's second line -->
+    <string name="sub_since">Seit %1$s</string>
+    <string name="sub_since_device">Seit %1$s · %2$s ist in der Nähe</string>
+    <string name="sub_since_your_device">Seit %1$s · dein Gerät ist in der Nähe</string>
+    <string name="sub_paired">Gekoppelt %1$s</string>
+    <string name="sub_lost_until2">Bis %1$s</string>
+    <string name="sub_guard_left">Bewachten Ort verlassen %1$s</string>
+    <string name="sub_not_heard">Zuletzt gemeldet %1$s · %2$s</string>
+
+    <!-- The When row: the one "next report" line -->
+    <string name="next_report">Nächste Meldung ~%1$s</string>
+    <string name="next_due">Fällig war ~%1$s</string>
+    <string name="next_latest">Nächste Meldung spätestens %1$s</string>
+    <string name="next_when_leaves">Beim Verlassen von %1$s</string>
+    <string name="next_when_leaves_wifi">Beim Verlassen des WLAN-Orts</string>
+    <string name="next_when_part">Wenn dein Gerät nicht mehr in der Nähe ist</string>
+    <string name="next_when_moves">Bei Bewegung</string>
+    <!-- %1$s is one of the three lines above, %2$s a duration such as "1 h" -->
+    <string name="next_within">%1$s (innerhalb von %2$s)</string>
+    <!-- %1$s is the line above, %2$s a time such as "18:40" or "tomorrow 18:40" -->
+    <string name="next_and_latest">%1$s, spätestens %2$s</string>
+    <string name="next_overdue">Überfällig</string>
+    <string name="next_first">Erste Meldung innerhalb von %1$s</string>
+
+    <!-- Commands: the one line under the buttons, then the slip that replaces it -->
+    <string name="cmd_reach">Ein Befehl erreicht ihn ~%1$s</string>
+    <string name="cmd_reach_report">Ein Befehl erreicht ihn mit der nächsten Meldung, spätestens %1$s</string>
+    <string name="cmd_reach_heard">Ein Befehl erreicht ihn, sobald er sich wieder meldet</string>
+    <string name="cmd_reach_first">Ein Befehl erreicht ihn mit der ersten Meldung</string>
+    <string name="cmd_reach_bridge">%1$s · über eine Brücke</string>
+    <string name="cmd_offline">Offline. Befehle warten auf die Verbindung.</string>
+    <string name="cmd_stop_lost">Modus Verloren beenden</string>
+    <string name="cmd_stop_track">Verfolgung beenden</string>
+    <string name="slip2_out">%1$s · wird gesendet ~%2$s</string>
+    <string name="slip2_out_latest">%1$s · wird spätestens %2$s gesendet</string>
+    <string name="slip2_out_heard">%1$s · wird gesendet, sobald er sich meldet</string>
+    <string name="slip2_out_first">%1$s · wird mit der ersten Meldung gesendet</string>
+    <string name="slip2_sent">%1$s · gesendet %2$s, warte auf den Tracker</string>
+    <string name="slip2_confirmed">%1$s · bestätigt %2$s</string>
+    <string name="slip2_retry">%1$s · keine Antwort, nächster Versuch ~%2$s</string>
+    <string name="slip2_retry_later">%1$s · noch keine Antwort, neuer Versuch folgt</string>
+    <!-- the list row: command and time only, "Beep · ~1:13" -->
+    <string name="slip2_row">%1$s · %2$s</string>
+
+    <!-- Where row, Wi-Fi lookup and guard -->
+    <string name="where_at_place">Bei %1$s</string>
+    <string name="where_at_wifi_place">An einem WLAN-Ort</string>
+    <string name="pos_at_place_gps">Bei %1$s · GPS ±%2$s</string>
+    <string name="where_place_wifi">Erkannt an seinen WLAN-Netzen</string>
+    <plurals name="where_wifi_heard">
+        <item quantity="one">Kein GPS · %1$d WLAN-Netz gehört</item>
+        <item quantity="other">Kein GPS · %1$d WLAN-Netze gehört</item>
+    </plurals>
+    <string name="wifi_looking">Suche läuft…</string>
+    <string name="wifi_unknown">%1$s kennt diese Netze nicht</string>
+    <string name="wifi_busy">%1$s begrenzt Abfragen. Versuch es später noch einmal.</string>
+    <string name="wifi_failed">Abfrage fehlgeschlagen. Prüf die Verbindung und versuch es noch einmal.</string>
+    <string name="guard_here">Diesen Ort bewachen</string>
+    <string name="guard_since">Bewacht seit %1$s · Alarm bei Bewegung um %2$s</string>
+    <string name="guard_stop">Bewachen beenden</string>
+    <string name="guard_new_spot">Neuen Ort bewachen</string>
+    <string name="a11y_guarded">bewacht</string>
+
+    <!-- Notifications on the Places channel -->
+    <string name="notif_left">%1$s hat %2$s um %3$s verlassen</string>
+    <string name="notif_arrived">%1$s ist um %3$s bei %2$s angekommen</string>
+    <string name="notif_left_wifi">%1$s hat um %2$s einen WLAN-Ort verlassen</string>
+    <string name="notif_arrived_wifi">%1$s ist um %2$s an einem WLAN-Ort angekommen</string>
+    <string name="notif_place_text">%1$s. %2$s</string>
+</resources>

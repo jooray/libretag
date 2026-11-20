@@ -1,0 +1,236 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 09:00:13 +0100
+Subject: [PATCH 04/40] tracker: report history ring (sealed report +
+ diagnostics without position), log and history commands
+
+---
+ zephcore/src/main_tracker.cpp | 152 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 152 insertions(+)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 940d18b..22c1506 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -329,6 +329,91 @@ static bool save_cfg(void)
+ 	return w == (ssize_t)sizeof(cfg);
+ }
+ 
++/* ------------------------------------------------------------------ history
++ * Every report, sealed exactly as sent (copy j=0), plus diagnostics without a position, in a
++ * ring file. The app reads it over USB (`history`) and opens it with K0 like a report from the
++ * radio: the tracker stores only ciphertext and needs no keys for it. `log` prints the
++ * diagnostics: whether the GPS found a fix, how long it searched, whether a repeater relayed
++ * the report. */
++#define HIST_FILE STATE_DIR "/hist"
++#define HIST_CAP  512
++#define HIST_MAGIC 0xA7
++enum {
++	HF_FIX = 1, HF_RELAYED = 2, HF_RETX = 4, HF_DROPPED = 8, HF_CMD = 16, HF_BORDER = 32,
++	HF_DISCOVER = 64, HF_LOW = 128,
++};
++struct histrec {
++	uint8_t magic;
++	uint8_t flags;
++	uint8_t batt;
++	uint8_t mode;
++	uint32_t n;
++	uint32_t unix_s;     /* wake time from the GPS-set clock, 0 = unknown */
++	uint32_t uptime_s;
++	uint16_t search_s;   /* from wake to report: GPS search (and fix timeout) */
++	uint8_t nb_total;
++	uint8_t p_len;
++	uint8_t p[LT_REPORT_P_LEN_STEALTH]; /* sealed report as sent */
++	uint8_t pad;
++} __packed;
++BUILD_ASSERT(sizeof(struct histrec) == 72, "histrec size");
++
++static struct histrec hist_cur;
++static bool hist_open;
++static int64_t wake_ms;
++
++static void hist_write(const struct histrec *h)
++{
++	struct fs_file_t f;
++
++	fs_file_t_init(&f);
++	if (fs_open(&f, HIST_FILE, FS_O_CREATE | FS_O_RDWR) < 0) {
++		return;
++	}
++	if (fs_seek(&f, (off_t)(h->n % HIST_CAP) * sizeof(*h), FS_SEEK_SET) == 0) {
++		fs_write(&f, h, sizeof(*h));
++	}
++	fs_close(&f);
++}
++
++/* calls fn for each stored record with n >= from, oldest first */
++static void hist_each(uint32_t from, void (*fn)(const struct histrec *))
++{
++	static struct histrec all[HIST_CAP]; /* 36 KB, only while the console asks */
++	struct fs_file_t f;
++	size_t cnt = 0;
++
++	fs_file_t_init(&f);
++	if (fs_open(&f, HIST_FILE, FS_O_READ) < 0) {
++		return;
++	}
++	while (cnt < HIST_CAP && fs_read(&f, &all[cnt], sizeof(all[0])) == (ssize_t)sizeof(all[0])) {
++		if (all[cnt].magic == HIST_MAGIC && all[cnt].n >= from) {
++			cnt++;
++		}
++	}
++	fs_close(&f);
++	for (size_t i = 1; i < cnt; i++) { /* insertion sort by n */
++		struct histrec t = all[i];
++		size_t j = i;
++
++		while (j > 0 && all[j - 1].n > t.n) {
++			all[j] = all[j - 1];
++			j--;
++		}
++		all[j] = t;
++	}
++	for (size_t i = 0; i < cnt; i++) {
++		fn(&all[i]);
++	}
++}
++
++static void hist_clear(void)
++{
++	fs_unlink(HIST_FILE);
++	hist_open = false;
++}
++
+ static const struct flash_area *keys_fa;
+ 
+ static uint32_t keyrec_crc(const struct keyrec *r)
+@@ -657,6 +742,12 @@ static void go_to_sleep(void)
+ 		home_silent = home_heard ? 0 : (uint8_t)MIN(home_silent + 1, 255);
+ 		home_heard = false;
+ 	}
++	if (hist_open) {
++		hist_cur.flags |= (sent_acked ? HF_RELAYED : 0) | (retx_done ? HF_RETX : 0) |
++				  (pending_ack ? HF_CMD : 0);
++		hist_write(&hist_cur);
++		hist_open = false;
++	}
+ 	radio_home();
+ 	if (mesh_scanning) {
+ 		radio.recoverRxState(); /* a scan is running: keep listening */
+@@ -715,6 +806,9 @@ static void try_tx(void)
+ 	}
+ 	if (++tx_tries > 30) {
+ 		LOG_WRN("TX refused 30x, dropping packet %d of %d", txq_i + 1, txq_n);
++		if (txq_i == 0) {
++			hist_cur.flags |= HF_DROPPED;
++		}
+ 		tx_tries = 0;
+ 		if (++txq_i >= txq_n) {
+ 			go_to_sleep();
+@@ -857,6 +951,24 @@ static void send_report(bool with_fix)
+ 	LOG_INF("report n=%u fix=%d batt=%u%% low=%d mode=%d len=%u", n_cur, r.has_fix, pct, low, mode,
+ 		(unsigned)txq_len[0]);
+ 	checkpoint_counter();
++	{
++		struct histrec *h = &hist_cur;
++
++		memset(h, 0, sizeof(*h));
++		h->magic = HIST_MAGIC;
++		h->n = n_cur;
++		h->batt = pct;
++		h->mode = mode;
++		h->unix_s = now_unix();
++		h->uptime_s = (uint32_t)(k_uptime_get() / 1000);
++		h->search_s = wake_ms ? (uint16_t)MIN((k_uptime_get() - wake_ms) / 1000, 65535) : 0;
++		h->nb_total = r.nb_total;
++		h->flags = (r.has_fix ? HF_FIX : 0) | (r.nb_discover ? HF_DISCOVER : 0) | (low ? HF_LOW : 0) |
++			   (nets == 2 ? HF_BORDER : 0);
++		h->p_len = (uint8_t)lt_seal_report(keys.k.view, n_cur, 0, &r, !cfg.channel_mode, h->p);
++		hist_open = true;
++		wake_ms = 0;
++	}
+ 	n_report = n_cur; /* app commands are bound to this report */
+ 	n_report_valid = true;
+ 	/* Near a border, the same report as copy j=1 on the neighbour's network: the tag
+@@ -895,6 +1007,7 @@ static void start_report(void)
+ 	if (phase != PH_SLEEP) {
+ 		return;
+ 	}
++	wake_ms = k_uptime_get();
+ 	if (gps_is_available() && gps_is_enabled()) {
+ 		phase = PH_WAIT_FIX;
+ 		fix_valid = false;
+@@ -1728,6 +1841,7 @@ static void cli_exec(char *l)
+ 		/* one line per out(): its buffer is 200 bytes */
+ 		out("status | version | challenge | auth <hex> | lock | unpair | key <hex64> | newkey\r\n");
+ 		out("report | interval <min> | listen <s> | fixto <s> | still <max_min>\r\n");
++		out("log [count] | history [from_n]\r\n");
+ 		out("track <interval_s> <minutes> | idle | transport channel|stealth\r\n");
+ 		out("radio <MHz> <bwkHz> <sf> <cr> | power <dBm> | pathhash 1|2|3 | region <name>|none\r\n");
+ 		out("network auto|manual | where <lat> <lon> | test [count] [interval_s] | gps | reboot | dfu\r\n");
+@@ -1777,6 +1891,7 @@ static void cli_exec(char *l)
+ 		/* factory reset of the pairing: new K0, counter from 0, no owner */
+ 		keys_new(NULL);
+ 		keys_save();
++		hist_clear();
+ 		n_cur = 0;
+ 		cfg.n_next = N_CHECKPOINT;
+ 		cfg.has_owner = 0;
+@@ -1791,6 +1906,7 @@ static void cli_exec(char *l)
+ 		if (parse_hex(argv[1], k0, LT_K0_SIZE) == 0) {
+ 			keys_new(k0);
+ 			keys_save();
++			hist_clear();
+ 			n_cur = 0;
+ 			cfg.n_next = N_CHECKPOINT;
+ 			save_cfg();
+@@ -1801,6 +1917,7 @@ static void cli_exec(char *l)
+ 	} else if (!strcmp(c, "newkey")) {
+ 		keys_new(NULL);
+ 		keys_save();
++		hist_clear();
+ 		n_cur = 0;
+ 		cfg.n_next = N_CHECKPOINT;
+ 		save_cfg();
+@@ -1866,6 +1983,41 @@ static void cli_exec(char *l)
+ 			radio.sleepRadio();
+ 		}
+ 		out("noise: avg %d dBm, min %d, max %d (%d samples)\r\n", sum / cnt, mn, mx, cnt);
++	} else if (!strcmp(c, "log")) {
++		/* log [count]: the last reports, diagnostics only */
++		static uint32_t want;
++		static uint32_t total;
++
++		want = argc >= 2 ? (uint32_t)CLAMP(atoi(argv[1]), 1, HIST_CAP) : 30;
++		total = 0;
++		hist_each(0, [](const struct histrec *) { total++; });
++		static uint32_t skip;
++
++		skip = total > want ? total - want : 0;
++		out("LOG %u of %u report(s): n time(unix) search_s batt mode repeaters flags\r\n",
++		    (unsigned)(total - skip), (unsigned)total);
++		hist_each(0, [](const struct histrec *h) {
++			if (skip) {
++				skip--;
++				return;
++			}
++			out("L %u %u %u %u %u %u %s%s%s%s%s%s%s%s\r\n", (unsigned)h->n, (unsigned)h->unix_s,
++			    h->search_s, h->batt, h->mode, h->nb_total, h->flags & HF_FIX ? "fix " : "nofix ",
++			    h->flags & HF_RELAYED ? "relayed " : "not-relayed ", h->flags & HF_RETX ? "retx " : "",
++			    h->flags & HF_DROPPED ? "DROPPED " : "", h->flags & HF_CMD ? "cmd " : "",
++			    h->flags & HF_BORDER ? "border " : "", h->flags & HF_DISCOVER ? "discover " : "",
++			    h->flags & HF_LOW ? "low" : "");
++		});
++		out("END\r\n");
++	} else if (!strcmp(c, "history")) {
++		/* history [from_n]: sealed reports for the app (opened with K0), oldest first */
++		hist_each(argc >= 2 ? (uint32_t)strtoul(argv[1], NULL, 10) : 0, [](const struct histrec *h) {
++			char hx[2 * sizeof(h->p) + 1];
++
++			hex(hx, h->p, MIN(h->p_len, sizeof(h->p)));
++			out("H %u %u %u %s\r\n", (unsigned)h->n, (unsigned)h->unix_s, h->flags, hx);
++		});
++		out("END\r\n");
+ 	} else if (!strcmp(c, "neighbours")) {
+ 		mesh_scan_print();
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)

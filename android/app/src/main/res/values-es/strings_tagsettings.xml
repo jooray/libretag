@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <string name="menu_tag_settings">Ajustes del localizador</string>
+    <string name="ts_title">Ajustes del localizador</string>
+    <string name="ts_edit">Editar</string>
+    <string name="ts_reports">Informes</string>
+    <string name="ts_away_reports">Fuera de sus lugares, informa</string>
+    <string name="ts_per_charge">Unas %1$s por carga a este ritmo.</string>
+    <string name="ts_listens">Escucha comandos</string>
+    <string name="ts_listens_with_report">con cada informe</string>
+    <string name="ts_cmd_waits">Un comando espera como máximo %1$s.</string>
+    <string name="ts_quiet">Reposo</string>
+    <string name="ts_devices_near">Mientras mis dispositivos estén cerca</string>
+    <string name="ts_devices_none">Ningún dispositivo elegido aún</string>
+    <string name="ts_devices_people_note">Desactivado para personas: alguien podría llevarse tu teléfono.</string>
+    <string name="ts_still">Cuando no se mueve</string>
+    <string name="ts_still_after">En reposo tras %1$s en un sitio</string>
+    <string name="ts_still_off">Informa aunque no se mueva</string>
+    <string name="ts_still_sheet_after">Pasa a reposo tras</string>
+    <string name="ts_still_sheet_life">Señal de vida en reposo</string>
+    <string name="ts_needs_07">Requiere firmware 0.7 o superior</string>
+    <string name="ts_tell">Avísame</string>
+    <string name="ts_not_heard">Sin noticias cuando toca</string>
+    <string name="ts_not_heard_sub">%1$s tras un informe pendiente (%2$s)</string>
+    <string name="ts_low_batt">Batería baja</string>
+    <string name="ts_low_batt_sub">Por debajo del %1$d %%, otra vez al %2$d %%</string>
+    <string name="ts_goes_out">sale ~%1$s</string>
+    <string name="ts_waits_cable">espera al localizador</string>
+    <plurals name="ts_changes_wait">
+        <item quantity="one">%d cambio espera al localizador.</item>
+        <item quantity="many">%d de cambios esperan al localizador.</item>
+        <item quantity="other">%d cambios esperan al localizador.</item>
+    </plurals>
+    <string name="ts_nostr">Nostr</string>
+    <string name="set_look">Aspecto</string>
+    <string name="set_notif_allowed">Notificaciones: permitidas</string>
+    <string name="set_notif_blocked">Bloqueadas en los ajustes de Android</string>
+    <string name="set_preview">Vista previa</string>
+    <string name="wifi2_title">Posición por Wi-Fi</string>
+    <string name="wifi2_service">Servicio</string>
+    <string name="wifi2_off_sub">Los informes sin GPS usan solo repetidores.</string>
+    <string name="wifi2_beacondb_sub">Base de datos abierta. Aprende qué redes hay cerca del localizador.</string>
+    <string name="wifi2_grapheneos_sub">Datos de Apple. Apple no ve tu dirección.</string>
+    <string name="wifi2_apple_sub">Apple ve la dirección de tu teléfono en cada consulta.</string>
+    <string name="wifi2_when">Consultar</string>
+    <string name="wifi2_tap">Solo si toco</string>
+    <string name="wifi2_lost">En modo Perdido</string>
+    <string name="wifi2_always">Cada informe sin GPS</string>
+    <string name="wifi2_sum_tap">No se envía nada hasta que toques Consultar en un informe.</string>
+    <string name="wifi2_sum_lost">En modo Perdido, cada informe sin GPS va a %1$s.</string>
+    <string name="wifi2_sum_always">Cada informe sin GPS envía a %1$s las redes que escuchó el localizador.</string>
+    <string name="wifi2_sum_places">Los informes de tus lugares no se consultan.</string>
+    <string name="wifi2_consent">La app envía a %1$s las redes Wi-Fi que escuchó un localizador, y el servicio responde con una posición aproximada. No se envía nada más y los resultados se quedan en este teléfono.</string>
+</resources>

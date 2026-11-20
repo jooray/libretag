@@ -1,0 +1,574 @@
+{
+  "note": "LibreTag mailbox (PROTOCOL.md 4.1, 4.2). Only format 2 (['v','2']) is valid. proof = sha256(P || pubkey). hops class 0, 1-3, 4+, ? (unknown). lock: c = sha256('LT2-mbc' || pk || P[0:4] || P[7:45])[0:3] must equal P[4:7]; the tag keys are lt2.json's (k0 = 00..1f).",
+  "bridge_pubkey": "e3aa930b9487eeb97765b55f31cbd43411867e7f22f8fa2eadb6e458fc994ce4",
+  "proof": [
+    {
+      "p": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c",
+      "pubkey": "e3aa930b9487eeb97765b55f31cbd43411867e7f22f8fa2eadb6e458fc994ce4",
+      "proof": "49a26adf3eeebd3d2e4f9c93be3949163bf856e2fc03e9da0a9af6a9bc13af37"
+    },
+    {
+      "p": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c",
+      "pubkey": "efce6e2baac4565f5a79587648687c7898303f60960ff716fc8a4e038d1fc15e",
+      "proof": "af8d7602cfdbb96180f61a412d1a514e136feeca9ba1b20934f60e506414535a"
+    }
+  ],
+  "hops_class": [
+    {
+      "hops": null,
+      "class": "?"
+    },
+    {
+      "hops": 0,
+      "class": "0"
+    },
+    {
+      "hops": 1,
+      "class": "1-3"
+    },
+    {
+      "hops": 3,
+      "class": "1-3"
+    },
+    {
+      "hops": 4,
+      "class": "4+"
+    },
+    {
+      "hops": 12,
+      "class": "4+"
+    }
+  ],
+  "targeting": [
+    {
+      "note": "two bridges, network sk",
+      "tags": [
+        [
+          "v",
+          "2"
+        ],
+        [
+          "route",
+          "flood"
+        ],
+        [
+          "p",
+          "e3aa930b9487eeb97765b55f31cbd43411867e7f22f8fa2eadb6e458fc994ce4"
+        ],
+        [
+          "p",
+          "efce6e2baac4565f5a79587648687c7898303f60960ff716fc8a4e038d1fc15e"
+        ],
+        [
+          "r",
+          "sk"
+        ]
+      ],
+      "valid": true,
+      "parsed": {
+        "format": 2,
+        "route": "flood",
+        "p": [
+          "e3aa930b9487eeb97765b55f31cbd43411867e7f22f8fa2eadb6e458fc994ce4",
+          "efce6e2baac4565f5a79587648687c7898303f60960ff716fc8a4e038d1fc15e"
+        ],
+        "r": "sk"
+      }
+    },
+    {
+      "note": "without route = flood",
+      "tags": [
+        [
+          "v",
+          "2"
+        ],
+        [
+          "p",
+          "e3aa930b9487eeb97765b55f31cbd43411867e7f22f8fa2eadb6e458fc994ce4"
+        ]
+      ],
+      "valid": true,
+      "parsed": {
+        "format": 2,
+        "route": "flood",
+        "p": [
+          "e3aa930b9487eeb97765b55f31cbd43411867e7f22f8fa2eadb6e458fc994ce4"
+        ],
+        "r": null
+      }
+    },
+    {
+      "note": "open, near",
+      "tags": [
+        [
+          "v",
+          "2"
+        ],
+        [
+          "route",
+          "near"
+        ]
+      ],
+      "valid": true,
+      "parsed": {
+        "format": 2,
+        "route": "near",
+        "p": [],
+        "r": null
+      }
+    },
+    {
+      "note": "no v tag (format 1): invalid",
+      "tags": [
+        [
+          "route",
+          "near"
+        ],
+        [
+          "p",
+          "e3aa930b9487eeb97765b55f31cbd43411867e7f22f8fa2eadb6e458fc994ce4"
+        ],
+        [
+          "r",
+          "sk"
+        ]
+      ],
+      "valid": false
+    },
+    {
+      "note": "unknown route: invalid",
+      "tags": [
+        [
+          "v",
+          "2"
+        ],
+        [
+          "route",
+          "far"
+        ]
+      ],
+      "valid": false
+    },
+    {
+      "note": "bad network: invalid",
+      "tags": [
+        [
+          "v",
+          "2"
+        ],
+        [
+          "r",
+          "SK"
+        ]
+      ],
+      "valid": false
+    },
+    {
+      "note": "two r tags: invalid",
+      "tags": [
+        [
+          "v",
+          "2"
+        ],
+        [
+          "r",
+          "sk"
+        ],
+        [
+          "r",
+          "cz"
+        ]
+      ],
+      "valid": false
+    },
+    {
+      "note": "bad p: invalid",
+      "tags": [
+        [
+          "v",
+          "2"
+        ],
+        [
+          "p",
+          "abc"
+        ]
+      ],
+      "valid": false
+    }
+  ],
+  "lock": [
+    {
+      "n": 70,
+      "j": 0,
+      "p": "91e0b922c4d2aabfb8be10087e766d02d635ec3868c6c95a8fe773e3b420d661a37a1ff67e15f8ddb929fc7a65",
+      "x": "91e0b922",
+      "keys": [
+        {
+          "note": "pk_n",
+          "pubkey": "e0581cff525980cbbaee8f179bb0749f414c44558592ec5c118988af130bb22b",
+          "fits": true
+        },
+        {
+          "note": "pk of n + 1",
+          "pubkey": "9524b69dfd9575070c337059cd0fcf66f4454b2a0720160b0713c63820108034",
+          "fits": false
+        },
+        {
+          "note": "stranger",
+          "pubkey": "4ece98cd4b32f7d5c6c4a14e38498d6384fa3432a3317f17ad4d1fb9c64b9c98",
+          "fits": false
+        },
+        {
+          "note": "view key as a secret",
+          "pubkey": "4596aa1a771b0ab9b374aea061ec0c803c23e804b2138373f6eaaac3cf66c300",
+          "fits": false
+        }
+      ]
+    },
+    {
+      "n": 70,
+      "j": 1,
+      "p": "0a268cd68eb6de81f70859dc31219a05b63e8fdc741a71eeb9a857d46431b7d25e14a37616048795588e91bad8",
+      "x": "0a268cd6",
+      "keys": [
+        {
+          "note": "pk_n",
+          "pubkey": "e0581cff525980cbbaee8f179bb0749f414c44558592ec5c118988af130bb22b",
+          "fits": true
+        },
+        {
+          "note": "pk of n + 1",
+          "pubkey": "9524b69dfd9575070c337059cd0fcf66f4454b2a0720160b0713c63820108034",
+          "fits": false
+        },
+        {
+          "note": "stranger",
+          "pubkey": "4ece98cd4b32f7d5c6c4a14e38498d6384fa3432a3317f17ad4d1fb9c64b9c98",
+          "fits": false
+        },
+        {
+          "note": "view key as a secret",
+          "pubkey": "4596aa1a771b0ab9b374aea061ec0c803c23e804b2138373f6eaaac3cf66c300",
+          "fits": false
+        }
+      ]
+    },
+    {
+      "n": 200,
+      "j": 0,
+      "p": "f17ac003e464ee96cc8ed9c183c69b5723a87c0cdd6e5394ae36df417392c25e6e0da2c8af13052185ca12edd4",
+      "x": "f17ac003",
+      "keys": [
+        {
+          "note": "pk_n",
+          "pubkey": "263b4d22db8a5e368a6c2de194f7c5ba42b47ae651d7be5eb9a21372ed851ef7",
+          "fits": true
+        },
+        {
+          "note": "pk of n + 1",
+          "pubkey": "84b672a002fe5b0fa824922da86c68efd1a356f447635d8969e47f768933a401",
+          "fits": false
+        },
+        {
+          "note": "stranger",
+          "pubkey": "4ece98cd4b32f7d5c6c4a14e38498d6384fa3432a3317f17ad4d1fb9c64b9c98",
+          "fits": false
+        },
+        {
+          "note": "view key as a secret",
+          "pubkey": "8f6c56dd9d6c723178e51a9590b70bc53d86e9da73b5709baf0ffa697e64d9cb",
+          "fits": false
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "note": "anchor for report 70 at the bridge",
+      "event": {
+        "id": "45d31efc84c4ea53ec2bc2556fdece490126a447c5593346422a563643840a08",
+        "pubkey": "e0581cff525980cbbaee8f179bb0749f414c44558592ec5c118988af130bb22b",
+        "created_at": 1763200000,
+        "kind": 4244,
+        "tags": [
+          [
+            "v",
+            "2"
+          ],
+          [
+            "y",
+            "91e0b922"
+          ],
+          [
+            "y",
+            "0a268cd6"
+          ],
+          [
+            "p",
+            "e3aa930b9487eeb97765b55f31cbd43411867e7f22f8fa2eadb6e458fc994ce4"
+          ],
+          [
+            "expiration",
+            "1763221600"
+          ]
+        ],
+        "content": "",
+        "sig": "f99f4d4d6debd33f57b1d9ea8b234aacd3e9df1acfb5ee13f109d92eb9b3111efff355456a9dd387c1b0588e933860897c5ef24977be80fb68d158a46f0cb320"
+      },
+      "n": 70,
+      "valid": true,
+      "signed_by_pk_n": true,
+      "for_bridge": true
+    },
+    {
+      "note": "untimed command, flood, at the bridge",
+      "event": {
+        "id": "d919c824153dfda2fe5bac5a23148b0a4e3aa89f2190c88f0d72d25af03e4944",
+        "pubkey": "e0581cff525980cbbaee8f179bb0749f414c44558592ec5c118988af130bb22b",
+        "created_at": 1763200000,
+        "kind": 4244,
+        "tags": [
+          [
+            "v",
+            "2"
+          ],
+          [
+            "y",
+            "91e0b922"
+          ],
+          [
+            "y",
+            "0a268cd6"
+          ],
+          [
+            "route",
+            "flood"
+          ],
+          [
+            "p",
+            "e3aa930b9487eeb97765b55f31cbd43411867e7f22f8fa2eadb6e458fc994ce4"
+          ],
+          [
+            "g",
+            "0123456789abcdef"
+          ],
+          [
+            "expiration",
+            "1763221600"
+          ]
+        ],
+        "content": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxw=",
+        "sig": "1effd5fd62f71e8e1257ba2d5701ddfe64bf1d1be13a51d93942603d0f0dce8df889f1bd45ac168b8d72309941712053fa26cedc3f6acbc6aef6a219ab6806bf"
+      },
+      "n": 70,
+      "valid": true,
+      "signed_by_pk_n": true,
+      "for_bridge": true
+    },
+    {
+      "note": "open untimed command",
+      "event": {
+        "id": "f971418011d37ee718bb7879c87aa7f3be85deae7efbda9d8f238475367a0738",
+        "pubkey": "e0581cff525980cbbaee8f179bb0749f414c44558592ec5c118988af130bb22b",
+        "created_at": 1763200000,
+        "kind": 4244,
+        "tags": [
+          [
+            "v",
+            "2"
+          ],
+          [
+            "y",
+            "91e0b922"
+          ],
+          [
+            "y",
+            "0a268cd6"
+          ],
+          [
+            "route",
+            "flood"
+          ],
+          [
+            "g",
+            "0123456789abcdef"
+          ],
+          [
+            "expiration",
+            "1763221600"
+          ]
+        ],
+        "content": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxw=",
+        "sig": "8018a03737c747ecf32ba719af9058436a57e4276dd4c6acd8956460a3a8aa016439b2e38f0a3f13565fc01b9b9c34100fb18399df2cec53f4329385626a3b0c"
+      },
+      "n": 70,
+      "valid": true,
+      "signed_by_pk_n": true,
+      "for_bridge": true
+    },
+    {
+      "note": "the same tags under a stranger's key: stored, never locks",
+      "event": {
+        "id": "3177318f3bdaa89f4ddebbb99e12b4d593852805d800e26cd85d976d0a0eaabc",
+        "pubkey": "4ece98cd4b32f7d5c6c4a14e38498d6384fa3432a3317f17ad4d1fb9c64b9c98",
+        "created_at": 1763200000,
+        "kind": 4244,
+        "tags": [
+          [
+            "v",
+            "2"
+          ],
+          [
+            "y",
+            "91e0b922"
+          ],
+          [
+            "y",
+            "0a268cd6"
+          ],
+          [
+            "route",
+            "flood"
+          ],
+          [
+            "p",
+            "e3aa930b9487eeb97765b55f31cbd43411867e7f22f8fa2eadb6e458fc994ce4"
+          ],
+          [
+            "expiration",
+            "1763221600"
+          ]
+        ],
+        "content": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxw=",
+        "sig": "5f1dc758732635e1d49b3d703bc0e14d4dbd6551b91eebaed93e6d678515a4e73472e05819774cda40fad7a4f2a858e18a30533a60ee3554be5533d1b64c2a55"
+      },
+      "n": 70,
+      "valid": true,
+      "signed_by_pk_n": false,
+      "for_bridge": true
+    },
+    {
+      "note": "at another bridge",
+      "event": {
+        "id": "c200810607423c58d999b548a1a204379e96c785c249d00846779e7b5113a059",
+        "pubkey": "e0581cff525980cbbaee8f179bb0749f414c44558592ec5c118988af130bb22b",
+        "created_at": 1763200000,
+        "kind": 4244,
+        "tags": [
+          [
+            "v",
+            "2"
+          ],
+          [
+            "y",
+            "91e0b922"
+          ],
+          [
+            "y",
+            "0a268cd6"
+          ],
+          [
+            "route",
+            "flood"
+          ],
+          [
+            "p",
+            "efce6e2baac4565f5a79587648687c7898303f60960ff716fc8a4e038d1fc15e"
+          ],
+          [
+            "expiration",
+            "1763221600"
+          ]
+        ],
+        "content": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxw=",
+        "sig": "7d38f83c149422d6c35d930b3b46bfd6c52dfc1e1d68f89618615854f17cec90d1de352c59e7505347cd96d54b4091ec4614e3f2d1c30a4fc79c2482fbccb964"
+      },
+      "n": 70,
+      "valid": true,
+      "signed_by_pk_n": true,
+      "for_bridge": false
+    },
+    {
+      "note": "format 1 (no v): refused",
+      "event": {
+        "id": "81555f0c69d908592a228da3908ca18838dc5375c106dc3a25c6d769998bedf9",
+        "pubkey": "e0581cff525980cbbaee8f179bb0749f414c44558592ec5c118988af130bb22b",
+        "created_at": 1763200000,
+        "kind": 4244,
+        "tags": [
+          [
+            "y",
+            "91e0b922"
+          ],
+          [
+            "y",
+            "0a268cd6"
+          ],
+          [
+            "route",
+            "flood"
+          ],
+          [
+            "expiration",
+            "1763221600"
+          ]
+        ],
+        "content": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxw=",
+        "sig": "9413ef4f12bcd2bd730ee5a858d883ac41cf978882929c856d4955457f629e293bfc9a265c1bbd04c641ef6388bfb3ff180b4d407f32274790561ba46f18c8c9"
+      },
+      "n": 70,
+      "valid": false,
+      "signed_by_pk_n": true,
+      "for_bridge": false
+    },
+    {
+      "note": "timed entry, via report 70",
+      "event": {
+        "id": "8207bf9e0a68980c0e5d2c8ae80926c6107de358cdee23fbbe3b6ec4b2e8566b",
+        "pubkey": "e0581cff525980cbbaee8f179bb0749f414c44558592ec5c118988af130bb22b",
+        "created_at": 1763200000,
+        "kind": 4244,
+        "tags": [
+          [
+            "v",
+            "2"
+          ],
+          [
+            "y",
+            "e308085f"
+          ],
+          [
+            "route",
+            "flood"
+          ],
+          [
+            "p",
+            "e3aa930b9487eeb97765b55f31cbd43411867e7f22f8fa2eadb6e458fc994ce4"
+          ],
+          [
+            "at",
+            "1763203600"
+          ],
+          [
+            "via",
+            "91e0b922"
+          ],
+          [
+            "g",
+            "0123456789abcdef"
+          ],
+          [
+            "expiration",
+            "1763221600"
+          ]
+        ],
+        "content": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxw=",
+        "sig": "08d99ea2cca5c4aec81ecc182e1cbd02ad37be2d80963b05711273d9db0e2d89fa22fe3e9943afeea2ae0ccc9addc39434034c0ca93a0984df57c20d46815991"
+      },
+      "n": 70,
+      "valid": true,
+      "signed_by_pk_n": true,
+      "for_bridge": true
+    }
+  ]
+}

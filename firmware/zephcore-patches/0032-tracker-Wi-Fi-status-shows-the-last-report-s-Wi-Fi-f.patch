@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Tue, 17 Nov 2026 21:21:42 +0100
+Subject: [PATCH 32/40] tracker (Wi-Fi): status shows the last report's Wi-Fi
+ fields and leaves out the repeater entry when a second tail took its slot
+ (lt_core: two tails, PROTOCOL.md 2.2)
+
+---
+ zephcore/src/main_tracker.cpp | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index c8f5ae3..90cfd98 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -3875,11 +3875,17 @@ static void print_status(void)
+ 			out("last report: no fix, never had one\r\n");
+ 		}
+ 		out("  %u repeater(s)%s:", q->nb_total, q->nb_discover ? " answered discover" : " heard");
+-		for (uint8_t i = 0; i < q->nb_count; i++) {
++		/* Wi-Fi layout with two tails: the repeater slot carries the second tail (PROTOCOL.md 2.2) */
++		for (uint8_t i = 0; i < q->nb_count && !(q->has_wifi && q->wifi_has_tail2); i++) {
+ 			out(" %02x%02x snr %d.%02d", q->nb[i].hash[0], q->nb[i].hash[1], q->nb[i].snr4 / 4,
+ 			    (abs(q->nb[i].snr4) % 4) * 25);
+ 		}
+ 		out("\r\n");
++		if (q->has_wifi) {
++			out("  wifi: %u AP, %s%u tail(s)%s\r\n", q->wifi_ap_count, q->wifi_has_seed2 ? "2 full BSSIDs, " : "",
++			    (unsigned)q->wifi_has_tail + (unsigned)q->wifi_has_tail2,
++			    q->wifi_has_tail2 ? " (the second in the repeater's slot)" : "");
++		}
+ 	}
+ 	if (home_silent == 255) {
+ 		out("home network: not heard yet (a border copy goes out if one applies)\r\n");

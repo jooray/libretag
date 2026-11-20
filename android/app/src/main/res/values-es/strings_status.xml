@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <string name="channel_places">Lugares</string>
+    <string name="channel_places_desc">Un localizador salió de uno de sus lugares o llegó a él</string>
+
+    <!-- Status: the list row and the detail's plate (ui-review section 3) -->
+    <string name="st_heard">Señal %1$s</string>
+    <string name="st_heard_late">Señal %1$s · con retraso</string>
+    <string name="st_left">Salió de %1$s %2$s</string>
+    <string name="st_left_wifi">Salió de un lugar Wi-Fi %1$s</string>
+    <string name="st_quiet_place">%1$s · en silencio</string>
+    <string name="st_quiet_wifi_place">Lugar Wi-Fi · en silencio</string>
+    <string name="st_quiet_with_you">Contigo · en silencio</string>
+    <string name="st_quiet_still">Sin moverse · en silencio</string>
+    <string name="st_quiet_parked2">Aparcado · en silencio</string>
+    <string name="st_not_heard">Sin señal desde hace %1$s · esperada %2$s</string>
+    <string name="st_lost2">Modo Perdido · %1$s</string>
+
+    <!-- The plate's second line -->
+    <string name="sub_since">Desde %1$s</string>
+    <string name="sub_since_device">Desde %1$s · %2$s está cerca</string>
+    <string name="sub_since_your_device">Desde %1$s · tu dispositivo está cerca</string>
+    <string name="sub_paired">Emparejado %1$s</string>
+    <string name="sub_lost_until2">Hasta %1$s</string>
+    <string name="sub_guard_left">Salió del lugar vigilado %1$s</string>
+    <string name="sub_not_heard">Última señal %1$s · %2$s</string>
+
+    <!-- The When row: the one "next report" line -->
+    <string name="next_report">Próximo informe ~%1$s</string>
+    <string name="next_due">Tocaba ~%1$s</string>
+    <string name="next_latest">Próximo informe como muy tarde %1$s</string>
+    <string name="next_when_leaves">Cuando salga de %1$s</string>
+    <string name="next_when_leaves_wifi">Cuando salga del lugar Wi-Fi</string>
+    <string name="next_when_part">Cuando tu dispositivo ya no esté cerca</string>
+    <string name="next_when_moves">Cuando se mueva</string>
+    <!-- %1$s is one of the three lines above, %2$s a duration such as "1 h" -->
+    <string name="next_within">%1$s (dentro de %2$s)</string>
+    <!-- %1$s is the line above, %2$s a time such as "18:40" or "tomorrow 18:40" -->
+    <string name="next_and_latest">%1$s, como muy tarde %2$s</string>
+    <string name="next_overdue">Retrasado</string>
+    <string name="next_first">Primer informe dentro de %1$s</string>
+
+    <!-- Commands: the one line under the buttons, then the slip that replaces it -->
+    <string name="cmd_reach">Un comando le llega ~%1$s</string>
+    <string name="cmd_reach_report">Un comando le llega con el próximo informe, como muy tarde %1$s</string>
+    <string name="cmd_reach_heard">Un comando le llega cuando vuelva a dar señal</string>
+    <string name="cmd_reach_first">Un comando le llega con el primer informe</string>
+    <string name="cmd_reach_bridge">%1$s · por un puente</string>
+    <string name="cmd_offline">Sin conexión. Los comandos esperan a que vuelva.</string>
+    <string name="cmd_stop_lost">Salir del modo Perdido</string>
+    <string name="cmd_stop_track">Dejar de seguir</string>
+    <string name="slip2_out">%1$s · sale ~%2$s</string>
+    <string name="slip2_out_latest">%1$s · sale como muy tarde %2$s</string>
+    <string name="slip2_out_heard">%1$s · sale cuando vuelva a dar señal</string>
+    <string name="slip2_out_first">%1$s · sale con el primer informe</string>
+    <string name="slip2_sent">%1$s · enviado %2$s, esperando al localizador</string>
+    <string name="slip2_confirmed">%1$s · confirmado %2$s</string>
+    <string name="slip2_retry">%1$s · sin respuesta, próximo intento ~%2$s</string>
+    <string name="slip2_retry_later">%1$s · sin respuesta aún, se reintentará</string>
+    <!-- the list row: command and time only, "Beep · ~1:13" -->
+    <string name="slip2_row">%1$s · %2$s</string>
+
+    <!-- Where row, Wi-Fi lookup and guard -->
+    <string name="where_at_place">En %1$s</string>
+    <string name="where_at_wifi_place">En un lugar Wi-Fi</string>
+    <string name="pos_at_place_gps">En %1$s · GPS ±%2$s</string>
+    <string name="where_place_wifi">Reconocido por sus redes Wi-Fi</string>
+    <plurals name="where_wifi_heard">
+        <item quantity="one">Sin GPS · %1$d red Wi-Fi detectada</item>
+        <item quantity="many">Sin GPS · %1$d de redes Wi-Fi detectadas</item>
+        <item quantity="other">Sin GPS · %1$d redes Wi-Fi detectadas</item>
+    </plurals>
+    <string name="wifi_looking">Buscando…</string>
+    <string name="wifi_unknown">%1$s no conoce estas redes</string>
+    <string name="wifi_busy">%1$s limita las consultas. Inténtalo más tarde.</string>
+    <string name="wifi_failed">La consulta falló. Revisa la conexión e inténtalo de nuevo.</string>
+    <string name="guard_here">Vigilar este lugar</string>
+    <string name="guard_since">Vigilando desde %1$s · alarma si se mueve %2$s</string>
+    <string name="guard_stop">Dejar de vigilar</string>
+    <string name="guard_new_spot">Vigilar el lugar nuevo</string>
+    <string name="a11y_guarded">vigilado</string>
+
+    <!-- Notifications on the Places channel -->
+    <string name="notif_left">%1$s salió de %2$s a las %3$s</string>
+    <string name="notif_arrived">%1$s llegó a %2$s a las %3$s</string>
+    <string name="notif_left_wifi">%1$s salió de un lugar Wi-Fi a las %2$s</string>
+    <string name="notif_arrived_wifi">%1$s llegó a un lugar Wi-Fi a las %2$s</string>
+    <string name="notif_place_text">%1$s. %2$s</string>
+</resources>

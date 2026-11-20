@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd user agent for the nostrmesh bridge (template, docs/nostr-mesh-bridge.md 8.11).
+
+  Replace /Users/YOU with your home directory (launchd does not expand ~ or $HOME), check the
+  path of uv (`command -v uv`), then:
+    cp host/deploy/local.nostrmesh.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.nostrmesh.plist
+    launchctl print gui/$(id -u)/local.nostrmesh      # state, last exit code
+    tail -f ~/Library/Logs/nostrmesh.log              # log, including the hourly heartbeat line
+  Stop it with: launchctl bootout gui/$(id -u)/local.nostrmesh
+
+  The bridge exits with status 3 when the radio has been silent for [watchdog] rx_silence_s;
+  KeepAlive restarts it after any exit that is not a success, at most once per ThrottleInterval.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>local.nostrmesh</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/YOU/.local/bin/uv</string>
+		<string>run</string>
+		<string>--frozen</string>
+		<string>--project</string>
+		<string>/Users/YOU/libre-tag/host</string>
+		<string>nostrmesh</string>
+		<string>run</string>
+		<string>-c</string>
+		<string>/Users/YOU/.config/nostrmesh/bridge.toml</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/Users/YOU/libre-tag/host</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PYTHONUNBUFFERED</key>
+		<string>1</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>StandardOutPath</key>
+	<string>/Users/YOU/Library/Logs/nostrmesh.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/YOU/Library/Logs/nostrmesh.log</string>
+</dict>
+</plist>

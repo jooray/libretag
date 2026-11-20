@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 0.10.0: the tag's console over Bluetooth after a restart (firmware 0.8.0, PROTOCOL.md 6.2) -->
+<resources>
+    <string name="blecon_connect">Připojit přes Bluetooth</string>
+    <string name="blecon_sheet_title">Připojit přes Bluetooth</string>
+    <string name="blecon_restart">Restartuj %1$s: jednou stiskni jeho tlačítko reset. Tři minuty poslouchá přes Bluetooth.</string>
+    <string name="blecon_once">Stiskni jednou. Dvojité stisknutí přepne lokátor do režimu aktualizace.</string>
+    <string name="blecon_looking">Hledám %1$s…</string>
+    <string name="blecon_found">Nalezeno. Připojuji…</string>
+    <string name="blecon_not_seen">%1$s jsem nenašel. Restartuj ho a drž telefon blízko.</string>
+    <string name="blecon_listening">%1$s poslouchá přes Bluetooth. Zbývá %2$d s.</string>
+    <string name="blecon_connect_short">Připojit</string>
+    <string name="blecon_needs_fw">Bluetooth vyžaduje firmware %1$s. Aplikace na tomto lokátoru naposledy viděla %2$s. Pokud má lokátor novější firmware, připojí se i tak.</string>
+    <string name="blecon_connected">Připojeno přes Bluetooth</string>
+    <string name="blecon_disconnect">Odpojit</string>
+    <string name="blecon_lost">Spojení přes Bluetooth se přerušilo. Restartuj lokátor a připoj se znovu, nebo použij kabel.</string>
+    <string name="blecon_tag_closed">Lokátor ukončil relaci. Restartuj ho a pokračuj.</string>
+    <string name="blecon_reconnecting">Spojení se přerušilo. Připojuji znovu…</string>
+    <string name="blecon_reconnected">Znovu připojeno</string>
+    <string name="blecon_failed">Nepodařilo se připojit přes Bluetooth: %1$s</string>
+    <string name="blecon_permission">Bluetooth potřebuje oprávnění Zařízení v okolí.</string>
+    <string name="blecon_bt_off">Bluetooth je vypnutý. Zapni ho a připoj se.</string>
+    <string name="blecon_fw_cable">Aktualizace firmwaru vyžaduje kabel.</string>
+    <string name="blecon_needs_cable">Vyžaduje kabel.</string>
+    <!-- 0.11.2: open the tag's Bluetooth without a restart (BLE_CONSOLE command, firmware 0.9.2) -->
+    <string name="cmd_ble_console">Otevřít Bluetooth</string>
+    <string name="blecon_remote">Otevřít Bluetooth na dálku</string>
+    <string name="blecon_remote_at">%1$s otevře Bluetooth zhruba v %2$s.</string>
+    <string name="blecon_remote_next">%1$s otevře Bluetooth při nejbližší kontrole.</string>
+    <string name="blecon_remote_via_ble">Tento telefon předá žádost lokátoru přes Bluetooth, proto ho drž blízko.</string>
+    <string name="blecon_remote_via_node">Tvůj uzel MeshCore pošle žádost jen rádiím v dosahu. Repeatery ji dál nepředají.</string>
+    <string name="blecon_remote_via_nostr">Žádost doručí mosty Nostr.</string>
+    <string name="blecon_remote_wait">Nech tuto obrazovku otevřenou. Když lokátor začne poslouchat, objeví se tlačítko Připojit.</string>
+    <string name="blecon_remote_replace_title">Nahradit čekající příkaz?</string>
+    <string name="blecon_remote_replace">%1$s lokátor ještě nedosáhl. Otevřením Bluetooth se nahradí.</string>
+    <string name="blecon_remote_replace_ok">Nahradit</string>
+    <!-- the tag's console in Service (long press on the firmware row) -->
+    <string name="blecon_console">Konzole</string>
+    <string name="blecon_console_hint">Příkaz</string>
+    <string name="blecon_console_send">Odeslat</string>
+</resources>

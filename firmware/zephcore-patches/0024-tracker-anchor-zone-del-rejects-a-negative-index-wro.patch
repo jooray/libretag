@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 23:36:31 +0100
+Subject: [PATCH 24/40] tracker: anchor/zone del rejects a negative index
+ (wrote before the array); print_anchor clamps len so a damaged state cannot
+ underflow or overrun the hex buffer; zone and anchor counts clamped at load
+
+---
+ zephcore/src/main_tracker.cpp | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index cc2e155..5decd60 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -715,6 +715,9 @@ static void load_cfg(void)
+ 		LOG_WRN("no LibreTag state, defaults");
+ 		defaults();
+ 	}
++	/* counts index fixed arrays: a damaged state must not send the loops past them */
++	cfg.zone_count = MIN(cfg.zone_count, (uint8_t)ZONES_MAX);
++	cfg.anchor_count = MIN(cfg.anchor_count, (uint8_t)ANCHORS_MAX);
+ 	/* LOST/TRACK and the last command survive a reboot (a brownout must not end LOST) */
+ 	last_cmd_seq = cfg.last_cmd_seq;
+ 	if (cfg.mode != LT_MODE_IDLE && cfg.mode <= LT_MODE_LOST && cfg.mode_left_min) {
+@@ -3407,11 +3410,12 @@ static void print_anchor(uint8_t i)
+ 		    x->data[4], x->data[5]);
+ 		break;
+ 	case ANCHOR_NAME:
+-		out("ANCHOR %u name %.*s\r\n", i, x->len, (const char *)x->data);
++		out("ANCHOR %u name %.*s\r\n", i, (int)MIN((size_t)x->len, sizeof(x->data)), (const char *)x->data);
+ 		break;
+ 	case ANCHOR_MFG:
+ 	case ANCHOR_SVC:
+-		hex(h, x->data + 2, x->len - 2);
++		/* len 2..30 as added; a damaged state must not underflow or overrun h */
++		hex(h, x->data + 2, CLAMP((size_t)x->len, (size_t)2, sizeof(x->data)) - 2);
+ 		out("ANCHOR %u %s %04x %s\r\n", i, x->kind == ANCHOR_MFG ? "mfg" : "svc", sys_get_le16(x->data), h);
+ 		break;
+ 	case ANCHOR_IRK:
+@@ -3476,7 +3480,7 @@ static bool cli_quiet(int argc, char **argv)
+ 			z->r_m = (uint16_t)r;
+ 			save_cfg();
+ 			out("OK zone %u\r\n", cfg.zone_count - 1);
+-		} else if (!strcmp(sub, "del") && argc == 3 && atoi(argv[2]) < cfg.zone_count) {
++		} else if (!strcmp(sub, "del") && argc == 3 && atoi(argv[2]) >= 0 && atoi(argv[2]) < cfg.zone_count) {
+ 			int i = atoi(argv[2]);
+ 			memmove(&cfg.zones[i], &cfg.zones[i + 1], (cfg.zone_count - i - 1) * sizeof(cfg.zones[0]));
+ 			cfg.zone_count--;
+@@ -3549,7 +3553,7 @@ static bool cli_quiet(int argc, char **argv)
+ 			cfg.anchors[cfg.anchor_count++] = x;
+ 			save_cfg();
+ 			print_anchor(cfg.anchor_count - 1);
+-		} else if (!strcmp(sub, "del") && argc == 3 && atoi(argv[2]) < cfg.anchor_count) {
++		} else if (!strcmp(sub, "del") && argc == 3 && atoi(argv[2]) >= 0 && atoi(argv[2]) < cfg.anchor_count) {
+ 			int i = atoi(argv[2]);
+ 			memmove(&cfg.anchors[i], &cfg.anchors[i + 1], (cfg.anchor_count - i - 1) * sizeof(cfg.anchors[0]));
+ 			cfg.anchor_count--;

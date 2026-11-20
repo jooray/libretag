@@ -1,0 +1,237 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 09:13:44 +0100
+Subject: [PATCH 06/40] tracker: locked console shows no position; history
+ sealed as j=2 in append-only segments, no clear time
+
+---
+ zephcore/src/main_tracker.cpp | 122 +++++++++++++++++++++++-----------
+ 1 file changed, 82 insertions(+), 40 deletions(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 22c1506..28f1941 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -335,8 +335,9 @@ static bool save_cfg(void)
+  * radio: the tracker stores only ciphertext and needs no keys for it. `log` prints the
+  * diagnostics: whether the GPS found a fix, how long it searched, whether a repeater relayed
+  * the report. */
+-#define HIST_FILE STATE_DIR "/hist"
+-#define HIST_CAP  512
++#define HIST_SEG  STATE_DIR "/hist%u"
++#define HIST_SEG_RECS 256 /* two segments: the newest 256..512 reports */
++#define HIST_J    2       /* sealed as copy j=2: never on air, so not findable in packet archives */
+ #define HIST_MAGIC 0xA7
+ enum {
+ 	HF_FIX = 1, HF_RELAYED = 2, HF_RETX = 4, HF_DROPPED = 8, HF_CMD = 16, HF_BORDER = 32,
+@@ -348,8 +349,8 @@ struct histrec {
+ 	uint8_t batt;
+ 	uint8_t mode;
+ 	uint32_t n;
+-	uint32_t unix_s;     /* wake time from the GPS-set clock, 0 = unknown */
+-	uint32_t uptime_s;
++	uint32_t uptime_s;   /* the report's own time is inside p (fix time) */
++	uint32_t rsv;
+ 	uint16_t search_s;   /* from wake to report: GPS search (and fix timeout) */
+ 	uint8_t nb_total;
+ 	uint8_t p_len;
+@@ -362,55 +363,91 @@ static struct histrec hist_cur;
+ static bool hist_open;
+ static int64_t wake_ms;
+ 
+-static void hist_write(const struct histrec *h)
++static uint8_t hist_seg;   /* segment being appended to */
++static uint16_t hist_count; /* records in it */
++
++static void hist_name(char *b, size_t n, unsigned seg) { snprintf(b, n, HIST_SEG, seg); }
++
++static void hist_init(void)
+ {
+-	struct fs_file_t f;
++	struct fs_dirent st;
++	char name[40];
++	size_t sz[2] = {0, 0};
+ 
+-	fs_file_t_init(&f);
+-	if (fs_open(&f, HIST_FILE, FS_O_CREATE | FS_O_RDWR) < 0) {
+-		return;
++	for (unsigned i = 0; i < 2; i++) {
++		hist_name(name, sizeof(name), i);
++		if (fs_stat(name, &st) == 0) {
++			sz[i] = st.size / sizeof(struct histrec);
++		}
+ 	}
+-	if (fs_seek(&f, (off_t)(h->n % HIST_CAP) * sizeof(*h), FS_SEEK_SET) == 0) {
+-		fs_write(&f, h, sizeof(*h));
++	/* the segment that is not full yet is the current one */
++	hist_seg = (sz[0] >= HIST_SEG_RECS && sz[1] < HIST_SEG_RECS) ? 1 : 0;
++	if (sz[0] >= HIST_SEG_RECS && sz[1] >= HIST_SEG_RECS) {
++		hist_seg = 0;
++		hist_name(name, sizeof(name), 0);
++		fs_unlink(name);
+ 	}
+-	fs_close(&f);
++	hist_count = (uint16_t)MIN(sz[hist_seg], HIST_SEG_RECS);
++	fs_unlink(STATE_DIR "/hist"); /* 0.5.1 ring file */
+ }
+ 
+-/* calls fn for each stored record with n >= from, oldest first */
+-static void hist_each(uint32_t from, void (*fn)(const struct histrec *))
++/* append only: LittleFS copies the tail on a write into the middle of a file */
++static void hist_write(const struct histrec *h)
+ {
+-	static struct histrec all[HIST_CAP]; /* 36 KB, only while the console asks */
+ 	struct fs_file_t f;
+-	size_t cnt = 0;
++	char name[40];
+ 
++	if (hist_count >= HIST_SEG_RECS) {
++		hist_seg ^= 1;
++		hist_count = 0;
++		hist_name(name, sizeof(name), hist_seg);
++		fs_unlink(name); /* drop the oldest segment */
++	}
++	hist_name(name, sizeof(name), hist_seg);
+ 	fs_file_t_init(&f);
+-	if (fs_open(&f, HIST_FILE, FS_O_READ) < 0) {
++	if (fs_open(&f, name, FS_O_CREATE | FS_O_WRITE | FS_O_APPEND) < 0) {
+ 		return;
+ 	}
+-	while (cnt < HIST_CAP && fs_read(&f, &all[cnt], sizeof(all[0])) == (ssize_t)sizeof(all[0])) {
+-		if (all[cnt].magic == HIST_MAGIC && all[cnt].n >= from) {
+-			cnt++;
+-		}
++	if (fs_write(&f, h, sizeof(*h)) == (ssize_t)sizeof(*h)) {
++		hist_count++;
+ 	}
+ 	fs_close(&f);
+-	for (size_t i = 1; i < cnt; i++) { /* insertion sort by n */
+-		struct histrec t = all[i];
+-		size_t j = i;
++}
+ 
+-		while (j > 0 && all[j - 1].n > t.n) {
+-			all[j] = all[j - 1];
+-			j--;
++/* calls fn for each stored record with n >= from, oldest first (older segment first) */
++static void hist_each(uint32_t from, void (*fn)(const struct histrec *))
++{
++	unsigned order[2] = {(unsigned)(hist_seg ^ 1), hist_seg};
++
++	for (unsigned k = 0; k < 2; k++) {
++		struct fs_file_t f;
++		struct histrec h;
++		char name[40];
++
++		hist_name(name, sizeof(name), order[k]);
++		fs_file_t_init(&f);
++		if (fs_open(&f, name, FS_O_READ) < 0) {
++			continue;
+ 		}
+-		all[j] = t;
+-	}
+-	for (size_t i = 0; i < cnt; i++) {
+-		fn(&all[i]);
++		while (fs_read(&f, &h, sizeof(h)) == (ssize_t)sizeof(h)) {
++			if (h.magic == HIST_MAGIC && h.n >= from) {
++				fn(&h);
++			}
++		}
++		fs_close(&f);
+ 	}
+ }
+ 
+ static void hist_clear(void)
+ {
+-	fs_unlink(HIST_FILE);
++	char name[40];
++
++	for (unsigned i = 0; i < 2; i++) {
++		hist_name(name, sizeof(name), i);
++		fs_unlink(name);
++	}
++	hist_seg = 0;
++	hist_count = 0;
+ 	hist_open = false;
+ }
+ 
+@@ -959,13 +996,12 @@ static void send_report(bool with_fix)
+ 		h->n = n_cur;
+ 		h->batt = pct;
+ 		h->mode = mode;
+-		h->unix_s = now_unix();
+ 		h->uptime_s = (uint32_t)(k_uptime_get() / 1000);
+ 		h->search_s = wake_ms ? (uint16_t)MIN((k_uptime_get() - wake_ms) / 1000, 65535) : 0;
+ 		h->nb_total = r.nb_total;
+ 		h->flags = (r.has_fix ? HF_FIX : 0) | (r.nb_discover ? HF_DISCOVER : 0) | (low ? HF_LOW : 0) |
+ 			   (nets == 2 ? HF_BORDER : 0);
+-		h->p_len = (uint8_t)lt_seal_report(keys.k.view, n_cur, 0, &r, !cfg.channel_mode, h->p);
++		h->p_len = (uint8_t)lt_seal_report(keys.k.view, n_cur, HIST_J, &r, false, h->p);
+ 		hist_open = true;
+ 		wake_ms = 0;
+ 	}
+@@ -1682,9 +1718,9 @@ static bool usb_unlocked(void)
+ /* What a locked console still answers: reading the state, diagnostics, a reset of the pairing. */
+ static bool cli_needs_unlock(const char *c)
+ {
++	/* locked: nothing that shows a position, the neighbourhood or the owner */
+ 	static const char *const open_cmds[] = {"help", "status", "version", "challenge", "auth", "unpair",
+-						"where", "gps", "noise", "meshscan", "discover", "neighbours",
+-						"blescan", "nostr", "buzz", "report", "test"};
++						"buzz"};
+ 
+ 	for (size_t i = 0; i < ARRAY_SIZE(open_cmds); i++) {
+ 		if (!strcmp(c, open_cmds[i])) {
+@@ -1710,6 +1746,11 @@ static void print_status(void)
+ 		out("LIBRETAG KEY %s\r\n", k);
+ 	}
+ 	out("firmware LibreTag %s, ZephCore %s\r\n", LT_FW_VERSION, LT_ZEPHCORE_BASE);
++	if (keys.locked && !usb_unlocked()) {
++		/* a stranger with a cable learns the id, the version and the battery, not where it was */
++		out("battery %u%%\r\n", board.getBattPercent());
++		return;
++	}
+ 	out("n=%u mode=%d interval=%umin listen=%us fixto=%us transport=%s\r\n", n_cur, mode,
+ 	    cfg.interval_min, cfg.listen_s, cfg.fix_timeout_s, cfg.channel_mode ? "channel" : "stealth");
+ 	out("radio %.3f MHz bw=%.1f sf=%u cr=%u pwr=%d dBm path=%uB\r\n", (double)cfg.freq, (double)cfg.bw,
+@@ -1988,20 +2029,20 @@ static void cli_exec(char *l)
+ 		static uint32_t want;
+ 		static uint32_t total;
+ 
+-		want = argc >= 2 ? (uint32_t)CLAMP(atoi(argv[1]), 1, HIST_CAP) : 30;
++		want = argc >= 2 ? (uint32_t)CLAMP(atoi(argv[1]), 1, 2 * HIST_SEG_RECS) : 30;
+ 		total = 0;
+ 		hist_each(0, [](const struct histrec *) { total++; });
+ 		static uint32_t skip;
+ 
+ 		skip = total > want ? total - want : 0;
+-		out("LOG %u of %u report(s): n time(unix) search_s batt mode repeaters flags\r\n",
++		out("LOG %u of %u report(s): n uptime_s search_s batt mode repeaters flags\r\n",
+ 		    (unsigned)(total - skip), (unsigned)total);
+ 		hist_each(0, [](const struct histrec *h) {
+ 			if (skip) {
+ 				skip--;
+ 				return;
+ 			}
+-			out("L %u %u %u %u %u %u %s%s%s%s%s%s%s%s\r\n", (unsigned)h->n, (unsigned)h->unix_s,
++			out("L %u %u %u %u %u %u %s%s%s%s%s%s%s%s\r\n", (unsigned)h->n, (unsigned)h->uptime_s,
+ 			    h->search_s, h->batt, h->mode, h->nb_total, h->flags & HF_FIX ? "fix " : "nofix ",
+ 			    h->flags & HF_RELAYED ? "relayed " : "not-relayed ", h->flags & HF_RETX ? "retx " : "",
+ 			    h->flags & HF_DROPPED ? "DROPPED " : "", h->flags & HF_CMD ? "cmd " : "",
+@@ -2015,7 +2056,7 @@ static void cli_exec(char *l)
+ 			char hx[2 * sizeof(h->p) + 1];
+ 
+ 			hex(hx, h->p, MIN(h->p_len, sizeof(h->p)));
+-			out("H %u %u %u %s\r\n", (unsigned)h->n, (unsigned)h->unix_s, h->flags, hx);
++			out("H %u %u %s\r\n", (unsigned)h->n, h->flags, hx);
+ 		});
+ 		out("END\r\n");
+ 	} else if (!strcmp(c, "neighbours")) {
+@@ -2220,6 +2261,7 @@ int main(void)
+ 
+ 	initNodePrefs(&prefs);
+ 	load_cfg();
++	hist_init();
+ 	apply_radio_cfg();
+ 	lt_channel_key("#libretag", chan_key);
+ #if NOSTR

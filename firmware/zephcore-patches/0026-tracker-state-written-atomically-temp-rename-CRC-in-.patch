@@ -1,0 +1,833 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Tue, 17 Nov 2026 09:22:32 +0100
+Subject: [PATCH 26/40] tracker: state written atomically (temp + rename, CRC
+ in a 0.7.6 extension under the v7 magic), counter bound in the key page, boot
+ counter = max of state, key page and key epoch; TX floor 3250 mV (resume 3350
+ mV or USB), boot report after 30 s with backoff after resets in a row,
+ low-battery report and DM once per crossing (flags in the state, armed again
+ at 20 %); Track/Lost interval at least 120 s, rolling 200 floods/24 h cap
+ (fallback max(IDLE, 1 h)), LOST x2 after 2 h at one place; dfu
+ serial|ble|uf2; status txcap line
+
+---
+ zephcore/src/main_tracker.cpp | 487 ++++++++++++++++++++++++++++------
+ 1 file changed, 406 insertions(+), 81 deletions(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 5decd60..24666eb 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -28,6 +28,10 @@
+ #include <zephyr/storage/flash_map.h>
+ #include <zephyr/drivers/pwm.h>
+ #include <zephyr/spinlock.h>
++#include <zephyr/sys/reboot.h>
++#if defined(CONFIG_SOC_SERIES_NRF52)
++#include <hal/nrf_power.h>
++#endif
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
+ #include <zephyr/bluetooth/bluetooth.h>
+ #include <zephyr/bluetooth/hci.h>
+@@ -223,6 +227,14 @@ struct persisted {
+ 	uint8_t owner_hb_h;       /* owner nearby: cap, hours (at most 8) */
+ 	uint8_t report_every;     /* 0.7.3: report at every n-th IDLE wake-up, listen at the others; 0 = 1 */
+ 	uint8_t pad7[2];
++	/* 0.7.6 extension under the same magic: 0.7.5 reads the v7 part and ignores the rest (and
++	 * writes only the v7 part, which 0.7.6 then reads as v7 without the extension) */
++	uint32_t ext_magic;       /* STATE_EXT_MAGIC */
++	uint8_t low_flags;        /* LT_LOW_*: the low-battery report and DM of this crossing went out */
++	uint8_t boot_resets;      /* boots in a row without a completed transmitting wake-up */
++	uint8_t boot_deliberate;  /* the next boot follows `reboot` or `dfu`: not a reset */
++	uint8_t pad8;
++	uint32_t crc;             /* CRC-32 of everything before it */
+ };
+ 
+ #define V1_SIZE offsetof(struct persisted, nostr_sk)
+@@ -231,6 +243,9 @@ struct persisted {
+ #define V4_SIZE offsetof(struct persisted, unused_still_max_min)
+ #define V5_SIZE offsetof(struct persisted, zones)
+ #define V6_SIZE offsetof(struct persisted, check_s)
++#define V7_SIZE offsetof(struct persisted, ext_magic)
++#define STATE_TMP STATE_DIR "/state.tmp"
++#define STATE_EXT_MAGIC 0x4C543736u /* "LT76" */
+ #define BORDER_M 3000U /* within this of a border, the neighbour's network is a candidate */
+ /* Second copy on the neighbour's network only when the home network was silent in this many
+  * listen windows in a row: if home repeaters are audible (often true just across a border), they
+@@ -271,6 +286,7 @@ static bool first_fix_pending = true;
+ static lt_wake_cfg_t wake_cfg;
+ static lt_wake_state_t wake_st;
+ static bool wake_forced;          /* report/test/ping from the console */
++static bool low_forced;           /* 0.7.6: the report of a crossing below 10 % */
+ static volatile bool owner_seen;  /* an anchor answered during this wake-up */
+ static uint32_t lost_reports;     /* LOST reports since LOST began, for lost_ble_every */
+ static int64_t planned_due_ms;    /* when the next wake-up is due, as promised by next_in */
+@@ -323,7 +339,6 @@ static uint32_t report_cycle;
+ static uint8_t nostr_key[16]; /* #nostr channel */
+ static uint8_t my_pk[32];     /* of the DM key (PROTOCOL.md 1, dm_sk) */
+ static bool nostr_ok;         /* secp256k1 and AES-256 self-test passed */
+-static bool low_alert_sent;
+ #define LOW_DM_PCT 10         /* below this the tracker DMs the owner itself (PROTOCOL.md 5) */
+ #endif
+ 
+@@ -343,6 +358,21 @@ struct keyrec {
+ 	uint32_t crc;
+ };
+ static struct keyrec keys;
++/* 0.7.6: after the record (whose layout and CRC 0.7.5 checks), an upper bound of every counter
++ * used with these keys, with its own CRC. 0.7.5 writes the record alone (the tail stays erased). */
++#define KEYS_EXT_MAGIC 0x4C544E31u /* "LTN1" */
++#define KEY_FLOOR_STEP 32
++struct keyext {
++	uint32_t magic;
++	uint32_t n_floor;  /* every n sent with these keys is below this */
++	uint32_t crc;      /* CRC-32 of the record and magic, n_floor */
++};
++struct keypage {
++	struct keyrec r;
++	struct keyext x;
++};
++BUILD_ASSERT(sizeof(struct keyrec) % 4 == 0 && sizeof(struct keypage) <= 4096, "key page layout");
++static uint32_t key_n_floor;      /* 0: set from n_cur at the next keys_save() */
+ static bool usb_session;          /* `auth` passed on this connection */
+ static int64_t usb_session_until;
+ static uint8_t usb_challenge[16];
+@@ -409,18 +439,39 @@ static void hex(char *dst, const uint8_t *src, size_t n)
+ 
+ /* ------------------------------------------------------------------ persistence */
+ 
++static uint32_t state_crc(const struct persisted *p)
++{
++	return crc32_ieee((const uint8_t *)p, offsetof(struct persisted, crc));
++}
++
++/* 0.7.6: written to a temporary file, closed, then renamed over the state, so a reset or a
++ * failed write never leaves a half-written state (LittleFS renames atomically). */
+ static bool save_cfg(void)
+ {
+ 	struct fs_file_t f;
+ 
++	cfg.ext_magic = STATE_EXT_MAGIC;
++	cfg.crc = state_crc(&cfg);
+ 	fs_file_t_init(&f);
+-	if (fs_open(&f, STATE_FILE, FS_O_CREATE | FS_O_WRITE | FS_O_TRUNC) < 0) {
+-		LOG_ERR("cannot write %s", STATE_FILE);
++	if (fs_open(&f, STATE_TMP, FS_O_CREATE | FS_O_WRITE | FS_O_TRUNC) < 0) {
++		LOG_ERR("cannot write %s", STATE_TMP);
+ 		return false;
+ 	}
+ 	ssize_t w = fs_write(&f, &cfg, sizeof(cfg));
+-	fs_close(&f);
+-	return w == (ssize_t)sizeof(cfg);
++	int c = fs_close(&f);
++
++	if (w != (ssize_t)sizeof(cfg) || c != 0) {
++		LOG_ERR("state write failed (%d, %d)", (int)w, c);
++		fs_unlink(STATE_TMP);
++		return false;
++	}
++	int r = fs_rename(STATE_TMP, STATE_FILE);
++
++	if (r != 0) {
++		LOG_ERR("state rename failed (%d)", r);
++		return false; /* the load still finds the complete temporary file */
++	}
++	return true;
+ }
+ 
+ /* ------------------------------------------------------------------ history
+@@ -580,26 +631,52 @@ static uint32_t keyrec_crc(const struct keyrec *r)
+ 	return crc32_ieee((const uint8_t *)r, offsetof(struct keyrec, crc));
+ }
+ 
++static uint32_t keyext_crc(const struct keypage *p)
++{
++	return crc32_ieee((const uint8_t *)p, offsetof(struct keypage, x.crc));
++}
++
+ static bool keys_read(int page, struct keyrec *r)
+ {
+ 	return flash_area_read(keys_fa, page * KEYS_PAGE, r, sizeof(*r)) == 0 && r->magic == KEYS_MAGIC &&
+ 	       r->crc == keyrec_crc(r);
+ }
+ 
++/* the counter bound stored with the record of this page (0.7.6), 0 = none */
++static uint32_t keys_read_floor(int page)
++{
++	static struct keypage kp;
++
++	if (flash_area_read(keys_fa, page * KEYS_PAGE, &kp, sizeof(kp)) != 0 || kp.x.magic != KEYS_EXT_MAGIC ||
++	    kp.x.crc != keyext_crc(&kp)) {
++		return 0;
++	}
++	return kp.x.n_floor;
++}
++
+ static bool keys_save(void)
+ {
++	static struct keypage kp;
++
+ 	if (!keys_fa) {
+ 		return false;
+ 	}
+ 	keys.magic = KEYS_MAGIC;
+ 	keys.seq++;
+ 	keys.crc = keyrec_crc(&keys);
++	if (key_n_floor <= n_cur + 1) {
++		key_n_floor = n_cur + 1 + KEY_FLOOR_STEP;
++	}
++	kp.r = keys;
++	kp.x.magic = KEYS_EXT_MAGIC;
++	kp.x.n_floor = key_n_floor;
++	kp.x.crc = keyext_crc(&kp);
+ 	int page = keys.seq & 1;
+ 	struct keyrec back;
+ 
+ 	if (flash_area_erase(keys_fa, page * KEYS_PAGE, KEYS_PAGE) ||
+-	    flash_area_write(keys_fa, page * KEYS_PAGE, &keys, sizeof(keys)) || !keys_read(page, &back) ||
+-	    back.seq != keys.seq) {
++	    flash_area_write(keys_fa, page * KEYS_PAGE, &kp, sizeof(kp)) || !keys_read(page, &back) ||
++	    back.seq != keys.seq || keys_read_floor(page) != key_n_floor) {
+ 		LOG_ERR("key page %d write failed", page);
+ 		return false;
+ 	}
+@@ -619,6 +696,7 @@ static void keys_new(const uint8_t *k0)
+ 	keys.has_k0 = 1;
+ 	keys.locked = 0;
+ 	lt_keys_from_k0(keys.k0, &keys.k);
++	key_n_floor = 0; /* new keys: nothing sent with them yet */
+ }
+ 
+ /* Keys for report n: ratchet forward when n entered a new epoch. */
+@@ -668,51 +746,95 @@ static void wake_cfg_apply(void)
+ 	wake_cfg.still_hb_s = (uint32_t)CLAMP(cfg.still_hb_h, 1, 24) * 3600U;
+ }
+ 
+-static void load_cfg(void)
++enum { ST_NONE, ST_BAD, ST_OK };
++
++/* Read a state file into *p (migrating older layouts). ST_NONE: no file. */
++static int state_read(const char *path, struct persisted *p)
+ {
+ 	struct fs_file_t f;
++
++	fs_file_t_init(&f);
++	if (fs_open(&f, path, FS_O_READ) != 0) {
++		return ST_NONE;
++	}
++	memset(p, 0, sizeof(*p));
++	ssize_t r = fs_read(&f, p, sizeof(*p));
++
++	fs_close(&f);
++	if (r <= 0) {
++		return ST_BAD;
++	}
++	if (p->magic == STATE_MAGIC) {
++		if (r == (ssize_t)sizeof(*p)) {
++			return p->ext_magic == STATE_EXT_MAGIC && p->crc == state_crc(p) ? ST_OK : ST_BAD;
++		}
++		if (r == (ssize_t)V7_SIZE) {
++			/* written by 0.7.0 .. 0.7.5 (no CRC there): the extension starts empty */
++			memset((uint8_t *)p + V7_SIZE, 0, sizeof(*p) - V7_SIZE);
++			return ST_OK;
++		}
++		return ST_BAD;
++	}
++	uint32_t was = p->magic;
++	size_t keep = was == STATE_MAGIC_V1 ? V1_SIZE : was == STATE_MAGIC_V2 ? V2_SIZE :
++		      was == STATE_MAGIC_V3 ? V3_SIZE : was == STATE_MAGIC_V4 ? V4_SIZE :
++		      was == STATE_MAGIC_V5 ? V5_SIZE : was == STATE_MAGIC_V6 ? V6_SIZE : 0;
++	if (!keep || r < (ssize_t)keep) {
++		return ST_BAD;
++	}
++	LOG_INF("migrating LibreTag state %08x -> v7", was);
++	memset((uint8_t *)p + keep, 0, sizeof(*p) - keep);
++	p->magic = STATE_MAGIC;
++	if (keep < V3_SIZE) {
++		p->region_manual = 0;
++		p->path_hash_size = 1;
++	}
++	if (keep < V6_SIZE) {
++		p->low_batt_pct = CONFIG_LIBRETAG_LOW_BATT_PCT; /* 25 %: the app's DM step (PROTOCOL.md 5) */
++		p->dm_alerts = 1;
++		p->owner_gps = 1;
++		p->lost_ble_every = 5;
++		p->lost_ble_packets = 1;
++	}
++	/* 0.7: checks and parked quiet on, 0.6 heartbeats */
++	p->unused_still_max_min = 0;
++	p->check_s = LT_CHECK_S_DEFAULT;
++	p->still_after = 3;
++	p->still_hb_h = 6;
++	p->zone_hb_h = 24;
++	p->owner_hb_h = 8;
++	return ST_OK;
++}
++
++static int64_t lost_since_ms;      /* 0.7.6: LOST began (or resumed after a boot) */
++static lt_lost_state_t lost_st;    /* 0.7.6: LOST slow-down while the fixes stay in one place */
++
++static void load_cfg(void)
++{
++	static struct persisted tmp;
+ 	struct fs_dirent st;
+ 
+ 	if (fs_stat(STATE_DIR, &st) < 0) {
+ 		fs_mkdir(STATE_DIR);
+ 	}
+-	fs_file_t_init(&f);
+-	bool ok = false;
+-	if (fs_open(&f, STATE_FILE, FS_O_READ) == 0) {
+-		ssize_t r = fs_read(&f, &cfg, sizeof(cfg));
+-		fs_close(&f);
+-		ok = r == (ssize_t)sizeof(cfg) && cfg.magic == STATE_MAGIC;
+-		uint32_t was = cfg.magic;
+-		size_t keep = was == STATE_MAGIC_V1 ? V1_SIZE : was == STATE_MAGIC_V2 ? V2_SIZE :
+-			      was == STATE_MAGIC_V3 ? V3_SIZE : was == STATE_MAGIC_V4 ? V4_SIZE :
+-			      was == STATE_MAGIC_V5 ? V5_SIZE : was == STATE_MAGIC_V6 ? V6_SIZE : 0;
+-		if (!ok && keep && r >= (ssize_t)keep) {
+-			LOG_INF("migrating LibreTag state %08x -> v7", was);
+-			memset((uint8_t *)&cfg + keep, 0, sizeof(cfg) - keep);
+-			cfg.magic = STATE_MAGIC;
+-			if (keep < V3_SIZE) {
+-				cfg.region_manual = 0;
+-				cfg.path_hash_size = 1;
+-			}
+-			if (keep < V6_SIZE) {
+-				cfg.low_batt_pct = CONFIG_LIBRETAG_LOW_BATT_PCT; /* 25 %: the app's DM step (PROTOCOL.md 5) */
+-				cfg.dm_alerts = 1;
+-				cfg.owner_gps = 1;
+-				cfg.lost_ble_every = 5;
+-				cfg.lost_ble_packets = 1;
+-			}
+-			/* 0.7: checks and parked quiet on, 0.6 heartbeats */
+-			cfg.unused_still_max_min = 0;
+-			cfg.check_s = LT_CHECK_S_DEFAULT;
+-			cfg.still_after = 3;
+-			cfg.still_hb_h = 6;
+-			cfg.zone_hb_h = 24;
+-			cfg.owner_hb_h = 8;
+-			ok = true;
+-		}
+-	}
+-	if (!ok) {
+-		LOG_WRN("no LibreTag state, defaults");
++	/* 0.7.6: the state, or the complete temporary file a reset left before the rename */
++	int s_main = state_read(STATE_FILE, &cfg);
++	int s_tmp = state_read(STATE_TMP, &tmp);
++
++	if (s_tmp == ST_OK) {
++		/* complete, but the rename did not happen: it is the newest state */
++		uint32_t nn = s_main == ST_OK ? cfg.n_next : 0;
++
++		LOG_WRN("state from %s", STATE_TMP);
++		cfg = tmp;
++		cfg.n_next = MAX(cfg.n_next, nn);
++		s_main = ST_OK;
++	}
++	bool state_ok = s_main == ST_OK;
++	bool state_bad = s_main == ST_BAD || (s_main == ST_NONE && s_tmp == ST_BAD);
++
++	if (!state_ok) {
++		LOG_WRN("%s, defaults", state_bad ? "LibreTag state damaged" : "no LibreTag state");
+ 		defaults();
+ 	}
+ 	/* counts index fixed arrays: a damaged state must not send the loops past them */
+@@ -723,13 +845,17 @@ static void load_cfg(void)
+ 	if (cfg.mode != LT_MODE_IDLE && cfg.mode <= LT_MODE_LOST && cfg.mode_left_min) {
+ 		mode = (lt_mode_t)cfg.mode;
+ 		mode_until_ms = k_uptime_get() + (int64_t)cfg.mode_left_min * 60000;
+-		track_interval_s = cfg.track_interval_s >= 30 ? cfg.track_interval_s : 120;
++		track_interval_s = MAX((uint32_t)cfg.track_interval_s, (uint32_t)LT_TRACK_MIN_S);
++		lost_since_ms = k_uptime_get(); /* not kept: the first 2 h of LOST start again */
+ 		LOG_INF("resuming mode %d for %u min", mode, cfg.mode_left_min);
+ 	}
+-	/* Skip ahead past anything that may have been sent since the checkpoint. */
+-	n_cur = cfg.n_next;
+-	cfg.n_next = n_cur + N_CHECKPOINT;
+-	save_cfg();
++	/* 0.7.6: resets in a row; a console reboot or dfu does not count */
++	if (cfg.boot_deliberate) {
++		cfg.boot_resets = 1;
++		cfg.boot_deliberate = 0;
++	} else {
++		cfg.boot_resets = (uint8_t)MIN(cfg.boot_resets + 1, 250);
++	}
+ 
+ 	struct keyrec a, b;
+ 	bool ka = false, kb = false;
+@@ -741,9 +867,25 @@ static void load_cfg(void)
+ 		ka = keys_read(0, &a);
+ 		kb = keys_read(1, &b);
+ 	}
+-	if (ka || kb) {
+-		keys = (ka && (!kb || a.seq > b.seq)) ? a : b;
+-	} else {
++	bool keys_existed = ka || kb;
++	uint32_t floor_n = 0;
++
++	if (keys_existed) {
++		bool use_a = ka && (!kb || a.seq > b.seq);
++
++		keys = use_a ? a : b;
++		floor_n = keys_read_floor(use_a ? 0 : 1);
++		key_n_floor = floor_n;
++	}
++	/* Skip ahead past anything that may have been sent since the checkpoint: the largest bound of
++	 * the state, the key page and the key epoch (lt_boot_counter). */
++	n_cur = lt_boot_counter(state_ok, cfg.n_next, floor_n != 0, floor_n, keys_existed ? keys.k.epoch : 0,
++				keys_existed);
++	if (!state_ok && keys_existed) {
++		LOG_WRN("state lost, counter from the key page: n=%u (epoch %u, bound %u)", n_cur, keys.k.epoch, floor_n);
++	}
++	cfg.n_next = n_cur + N_CHECKPOINT;
++	if (!keys_existed) {
+ 		bool legacy = false;
+ 
+ 		for (size_t i = 0; i < sizeof(cfg.legacy_key); i++) {
+@@ -755,9 +897,9 @@ static void load_cfg(void)
+ 		keys_save();
+ 		if (legacy) {
+ 			memset(cfg.legacy_key, 0, sizeof(cfg.legacy_key));
+-			save_cfg();
+ 		}
+ 	}
++	save_cfg();
+ 	keys_for(n_cur);
+ }
+ 
+@@ -784,11 +926,18 @@ static void save_mode(void)
+ 	}
+ }
+ 
+-static void checkpoint_counter(void)
++/* 0.7.6: before counter n goes on air, both the state and the key page say "next is above n" */
++static void counter_guard(uint32_t n)
+ {
+-	if (n_cur + 1 >= cfg.n_next) {
+-		cfg.n_next = n_cur + N_CHECKPOINT;
+-		save_cfg();
++	if (n + 1 >= cfg.n_next) {
++		cfg.n_next = n + 1 + N_CHECKPOINT;
++		if (!save_cfg()) {
++			LOG_ERR("counter checkpoint not saved");
++		}
++	}
++	if (n + 1 >= key_n_floor) {
++		key_n_floor = n + 1 + KEY_FLOOR_STEP;
++		keys_save();
+ 	}
+ }
+ 
+@@ -910,6 +1059,30 @@ static void radio_home(void)
+ 
+ /* ------------------------------------------------------------------ scheduling */
+ 
++/* 0.7.6: floods in the last 24 h (reports, their copies, BLE packets, DMs, retransmissions) */
++static lt_txcap_t txcap;
++static bool tx_inhibited;         /* the battery is below the transmit floor (hysteresis) */
++static bool wake_tx_ok;           /* this wake-up's TX queue went out completely */
++
++static uint32_t uptime_s(void) { return (uint32_t)(k_uptime_get() / 1000); }
++
++static void flood_count(void) { lt_txcap_add(&txcap, uptime_s(), 1); }
++
++static uint32_t floods_24h(void) { return lt_txcap_count(&txcap, uptime_s()); }
++
++static bool over_cap(void) { return floods_24h() >= LT_FLOOD_CAP_24H; }
++
++static uint32_t lost_elapsed_s(void)
++{
++	return mode == LT_MODE_LOST && lost_since_ms ? (uint32_t)((k_uptime_get() - lost_since_ms) / 1000) : 0;
++}
++
++/* may the tracker transmit now (battery above the floor, or USB power)? */
++static bool tx_ok_now(void)
++{
++	return lt_tx_allowed(board.getBattMilliVolts(), board.isExternalPowered(), &tx_inhibited);
++}
++
+ static void schedule_next(uint32_t delay_s)
+ {
+ 	k_timer_start(&report_timer, K_SECONDS(MAX(delay_s, 1U)), K_NO_WAIT);
+@@ -921,10 +1094,16 @@ static uint32_t next_interval_s(void)
+ 		LOG_INF("mode %d expired, back to IDLE", mode);
+ 		mode = LT_MODE_IDLE;
+ 	}
+-	/* 0.7: no slowing down while still (checks need a fixed base); parked quiet replaces it */
+-	uint32_t base = (mode == LT_MODE_TRACK || mode == LT_MODE_LOST)
+-				? track_interval_s
+-				: (uint32_t)cfg.interval_min * 60U;
++	/* 0.7: no slowing down while still (checks need a fixed base); parked quiet replaces it.
++	 * 0.7.6: LOST slows down after 2 h at one place; above the daily flood cap every mode falls
++	 * back to max(IDLE interval, 1 h) */
++	bool cap = over_cap();
++	uint32_t base = lt_base_interval_s(mode, (uint32_t)cfg.interval_min * 60U, track_interval_s, cap, &lost_st,
++					   lost_elapsed_s());
++
++	if (cap && mode != LT_MODE_IDLE) {
++		LOG_WRN("%u floods in 24 h: interval %u s instead of %u s", floods_24h(), base, track_interval_s);
++	}
+ 	/* +-10 % jitter so the period is not a fingerprint */
+ 	int32_t span = (int32_t)base / 5;
+ 	int32_t j = span > 0 ? (int32_t)(sys_rand32_get() % (uint32_t)span) - span / 2 : 0;
+@@ -1076,6 +1255,13 @@ static void go_to_sleep(void)
+ 	wake_start_ms = 0;
+ 	listen_start_ms = 0;
+ 	txq_no_listen = false;
++	/* 0.7.6: a wake-up sent everything and listened without a reset, or an hour went by: the
++	 * resets in a row are over */
++	if (cfg.boot_resets && (wake_tx_ok || k_uptime_get() >= 3600000)) {
++		cfg.boot_resets = 0;
++		save_cfg();
++	}
++	wake_tx_ok = false;
+ 	if (phase == PH_LISTEN) {
+ 		home_silent = home_heard ? 0 : (uint8_t)MIN(home_silent + 1, 255);
+ 		home_heard = false;
+@@ -1160,6 +1346,7 @@ static void try_tx(void)
+ 	if (radio.startSendRaw(txq[txq_i], (int)txq_len[txq_i])) {
+ 		phase = PH_TX;
+ 		tx_start_ms = k_uptime_get();
++		flood_count();
+ 		if (chk_t0_pending && txq_i == 0) {
+ 			chk_t0_ms = tx_start_ms; /* t0 of the check schedule: transmission start of the report */
+ 			chk_t0_pending = false;
+@@ -1196,6 +1383,7 @@ static void tx_finished(void)
+ 		k_timer_start(&retry_timer, K_MSEC(300 + (sys_rand32_get() % 500)), K_NO_WAIT);
+ 		return;
+ 	}
++	wake_tx_ok = true;
+ 	radio_home();
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
+ 	if (ble_cmd_deferred && !txq_no_listen && ble_start_deferred()) {
+@@ -1246,20 +1434,22 @@ static bool txq_add_dm(const char *text)
+ 	return l && txq_add_nostr(fr, l);
+ }
+ 
+-/* Below LOW_DM_PCT, once: the owner gets a DM even if the app is not running (PROTOCOL.md 5). */
++/* Below LOW_DM_PCT, once per crossing: the owner gets a DM even if the app is not running
++ * (PROTOCOL.md 5). 0.7.6: the flag is in the state (a reset no longer sends another one) and is
++ * armed again at LT_LOW_REARM_PCT (low_alert_rearm). */
+ static void add_low_battery_dm(uint8_t pct)
+ {
+-	if (!nostr_ok || !now_unix() || !cfg.has_owner || !cfg.dm_alerts) {
++	if (!nostr_ok || !now_unix() || !cfg.has_owner || !cfg.dm_alerts || !board.getBattMilliVolts()) {
+ 		return;
+ 	}
+-	if (pct < LOW_DM_PCT && !low_alert_sent) {
++	if (pct < LOW_DM_PCT && !(cfg.low_flags & LT_LOW_DM)) {
+ 		char msg[60];
+ 
+ 		snprintf(msg, sizeof(msg), "batt %u%%", pct); /* at most 15 B: dm4x.full */
+-		low_alert_sent = txq_add_dm(msg);
+-	}
+-	if (pct > LOW_DM_PCT + 15) {
+-		low_alert_sent = false;
++		if (txq_add_dm(msg)) {
++			cfg.low_flags |= LT_LOW_DM;
++			save_cfg();
++		}
+ 	}
+ }
+ #endif
+@@ -1368,6 +1558,20 @@ static void send_report(bool with_fix, const lt_wake_out_t *d)
+ {
+ 	k_timer_stop(&fix_timer);
+ 
++	if (!tx_ok_now()) {
++		/* 0.7.6: the battery fell below the floor during the search: no transmission, no counter */
++		LOG_WRN("battery %u mV: below the transmit floor, no report", board.getBattMilliVolts());
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++		if (ble_purpose == BLE_LOST) {
++			ble_scan_halt();
++			ble_purpose = BLE_NONE;
++		}
++#endif
++		wake_ms = 0;
++		phase = PH_SLEEP;
++		go_to_sleep();
++		return;
++	}
+ 	uint8_t pct = board.getBattPercent();
+ 	bool low = pct <= cfg.low_batt_pct;
+ 
+@@ -1387,6 +1591,17 @@ static void send_report(bool with_fix, const lt_wake_out_t *d)
+ 
+ 	lt_report_t r = {};
+ 	report_fields(&r, with_fix, pct, low);
++	if (mode == LT_MODE_LOST && r.has_fix) {
++		/* 0.7.6: before next_in is computed, so it already carries a slow-down or its end */
++		lt_lost_note_fix(&lost_st, r.lat_e7, r.lon_e7, wake_cfg.still_radius_m);
++	}
++	if (board.getBattMilliVolts() && lt_low_report_due(cfg.low_flags, pct)) {
++		/* 0.7.6: this report is the one of this crossing below 10 % (battery and LOW_BATT in it);
++		 * kept before the transmission, so a reset during it cannot repeat it */
++		cfg.low_flags |= LT_LOW_REPORTED;
++		save_cfg();
++		LOG_WRN("battery %u %%: low-battery report", pct);
++	}
+ 	r.cmd_ack = pending_ack;
+ 	r.cmd_seq = last_cmd_seq;
+ 	fill_neighbours(&r); /* nearby repeaters, in every report (PROTOCOL.md 2) */
+@@ -1506,8 +1721,8 @@ static void send_report(bool with_fix, const lt_wake_out_t *d)
+ 		}
+ 	}
+ #endif
++	counter_guard(n_cur); /* 0.7.6: state and key page are past n before it goes on air */
+ 	n_cur++;
+-	checkpoint_counter();
+ 	pending_ack = false;
+ #if NOSTR
+ 	add_low_battery_dm(pct);
+@@ -1563,7 +1778,7 @@ static void wake_finish(bool with_fix)
+ 
+ 	w.now_s = (uint32_t)(k_uptime_get() / 1000);
+ 	w.mode = mode;
+-	w.forced = wake_forced;
++	w.forced = wake_forced || low_forced;
+ 	w.has_fix = with_fix && fix_valid;
+ 	if (w.has_fix) {
+ 		w.lat_e7 = (int32_t)llround(fix_lat * 1e7);
+@@ -1574,6 +1789,7 @@ static void wake_finish(bool with_fix)
+ 	w.zone_count = cfg.zone_count;
+ 	lt_wake_decide(&wake_cfg, &w, &wake_st, &d);
+ 	wake_forced = false;
++	low_forced = false;
+ 	if (d.action != LT_WAKE_SILENT) {
+ 		send_report(with_fix, &d);
+ 		return;
+@@ -1591,18 +1807,51 @@ static void wake_finish(bool with_fix)
+ 
+ static void search_done(bool with_fix);
+ 
++/* 0.7.6: battery back at LT_LOW_REARM_PCT: the next crossing below 10 % reports again */
++static void low_alert_rearm(uint8_t pct)
++{
++	if (!board.getBattMilliVolts() || board.isExternalPowered()) {
++		return; /* on USB the reading is the charger's: only a battery reading arms it again */
++	}
++	uint8_t f = lt_low_rearm(cfg.low_flags, pct);
++
++	if (f != cfg.low_flags) {
++		cfg.low_flags = f;
++		save_cfg();
++	}
++}
++
+ static void start_report(void)
+ {
+ 	if (phase != PH_SLEEP) {
+ 		return;
+ 	}
++	if (!tx_ok_now()) {
++		/* 0.7.6: below the floor a 118 mA TX peak can brown the board out (and the report after the
++		 * boot again, each time with a new counter block): no GPS, no transmission until the
++		 * battery is back at LT_TX_RESUME_MV or on USB power */
++		LOG_WRN("battery %u mV: below the transmit floor, sleeping", board.getBattMilliVolts());
++		wake_forced = false;
++		wake_start_ms = k_uptime_get(); /* the sleep before this wake-up still counts */
++		go_to_sleep();
++		return;
++	}
++	uint8_t pct = board.getBattPercent();
++
++	low_alert_rearm(pct);
++	/* 0.7.6: the first wake-up below 10 % looks and reports even when quiet or between reports
++	 * (once per crossing: the flag is kept when the report is built) */
++	low_forced = board.getBattMilliVolts() && lt_low_report_due(cfg.low_flags, pct);
+ 	wake_ms = k_uptime_get();
+ 	wake_start_ms = wake_ms;
+ 	owner_seen = false;
+ 	check_cmd = false;
+ 	wake_disc = false;
+ 	lost_disc_wait = false;
+-	listen_only = sched_keyed() && !wake_forced && chk_k && !chk_hb && !lt_wake_reports(chk_k, chk_every);
++	/* 0.7.6: above the daily flood cap a keyed wake-up that would report only listens (a command
++	 * there is still answered); the heartbeat still reports */
++	listen_only = sched_keyed() && !wake_forced && !low_forced && chk_k && !chk_hb &&
++		      (!lt_wake_reports(chk_k, chk_every) || over_cap());
+ 	if (sched_keyed() && !wake_forced && chk_k && !chk_hb && cfg.check_s) {
+ 		/* 0.7: check k after report n: receive from t_k - g_k to t_k + window + g_k, alongside the
+ 		 * GPS search and the Bluetooth scan (window: check_s scaled to the preset, 0.7.3) */
+@@ -1775,9 +2024,15 @@ static void apply_command(const lt_command_t *c)
+ 		uint16_t interval = u16le(c->args + 1);
+ 		uint16_t dur_min = u16le(c->args + 3);
+ 
++		lt_mode_t was = mode;
++
+ 		mode = (lt_mode_t)(m <= LT_MODE_LOST ? m : LT_MODE_IDLE);
+ 		if (interval) {
+-			track_interval_s = MAX(interval, 30);
++			track_interval_s = MAX((uint32_t)interval, (uint32_t)LT_TRACK_MIN_S); /* 0.7.6: was 30 s */
++		}
++		if (mode == LT_MODE_LOST && was != LT_MODE_LOST) {
++			lost_since_ms = k_uptime_get(); /* 0.7.6: the first 2 h at the set interval */
++			memset(&lost_st, 0, sizeof(lost_st));
+ 		}
+ 		mode_until_ms = k_uptime_get() + (int64_t)(dur_min ? dur_min : 120) * 60000;
+ 		break;
+@@ -3312,6 +3567,16 @@ static void print_status(void)
+ 	    country_iso(cfg.country), cfg.scope[0] ? cfg.scope : "none");
+ 	print_quiet();
+ 	out("energy used since full: %u mAh (estimate)\r\n", (unsigned)(cfg.energy_uah / 1000));
++	/* 0.7.6 (one line, keys new to every parser): floods in the rolling 24 h and the cap, the
++	 * low-battery alert of this crossing, resets in a row and the first-report delay they gave,
++	 * the transmit floor and whether the tracker is below it, LOST pace */
++	out("txcap floods_24h=%u cap=%u over=%s low_alert=%s resets=%u boot_delay=%us tx_floor=%umV tx=%s%s\r\n",
++	    (unsigned)floods_24h(), (unsigned)LT_FLOOD_CAP_24H, over_cap() ? "yes" : "no",
++	    (cfg.low_flags & LT_LOW_REPORTED) ? ((cfg.low_flags & LT_LOW_DM) ? "sent" : "reported") : "armed",
++	    cfg.boot_resets, (unsigned)lt_boot_delay_s(cfg.boot_resets), (unsigned)LT_TX_MIN_MV,
++	    tx_inhibited ? "low_voltage" : "ok",
++	    mode == LT_MODE_LOST ? (lt_lost_interval_s(&lost_st, 1, lost_elapsed_s()) > 1 ? " lost=slow" : " lost=fast")
++				 : "");
+ 	out("battery %u%% (%u mV) phase=%d gps=%s last_fix=%s %.6f,%.6f\r\n", board.getBattPercent(),
+ 	    board.getBattMilliVolts(), phase, gps_is_available() ? "yes" : "no",
+ 	    fix_valid ? "yes" : "no", fix_lat, fix_lon);
+@@ -3631,6 +3896,56 @@ static bool cli_quiet(int argc, char **argv)
+ 	return false;
+ }
+ 
++/* 0.7.6: `dfu [serial|ble|uf2]` (needs the unlock like every setting). The Adafruit nRF52
++ * bootloader on the Wio Tracker L1 (Seeed build, SoftDevice S140 7.3.0) picks its mode from
++ * GPREGRET0 at reset:
++ *   0x4E  serial-only DFU: USB CDC only, no mass-storage drive (adafruit-nrfutil `--touch 1200`, an app)
++ *   0xA8  BLE OTA DFU (legacy Nordic DFU, the bootloader advertises; same as ZephCore's buttonless DFU)
++ *   0x57  UF2: mass-storage drive plus CDC (what `dfu` did up to 0.7.5 and the 1200 baud touch does)
++ * The answer `dfu: rebooting to <mode>` is the last line before the USB port goes away. */
++#if defined(CONFIG_SOC_SERIES_NRF52)
++#define DFU_MAGIC_SERIAL 0x4E
++#define DFU_MAGIC_BLE    0xA8
++#define DFU_MAGIC_UF2    0x57
++#endif
++
++static void cli_dfu(const char *how)
++{
++#if defined(CONFIG_SOC_SERIES_NRF52)
++	uint8_t magic;
++
++	if (!strcmp(how, "serial")) {
++		magic = DFU_MAGIC_SERIAL;
++	} else if (!strcmp(how, "ble")) {
++		magic = DFU_MAGIC_BLE;
++	} else if (!strcmp(how, "uf2")) {
++		magic = DFU_MAGIC_UF2;
++	} else {
++		out("ERR dfu serial|ble|uf2\r\n");
++		return;
++	}
++	out("dfu: rebooting to %s\r\n", how);
++	cfg.boot_deliberate = 1; /* the first boot of the new firmware is not a reset */
++	save_mode();
++	save_cfg();
++	for (int i = 0; i < 50 && cli.availableForWrite() < 64; i++) {
++		k_msleep(2);
++	}
++	k_msleep(300); /* the host reads the answer before the port goes away */
++	radio.sleepRadio();
++	gps_stop_acquiring();
++#if ZEPHCORE_USB_STACK && !IS_ENABLED(CONFIG_CDC_ACM_SERIAL_INITIALIZE_AT_BOOT)
++	zephcore_usbd_detach();
++	k_msleep(100);
++#endif
++	nrf_power_gpregret_set(NRF_POWER, 0, magic);
++	sys_reboot(SYS_REBOOT_COLD);
++#else
++	ARG_UNUSED(how);
++	out("ERR dfu: not on this board\r\n");
++#endif
++}
++
+ static void cli_exec(char *l)
+ {
+ 	char *argv[10];
+@@ -3664,7 +3979,8 @@ static void cli_exec(char *l)
+ 		out("log [count] | history [from_n]\r\n");
+ 		out("track <interval_s> <minutes> | idle | transport channel|stealth\r\n");
+ 		out("radio <MHz> <bwkHz> <sf> <cr> | power <dBm> | pathhash 1|2|3 | region <name>|none\r\n");
+-		out("network auto|manual | where <lat> <lon> | test [count] [interval_s] | gps | reboot | dfu\r\n");
++		out("network auto|manual | where <lat> <lon> | test [count] [interval_s] | gps | reboot\r\n");
++		out("dfu [serial|ble|uf2]: reboot into the bootloader (serial DFU by default)\r\n");
+ 		out("meshscan [s] | discover [s] | neighbours | noise [n] | blescan [s] [passive]\r\n");
+ 		out("blesurvey <rounds> <scan_s> <gap_s> [passive] [quiet] | blestop | blepair [s]\r\n");
+ 		out("zone add <lat> <lon> <r_m>|list|del <i>|clear | quiet | lostble <every> [packets]\r\n");
+@@ -3713,9 +4029,9 @@ static void cli_exec(char *l)
+ 	} else if (!strcmp(c, "unpair")) {
+ 		/* factory reset of the pairing: new K0, counter from 0, no owner */
+ 		keys_new(NULL);
++		n_cur = 0; /* before keys_save(): the key page's counter bound starts from 0 */
+ 		keys_save();
+ 		hist_clear();
+-		n_cur = 0;
+ 		cfg.n_next = N_CHECKPOINT;
+ 		cfg.has_owner = 0;
+ 		cfg.last_cmd_seq = 0;
+@@ -3728,9 +4044,9 @@ static void cli_exec(char *l)
+ 
+ 		if (parse_hex(argv[1], k0, LT_K0_SIZE) == 0) {
+ 			keys_new(k0);
++			n_cur = 0;
+ 			keys_save();
+ 			hist_clear();
+-			n_cur = 0;
+ 			cfg.n_next = N_CHECKPOINT;
+ 			save_cfg();
+ 			out("OK key set, counter reset\r\n");
+@@ -3739,9 +4055,9 @@ static void cli_exec(char *l)
+ 		}
+ 	} else if (!strcmp(c, "newkey")) {
+ 		keys_new(NULL);
++		n_cur = 0;
+ 		keys_save();
+ 		hist_clear();
+-		n_cur = 0;
+ 		cfg.n_next = N_CHECKPOINT;
+ 		save_cfg();
+ 		print_status();
+@@ -4064,9 +4380,12 @@ static void cli_exec(char *l)
+ 		apply_radio_cfg();
+ 		out("OK\r\n");
+ 	} else if (!strcmp(c, "reboot")) {
++		cfg.boot_deliberate = 1; /* 0.7.6: not a reset for the backoff */
++		save_mode();
++		save_cfg();
+ 		board.reboot();
+ 	} else if (!strcmp(c, "dfu")) {
+-		board.rebootToBootloader();
++		cli_dfu(argc >= 2 ? argv[1] : "serial");
+ 	} else {
+ 		out("ERR unknown command, try help\r\n");
+ 	}
+@@ -4141,7 +4460,7 @@ int main(void)
+ 
+ 	/* The tracker's own state is its role data: without this check every boot
+ 	 * formatted the volume and generated a new key. */
+-	if (!zephcore_fs_exists(STATE_FILE) && !data_store.hasRoleData()) {
++	if (!zephcore_fs_exists(STATE_FILE) && !zephcore_fs_exists(STATE_TMP) && !data_store.hasRoleData()) {
+ 		LOG_WRN("Volume holds no data for this role - formatting before first boot");
+ 		zephcore_fs_format_all(nullptr);
+ 	}
+@@ -4184,8 +4503,13 @@ int main(void)
+ 	});
+ #endif
+ 	board.captureBootVoltage();
+-	LOG_INF("LibreTag tracker up, n=%u", n_cur);
+-	schedule_next(5);
++	/* 0.7.6: the first report after 30 s (the cell recovers after a brown-out), and after resets in
++	 * a row later and later, up to an hour (lt_boot_delay_s) */
++	uint32_t boot_delay = lt_boot_delay_s(cfg.boot_resets);
++
++	LOG_INF("LibreTag tracker up, n=%u, resets in a row %u, first report in %u s", n_cur, cfg.boot_resets,
++		boot_delay);
++	schedule_next(boot_delay);
+ 
+ 	for (;;) {
+ 		uint32_t ev = k_event_wait(&events, EV_ALL, false, K_FOREVER);
+@@ -4254,6 +4578,7 @@ int main(void)
+ 			retx_done = true;
+ 			if (radio.startSendRaw(txq[0], (int)txq_len[0])) {
+ 				side_tx_pending = true;
++				flood_count();
+ 				LOG_INF("report not relayed, sent again");
+ 			}
+ 		}

@@ -1,0 +1,435 @@
+<title>LibreTag guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column with a sticky step index on wide screens; the hour-long duty cycle is the signature figure. */
+:root {
+  --bg: #f6f7f4;
+  --surface: #ffffff;
+  --fg: #17211d;
+  --muted: #56645e;
+  --line: #d9dfdb;
+  --brand: #1b6e5a;
+  --brand-soft: #e3f0eb;
+  --amber: #b9821a;
+  --amber-soft: #fbf1dc;
+  --code-bg: #eef1ee;
+  --ok: #2e8a5e;
+  --warn: #b9821a;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1513; --surface: #161e1b; --fg: #e6ece9; --muted: #9baba4; --line: #2a3632;
+    --brand: #5cc3a3; --brand-soft: #173029; --amber: #e7b452; --amber-soft: #2e2615;
+    --code-bg: #1c2522; --ok: #5cc3a3; --warn: #e7b452; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1513; --surface: #161e1b; --fg: #e6ece9; --muted: #9baba4; --line: #2a3632;
+  --brand: #5cc3a3; --brand-soft: #173029; --amber: #e7b452; --amber-soft: #2e2615;
+  --code-bg: #1c2522; --ok: #5cc3a3; --warn: #e7b452; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font: 400 16px/1.6 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 40px 80px; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 48px; }
+@media (max-width: 860px) { .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; } nav.toc { display: none; } }
+nav.toc { position: sticky; top: calc(24px + env(safe-area-inset-top, 0px)); align-self: start; font-size: 14px; }
+nav.toc a { display: block; color: var(--muted); text-decoration: none; padding: 5px 0 5px 12px; border-left: 2px solid var(--line); }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--brand); border-left-color: var(--brand); }
+main { min-width: 0; max-width: 720px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.2; }
+h1 { font-size: clamp(34px, 6vw, 52px); margin: 0 0 16px; letter-spacing: -0.01em; }
+h2 { font-size: 28px; margin: 64px 0 12px; scroll-margin-top: 24px; }
+h3 { font-size: 19px; margin: 32px 0 8px; }
+p { margin: 0 0 14px; }
+a { color: var(--brand); }
+a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.eyebrow { font: 600 12px/1 var(--body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--brand); margin-bottom: 14px; }
+.lead { font-size: 19px; color: var(--muted); max-width: 62ch; }
+code, kbd { font-family: var(--mono); font-size: 0.88em; background: var(--code-bg); padding: 2px 7px; border-radius: 4px; }
+.status { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 0; }
+.pill { font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
+.pill b { color: var(--fg); font-weight: 600; }
+.pill.warn { border-color: var(--amber); background: var(--amber-soft); color: var(--fg); }
+
+/* system diagram */
+.flow { margin: 28px 0 8px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.node { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.node .k { font: 600 11px/1 var(--body); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.node .t { font-family: var(--display); font-weight: 700; font-size: 16px; }
+.node .d { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.node.main { border-color: var(--brand); background: var(--brand-soft); }
+.flow-caption { font-size: 14px; color: var(--muted); }
+
+/* duty cycle */
+.cycle { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin: 20px 0; }
+.bar { display: flex; height: 34px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+.bar span { display: block; height: 100%; }
+.seg-gps { background: var(--amber); }
+.seg-tx { background: #d0453b; }
+.seg-rx { background: var(--brand); }
+.seg-sleep { background: var(--code-bg); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted); margin-top: 12px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.scale { display: flex; justify-content: space-between; font: 12px var(--mono); color: var(--muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.zoom { margin-top: 18px; }
+.zoom .bar { height: 26px; }
+
+/* steps */
+ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; display: grid; gap: 14px; }
+ol.steps > li { counter-increment: s; position: relative; padding-left: 46px; }
+ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 30px; height: 30px; border-radius: 50%; background: var(--brand); color: var(--bg); font: 700 15px/30px var(--display); text-align: center; }
+.cmd { display: flex; align-items: stretch; margin: 8px 0 4px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+.cmd pre { margin: 0; padding: 10px 12px; flex: 1; min-width: 0; overflow-x: auto; font: 14px/1.5 var(--mono); }
+.cmd button { border: 0; border-left: 1px solid var(--line); background: var(--surface); color: var(--muted); font: 600 12px var(--body); padding: 0 14px; cursor: pointer; }
+.cmd button:hover { color: var(--brand); }
+.note { border: 1px solid var(--amber); background: var(--amber-soft); padding: 12px 16px; border-radius: 8px; margin: 16px 0; font-size: 15px; }
+.note b { font-weight: 600; }
+
+/* tables */
+.tbl { overflow-x: auto; margin: 12px 0 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 12px var(--body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+
+/* checklist */
+.checks { display: grid; gap: 10px; margin: 16px 0; }
+.check { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.check input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--brand); }
+.check .title { font-weight: 600; }
+.check .how { font-size: 14.5px; color: var(--muted); margin-top: 4px; }
+.check .how b { color: var(--fg); font-weight: 600; }
+.check.done { border-color: var(--brand); }
+.check.done .title { text-decoration: line-through; text-decoration-color: var(--brand); }
+.progress { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--muted); }
+.progress .track { flex: 1; height: 6px; background: var(--code-bg); border-radius: 3px; overflow: hidden; }
+.progress .fill { height: 100%; width: 0; background: var(--brand); transition: width .3s; }
+.progress button { border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 6px; padding: 4px 10px; font: 500 13px var(--body); cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .progress .fill { transition: none; } }
+
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 14px 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.card h3 { margin: 0 0 6px; font-size: 17px; }
+.card p { font-size: 15px; color: var(--muted); margin: 0; }
+footer { margin-top: 72px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+</style>
+
+<div class="wrap">
+  <nav class="toc" aria-label="Contents">
+    <a href="#co-to-je">What it is</a>
+    <a href="#potrebujes">What you need</a>
+    <a href="#firmver">1. Firmware</a>
+    <a href="#appka">2. App and pairing</a>
+    <a href="#miesta">3. Settings and places</a>
+    <a href="#nastavenie">4. Console</a>
+    <a href="#most">5. Nostr bridge</a>
+    <a href="#vyskusaj">What to try</a>
+    <a href="#ako-funguje">How it works</a>
+    <a href="#prikazy">Commands</a>
+    <a href="#problemy">When something fails</a>
+    <a href="#stav">What is still missing</a>
+  </nav>
+
+  <main>
+    <header id="co-to-je">
+      <h1>LibreTag: a tracker that talks over MeshCore</h1>
+      <p class="lead">LibreTag is an open replacement for an AirTag for your car, jacket or backpack. Instead of strangers' phones and a cloud, it uses the MeshCore LoRa network. Once an hour it sends an encrypted position and listens for a minute in case you have sent it a command. Only you can see the content, and nothing in the packet reveals which tracker sent it.</p>
+      <div class="status">
+        <span class="pill"><b>Firmware</b> Wio Tracker L1 / L1 Pro; ESP32-S3 stick with Wi-Fi on the bench</span>
+        <span class="pill"><b>Protocol</b> LT2</span>
+        <span class="pill"><b>Apps</b> Android</span>
+        <span class="pill warn"><b>Status</b> runs on hardware, still a prototype</span>
+      </div>
+
+      <div class="flow" role="list" aria-label="System components">
+        <div class="node main" role="listitem"><div class="k">in your pocket</div><div class="t">Tracker</div><div class="d">GPS, LoRa, sleeps. Sends 1 packet per hour.</div></div>
+        <div class="node" role="listitem"><div class="k">network</div><div class="t">MeshCore</div><div class="d">Repeaters pass the packet on.</div></div>
+        <div class="node" role="listitem"><div class="k">your radio</div><div class="t">Companion node</div><div class="d">Paired with the phone over BLE.</div></div>
+        <div class="node" role="listitem"><div class="k">phone</div><div class="t">MeshCore Open</div><div class="d">Holds the radio and exposes it to apps.</div></div>
+        <div class="node main" role="listitem"><div class="k">phone</div><div class="t">LibreTag</div><div class="d">Map, history, commands.</div></div>
+        <div class="node" role="listitem"><div class="k">optional</div><div class="t">Nostr bridge</div><div class="d">Publishes reports to Nostr and delivers commands.</div></div>
+      </div>
+      <p class="flow-caption">When the tracker moves out of range of your own nodes, a bridge helps: any bridge picks up the report and publishes it to Nostr (encrypted), where the app downloads and opens it.</p>
+    </header>
+
+    <section id="potrebujes">
+      <h2>What you need</h2>
+      <div class="tbl"><table>
+        <thead><tr><th>Item</th><th>What for</th></tr></thead>
+        <tbody>
+          <tr><td>Seeed <b>Wio Tracker L1</b> or L1 Pro</td><td>the tracker (nRF52840, SX1262, GPS L76K). Seeed X1 is not supported yet. A Heltec Wireless Stick Lite V3 (ESP32-S3, no GPS) also runs the firmware on the bench and finds its places by Wi-Fi.</td></tr>
+          <tr><td>USB-C data cable (and an OTG adapter if needed)</td><td>flashing the firmware and pairing with the phone</td></tr>
+          <tr><td>Android phone with <b>MeshCore Open</b> (version with Local API)</td><td>connection to your radio</td></tr>
+          <tr><td>Your own MeshCore <b>companion node</b></td><td>receives the tracker's reports and sends it commands</td></tr>
+          <tr><td>A computer with a terminal</td><td>only for flashing the firmware and, optionally, the tracker console (<code>screen</code> or <code>picocom</code>)</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Files (folder <code>dist/</code>)</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>File</th><th>What it is</th></tr></thead>
+        <tbody>
+          <tr><td><code>libretag-tracker-wio_tracker_l1.uf2</code></td><td>tracker firmware</td></tr>
+          <tr><td><code>libretag-tracker-wio_tracker_l1-dfu.zip</code></td><td>the same firmware as a serial DFU package</td></tr>
+          <tr><td><code>libretag-….apk</code> (the newest one)</td><td>the LibreTag app (map, commands, alerts)</td></tr>
+          <tr><td><code>nostrmesh-bridge-….apk</code> (the newest one)</td><td>the Nostr bridge app (optional)</td></tr>
+        </tbody>
+      </table></div>
+      <p>Both apps are signed with the same key. The certificate's SHA-256 starts with <code>79750fb4</code> and ends with <code>a24d</code>.</p>
+    </section>
+
+    <section id="firmver">
+      <h2>1. Flash the firmware to the tracker</h2>
+      <p>The firmware replaces whatever the tracker runs now (Meshtastic or MeshCore). The way back is the same: flash the original UF2.</p>
+      <ol class="steps">
+        <li>Connect the tracker to the computer with a USB-C cable.</li>
+        <li>Press the <b>reset</b> button twice in quick succession. The tracker enters the bootloader and a new USB drive appears on the computer.</li>
+        <li>Copy the file <code>libretag-tracker-wio_tracker_l1.uf2</code> to that drive. The drive disconnects by itself and the tracker restarts into LibreTag.</li>
+        <li>The display stays dark. That is correct, the tracker is saving battery. The app configures it over USB.</li>
+      </ol>
+      <div class="note"><b>The drive did not appear?</b> Try another cable (some carry power only) or press reset faster. On the first flash the tracker formats its own storage and generates a key. The <code>version</code> command prints the firmware version. You flash a new version the same way, a UF2 through the bootloader.</div>
+    </section>
+
+    <section id="appka">
+      <h2>2. The LibreTag app and pairing over USB</h2>
+      <ol class="steps">
+        <li>Install the LibreTag APK.</li>
+        <li>In MeshCore Open turn on <b>Local API</b> and connect to your companion node.</li>
+        <li>Open LibreTag. MeshCore Open asks whether to allow the app (you will find the fingerprint in the LibreTag menu), and then whether to add the channel <code>#libretag</code>. Allow both.</li>
+        <li><b>Connect the tracker to the phone with a USB cable</b> (USB-C, or through an OTG adapter). Android offers to open LibreTag and asks for USB access. Allow it. If nothing opens, tap <b>Add tag</b>.</li>
+        <li>The wizard has four steps: <b>plug in</b>, <b>name</b> (a name and a mark that tells your tags apart on the map), <b>where it rests</b> and <b>done</b>. In the third step add the place where the tag usually stays, such as home or the garage, and it keeps quiet there. You can skip it and add places later. Then tap <b>Pair</b>.</li>
+        <li>The app reads the key, sets the channel <code>#libretag</code>, the interval, the automatic network by country and your Nostr npub, and then <b>locks</b> the tracker: the USB console no longer gives the key out, and the key stays only in the app. For later settings over USB the app unlocks it by itself. The last step says what the tag will do (hourly reports when away, quiet at your place, an alert when it is not heard or the battery is low) and offers to pick the devices you carry.</li>
+        <li>Disconnect the cable. The first report arrives after the first GPS fix, then at the set interval. Tapping the tracker opens the map. A welcome message from the tracker arrives on your Nostr: add it to your contacts so you get the battery alert later.</li>
+      </ol>
+      <div class="note"><b>Lost phone, or a tracker from another phone.</b> The app's data is excluded from Android backup and from transfer to a new phone, so the key does not move over by itself. Set up <b>Backup</b> in the menu: LibreTag makes a 12-word recovery phrase for you to write on paper, and can also keep a copy encrypted to your Nostr npub. With either one you restore your tags on a new phone or open them in the web app. Without a backup, reset the tracker and pair it again. A tracker locked by another phone can be reset the same way: <b>Reset pairing</b> in the app, or <code>unpair</code> in the console.</div>
+      <div class="note"><b>The radio configures itself.</b> After every GPS fix the tracker works out the country and sets its network: in Slovakia 869.618 / 62.5 / SF7 / CR5, 2-byte hashes in the path and the region <code>sk</code>. Near a border (within 3 km) it sends a second copy to the neighboring network, and only when the home network was silent. Until it has the first fix, it transmits on the default settings.</div>
+    </section>
+
+    <section id="miesta">
+      <h2>3. Tag settings and places</h2>
+      <p>Everything about one tag sits on one screen, <b>Tag settings</b> in the tag's menu. Each row shows its value and what it does. A change that has not reached the tag yet says when it goes out by radio, or that it waits for the cable.</p>
+      <ol class="steps">
+        <li><b>Reports.</b> How often the tag reports when it is away (15 minutes to 6 hours), and how often it listens for commands between reports. Those listen-only wake-ups are <b>checks</b>: the tag wakes, listens for about 30 seconds and goes back to sleep without GPS or transmitting, so a command reaches it within one check interval while the battery lasts longer.</li>
+        <li><b>Quiet.</b> The tag stays quiet in its places, while your devices are near (a watch, a ring, a beacon in the garage; pick them under <b>Known devices</b> with the tag on the cable) and when it has not moved for a while. While quiet it still sends a sign of life now and then. For a person, "while my devices are near" is off, because someone could take your phone along.</li>
+        <li><b>Places.</b> One list holds all places of a tag. A GPS place is a circle on the map: tap where the tag rests and drag the handle to change its size. A tag without GPS learns a <b>Wi-Fi place</b> from the networks it hears: put it there, connect the cable and snap the place, which takes about half a minute. Each place has two switches, <b>Tell me when it leaves</b> and <b>Tell me when it arrives</b>. These are ordinary notifications, not alarms.</li>
+        <li><b>Guard.</b> On the tag's detail, <b>Guard this spot</b> raises an alarm if the tag moves more than 300 m. Guard is the only alarm. The other alerts are <b>not heard when expected</b> and <b>low battery</b>, and you set both per tag.</li>
+        <li><b>Position from Wi-Fi.</b> A report from a Wi-Fi tag without GPS lists the networks it heard. In the app's <b>Settings</b> you pick a service (BeaconDB, the GrapheneOS proxy for Apple's data, or Apple directly) and when the app asks it: <b>only when I tap</b>, <b>in Lost mode</b> or <b>every report without GPS</b>. Each lookup tells the service which networks are near the tag. Answers are cached, and reports from your own places are never looked up.</li>
+      </ol>
+      <p><b>Without a cable.</b> With firmware 0.8.0 and Android 12 or newer the app also reaches a tag over Bluetooth. Press the tag's reset button once: it listens on Bluetooth for 3 minutes. Open Tag settings, Service or Known devices and tap <b>Connect over Bluetooth</b>, or <b>Connect</b> on the strip that shows while the tag listens. Everything the cable does then works, except a firmware update, a new key and a reset of the pairing. Press reset only once: a double press puts the tag in update mode. Switching it off and on works too. A tag with an almost empty battery, or one that keeps crashing, stays silent.</p>
+      <p><b>Without a restart.</b> With firmware 0.9.2, <b>Open Bluetooth remotely</b> next to <b>Connect over Bluetooth</b> asks the tag to listen on Bluetooth at its next check. The app shows when that will be. Keep the screen open and tap <b>Connect</b> when the strip shows up. The request goes from your phone over Bluetooth when the tag can take it there, otherwise from your MeshCore node to radios in range only, and through Nostr bridges only when neither reaches the tag at its next check. With firmware 0.9.3 the tag looks for your phone's request at every check, so with the phone next to the tag the window opens at the very next one. If the request doesn't arrive then, the app hands it to the bridges.</p>
+      <div class="note">While it listens the tag advertises from a private address with a code only your app recognises. Another phone can connect, but without your key the tag answers nothing, and nobody can tell which tag it is. If you want no Bluetooth at all, send <code>blecon boot off</code> on an unlocked console and use the cable.</div>
+    </section>
+
+    <section id="nastavenie">
+      <h2>4. The tracker console (optional)</h2>
+      <p>You do not normally need it, the app does everything. For diagnostics you can also connect from a computer. A paired tracker is locked: it accepts only <code>status</code>, <code>version</code>, <code>selftest</code>, <code>buzz</code> and <code>unpair</code>.</p>
+      <ol class="steps">
+        <li>Open the console (on Linux usually <code>/dev/ttyACM0</code>):
+          <div class="cmd"><pre>screen /dev/cu.usbmodem* 115200</pre><button type="button" data-copy>Copy</button></div>
+          Type <code>help</code> and Enter. Quit with <kbd>Ctrl-A</kbd> and then <kbd>K</kbd>.
+        </li>
+        <li><b>Status and version.</b> Before pairing, <code>status</code> also prints <code>LIBRETAG KEY …</code>. Whoever has that key can see the tracker's position, so do not send it to anyone. After locking it prints only the identifier and <code>locked</code>.
+          <div class="cmd"><pre>status
+version</pre><button type="button" data-copy>Copy</button></div>
+        </li>
+        <li><b>Where it would transmit.</b> Shows the country and the networks the tracker would choose at the given place:
+          <div class="cmd"><pre>where 48.7000 21.2500</pre><button type="button" data-copy>Copy</button></div>
+        </li>
+        <li><b>Manual radio</b>, if your network uses different settings (it turns the automatic mode off, and you turn it back on with <code>network auto</code>):
+          <div class="cmd"><pre>radio 869.618 62.5 7 5</pre><button type="button" data-copy>Copy</button></div>
+        </li>
+        <li><b>Diagnostics:</b> <code>selftest</code> checks the Nostr crypto, the GPS and the Wi-Fi scan without printing keys or the position, <code>report</code> sends a report right away, <code>discover</code> and <code>meshscan 60</code> show repeaters nearby, <code>gps</code> the satellites, <code>noise</code> the radio noise, <code>buzz 3</code> tries the buzzer.</li>
+      </ol>
+    </section>
+
+    <section id="most">
+      <h2>5. Nostr bridge (optional)</h2>
+      <p>The bridge publishes to Nostr what it picks up on the radio: LibreTag's encrypted reports (it decrypts nothing of them) and Roadstr reports. In the other direction it can transmit a command that the app left in the Nostr mailbox. You do not need it for the first tests, but it extends the range: it is enough for the tracker to be heard by any bridge. In this guide a bridge always means a MeshCore&lt;-&gt;Nostr bridge.</p>
+      <ol class="steps">
+        <li>Install the Nostr bridge APK and turn on the <b>Bridge running</b> switch. MeshCore Open asks again for permission and for the channel <code>#nostr</code>.</li>
+        <li>You set nothing else. The bridge publishes the reports itself (with a random signature, without the tracker's key), and a command from the app is transmitted by the one bridge that heard the tracker most recently. If no relay takes a report, the bridge keeps it and sends it later, even after a restart.</li>
+        <li>If you want to write to the tracker from a Nostr client (NIP-04 DM), in the bridge add <b>Settings → Add device</b>: the tracker's npub (the app shows it in the menu <b>Tracker's Nostr contact</b>) and your npub, and turn on <b>Send messages to devices</b>.</li>
+      </ol>
+    </section>
+
+    <section id="vyskusaj">
+      <h2>What to try</h2>
+      <p>Tick off what passed. The browser remembers it. If something does not work, write down what the app and the tracker console show.</p>
+      <div class="progress"><div class="track"><div class="fill" id="fill"></div></div><span id="count">0 of 0</span><button type="button" id="reset">Clear</button></div>
+      <div class="checks" id="checks">
+        <label class="check"><input type="checkbox" id="c-pair"><div><div class="title">Pairing and lock</div><div class="how">After pairing, the console <code>status</code> does not print the key, only <code>locked</code>. Configuring from the app over USB still works (it unlocks by itself).</div></div></label>
+        <label class="check"><input type="checkbox" id="c-first"><div><div class="title">The first report reaches the app</div><div class="how">Wait for the interval, or run <code>test 1 30</code> in the console before locking. Indoors without GPS the report arrives <b>without a fresh position</b>, which is fine.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-gps"><div><div class="title">Position on the map</div><div class="how">Take the tracker outside under the open sky. The first fix takes up to 5 min, later ones up to 90 s. After the next report the point is on the map.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-nogps"><div><div class="title">Position without GPS</div><div class="how">In the menu <b>Repeater map</b> download the map (~60 MB, once). The tracker indoors then shows a 68 % and 95 % area, not a point. The report carries up to 5 heard repeaters and the last GPS fix with its time.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-track"><div><div class="title">Tracking</div><div class="how">"Track 1 h" opens a dialog with every 5 minutes for an hour already chosen, so one more tap sends it. There you can also pick how often (every 2 minutes at the fastest) and how long (30 minutes to 24 hours); the dialog says how many reports that is and warns when the tracker would hit its limit of transmissions for the day. When the time is up, the tracker returns to normal by itself. A command is carried out at the tracker's next report or check, because the tracker sleeps most of the time.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-lost"><div><div class="title">Lost mode</div><div class="how">"Lost": the tracker reports every 10 minutes for 24 hours and survives a restart. If it stays in one place for 2 hours, it reports every 20 minutes until it moves. "Stop Lost mode" returns it to normal.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-buzz"><div><div class="title">Beep</div><div class="how">"Beep" turns on the buzzer (after the next report). It helps when the tracker is close but you cannot see it.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-relay"><div><div class="title">Report via Nostr</div><div class="how">With a bridge running, the position appears in the app with the note <b>via Nostr</b>, even when your node did not hear the report. The app also puts commands in the Nostr mailbox, so any bridge delivers them.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-alarm"><div><div class="title">Guard and "not heard"</div><div class="how">"Guard this spot" raises an alarm when the tracker moves more than 300 m. "Not heard when expected" arrives when a report is overdue.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-place"><div><div class="title">Leaving and arriving</div><div class="how">Add a place and turn on <b>Tell me when it leaves</b>. Carry the tag out of it: the notification comes with its next report or check. Bring it back with <b>Tell me when it arrives</b> on.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-checks"><div><div class="title">A command to a quiet tag</div><div class="how">With the tag quiet in a place, send "Beep". It should beep within one check interval, without waiting for its next report. Near your phone the command may also arrive over Bluetooth; that path is still being tested.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-backup"><div><div class="title">Backup</div><div class="how">Create the recovery phrase in <b>Backup</b>, write it down, then try <b>Restore with phrase</b> in the web app.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-batt"><div><div class="title">Low battery</div><div class="how">From 25 % the app shows a notification and sends you a DM from the tracker's Nostr key (you can see the contact in the menu <b>Tracker's Nostr contact</b>). Below 10 % the tracker itself sends a DM over the mesh.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-reboot"><div><div class="title">A restart breaks nothing</div><div class="how">Disconnect the battery or run <code>reboot</code>. The tracker remembers the key and the settings, and the app recognizes it again after the next report.</div></div></label>
+        <label class="check"><input type="checkbox" id="c-power"><div><div class="title">Power use (if you have a PPK2)</div><div class="how">Measure sleep and one cycle. The estimate is 3 to 6 months on 2000 mAh with an hourly interval and 60 s of listening.</div></div></label>
+      </div>
+    </section>
+
+    <section id="ako-funguje">
+      <h2>How it works</h2>
+      <h3>One hour of the tracker</h3>
+      <p>The tracker sleeps most of the time. It spends the most energy on listening, not on transmitting.</p>
+      <div class="cycle" aria-label="Duty cycle over one hour">
+        <div class="bar" role="img" aria-label="GPS 90 s, transmitting less than a second, listening 60 s, sleep for the rest of the hour">
+          <span class="seg-gps" style="width:2.5%"></span><span class="seg-tx" style="width:0.4%"></span><span class="seg-rx" style="width:1.7%"></span><span class="seg-sleep" style="flex:1"></span>
+        </div>
+        <div class="scale"><span>0 min</span><span>15</span><span>30</span><span>45</span><span>60 ±6 min</span></div>
+        <div class="zoom">
+          <div class="bar" role="img" aria-label="Zoom on the first three minutes">
+            <span class="seg-gps" style="width:59%"></span><span class="seg-tx" style="width:1.3%"></span><span class="seg-rx" style="width:39.7%"></span>
+          </div>
+          <div class="scale"><span>0 s</span><span>waits for GPS up to 90 s</span><span>transmits</span><span>listens 60 s</span><span>~151 s</span></div>
+        </div>
+        <div class="legend"><span><i class="seg-gps"></i>GPS fix</span><span><i class="seg-tx"></i>1 packet (under 1 s)</span><span><i class="seg-rx"></i>listening for commands</span><span><i class="seg-sleep"></i>sleep</span></div>
+      </div>
+      <div class="cols">
+        <div class="card"><h3>One packet per wake-up</h3><p>Every wake-up sends one encrypted report (near a border possibly a copy to the neighboring network). The interval has a random offset of ±10 %, so it cannot be recognized by its regularity.</p></div>
+        <div class="card"><h3>LT2 encryption</h3><p>The report is encrypted so that an identical counter reveals nothing. It has a rotating 4-byte tag, the key for reading is separate from the key for commands, and every 64 reports it advances (ratchet), so a stolen tracker does not reveal old positions. After pairing the key leaves the tracker and the USB console locks.</p></div>
+        <div class="card"><h3>Commands after the report</h3><p>The app holds the command and sends it after the tracker's report, while the tracker listens for a minute, or at the next check of a quiet tracker. It transmits it from its own radio and also leaves it in the Nostr mailbox, from where any bridge delivers it. When the phone is near the tag, it also advertises the command over Bluetooth. The tracker confirms it in its next report.</p></div>
+        <div class="card"><h3>Bridges</h3><p>Any bridge publishes a captured report to Nostr as an encrypted event with a random signature. It cannot read the content. That is how you see the tracker even outside the range of your own nodes. A bridge sends a command only when it is signed with the key that the tracker's last report points to. Only you and the people you gave control of the tag have that key, so a stranger cannot get a bridge to send anything to your tag.</p></div>
+      </div>
+      <div class="note"><b>Limits that protect the battery and the mesh.</b> Track and Lost report at most every 2 minutes. A tag that has sent 200 packets in the last 24 hours reports at most hourly until the count drops, but it still answers your commands. Below a safe battery voltage it does not transmit at all.</div>
+      <div class="note"><b>What is visible from outside.</b> The channel <code>#libretag</code> is public. A radio observer sees that a LibreTag report was sent and roughly from where (by the first repeater in the path). They do not see which tracker it was or what is in the report.</div>
+      <div class="note"><b>A position without GPS is an area, not a single point.</b> From the heard repeaters and the downloaded map the app draws 68 % and 95 % circles. With a poor signal they can be a kilometer wide.</div>
+    </section>
+
+    <section id="prikazy">
+      <h2>Tracker console commands</h2>
+      <div class="tbl"><table>
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>status</code>, <code>version</code></td><td>status, counter, radio, battery, packets sent in the last 24 hours; firmware and ZephCore version</td></tr>
+          <tr><td><code>lock</code>, <code>unpair</code>, <code>challenge</code>, <code>auth</code></td><td>lock of the USB console, pairing reset, unlock (the app does this)</td></tr>
+          <tr><td><code>blecon</code>, <code>blecon boot on|off</code>, <code>blecon open [s]</code></td><td>the Bluetooth console after a restart: its state, on or off at boot, open it now</td></tr>
+          <tr><td><code>radio &lt;MHz&gt; &lt;bw&gt; &lt;sf&gt; &lt;cr&gt;</code>, <code>network auto</code></td><td>manual network parameters (they must match your node), return to automatic</td></tr>
+          <tr><td><code>report</code>, <code>test &lt;n&gt; &lt;s&gt;</code></td><td>sends a report right away, a series of test reports</td></tr>
+          <tr><td><code>interval &lt;min&gt;</code>, <code>listen &lt;s&gt;</code>, <code>fixto &lt;s&gt;</code></td><td>how often it reports, how long it listens (60 s by default), how long it waits for GPS (90 s)</td></tr>
+          <tr><td><code>still &lt;max_min&gt;</code></td><td>reports slow down when the tracker does not move</td></tr>
+          <tr><td><code>track &lt;s&gt; &lt;min&gt;</code>, <code>idle</code></td><td>tracking with a shorter interval (120 s at least), return to normal</td></tr>
+          <tr><td><code>check &lt;s&gt;</code>, <code>report every &lt;n&gt;</code>, <code>quiet</code></td><td>listening at checks, reporting only at every n-th wake-up, why the tag is quiet now</td></tr>
+          <tr><td><code>wzone snap &lt;name&gt;</code>, <code>wzone list</code>, <code>wzone test</code></td><td>Wi-Fi places on a tag without GPS</td></tr>
+          <tr><td><code>selftest</code></td><td>Nostr crypto, GPS and Wi-Fi checks, also on a locked tag</td></tr>
+          <tr><td><code>discover</code>, <code>meshscan &lt;s&gt;</code>, <code>blescan &lt;s&gt;</code>, <code>noise</code></td><td>repeaters nearby, passive listening, Bluetooth, radio noise</td></tr>
+          <tr><td><code>gps</code>, <code>buzz &lt;s&gt;</code></td><td>satellites and GPS status, buzzer</td></tr>
+          <tr><td><code>nostr</code>, <code>owner &lt;npub&gt;</code>, <code>dm &lt;text&gt;</code></td><td>the tracker's npub, owner, a message to the owner (up to 63 characters)</td></tr>
+          <tr><td><code>dfu</code>, <code>dfu uf2</code>, <code>reboot</code></td><td>bootloader for flashing firmware (serial DFU, or the USB drive with <code>uf2</code>), restart</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Messages to the tracker over Nostr</h3>
+      <p>The tracker does not accept DMs, it is controlled from the app. A command goes after its report or at its next check from your radio and also through the Nostr mailbox, from where any bridge delivers it. It writes to you by itself only when the battery is below 10 %.</p>
+    </section>
+
+    <section id="late">
+      <h2>When a tag is late</h2>
+      <p>When a report doesn't come on time, the tag's row says the most likely reason instead of just "silent". Open the tag and the <b>Why</b> card under its status shows what the app based that on, the one action that settles it, and <b>All checks</b>: whether the phone is online, the relays, your own node, bridges that heard the tag, the last report, lost reports over 7 days, the battery, Bluetooth, the cable, restarts, the schedule, the firmware and the phone's clock.</p>
+      <p>One missed report is normal on a shared mesh, so the row first says "1 report missed" with the time of the next one. A tag counts as silent, with the orange band and a notification, after the second missed report. A guarded tag, one in Lost or Track, and a quiet tag past its heartbeat count as silent after the first.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>The row says</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td>In update mode · can't report</td><td>The tag on the cable sits in its bootloader, which waits without a time limit. Choose <b>Finish the update</b>, or press the reset button once.</td></tr>
+          <tr><td>Silent since the update</td><td>An update started from this phone and the tag hasn't reported since. Plug it in: if it is still in update mode, the app sees it.</td></tr>
+          <tr><td>Keeps restarting</td><td>The tag restarted several times (the phone heard it start up over Bluetooth, or its reports say so with firmware 0.9.4). A weak battery or a loose connector is the usual reason.</td></tr>
+          <tr><td>Phone is offline, or Can't reach the relays</td><td>The phone can't receive anything, so it can't tell whether the tag reported. The app waits with the notification until the connection is back and it has asked the relays for what it missed.</td></tr>
+          <tr><td>Reported 14:31 · not on your relays</td><td>A bridge heard the tag, but its report isn't on your relays. <b>Add relay</b> appears when that bridge has heard your tag on two different days.</td></tr>
+          <tr><td>May be quiet near you, or at Home</td><td>A guess: the one report that says the tag went quiet may have been lost. <b>Check if it's here</b> asks the tag over Bluetooth at its next wake-up; keep the phone near the tag. A guess never turns the warning off.</td></tr>
+          <tr><td>With you · quiet on purpose</td><td>The tag answered over Bluetooth and said it sees one of your devices.</td></tr>
+          <tr><td>Battery probably empty</td><td>The last report was at 5 % or below, or the battery trend says it ran out since. Charge it.</td></tr>
+          <tr><td>Sends every 2 h, app expects hourly</td><td>The tag and the app disagree on the schedule. <b>Use the tag's schedule</b> or <b>Send the app's schedule</b>.</td></tr>
+        </tbody>
+      </table></div>
+      <p><b>Notice my tags over Bluetooth</b> in Settings (on by default, Android 12 and newer) lets the phone hear a tag's Bluetooth signal in the background, so it notices a restart near you. It uses the phone's Bluetooth filter and no location.</p>
+    </section>
+
+    <section id="problemy">
+      <h2>When something fails</h2>
+      <div class="tbl"><table>
+        <thead><tr><th>Symptom</th><th>What to check</th></tr></thead>
+        <tbody>
+          <tr><td>The app receives nothing</td><td>The radio parameters do not match the network, or MeshCore Open does not have the channel <code>#libretag</code>. The connection status is at the top of the app.</td></tr>
+          <tr><td>A report without a position</td><td>The tracker had no GPS fix. Take it outside, the first fix takes longer.</td></tr>
+          <tr><td>A command keeps waiting</td><td>The tracker carries it out at its next report or check, because it sleeps most of the time. The app shows when the command goes out. If reports arrive and the command does not, it did not make it within the listening window. Try more frequent checks in Tag settings, or a longer <code>listen</code>.</td></tr>
+          <tr><td>MeshCore Open rejected the app</td><td>In MeshCore Open remove the pairing and allow the app again. Compare the fingerprint.</td></tr>
+          <tr><td>The tracker is locked and configuring from the console does not work</td><td>That is correct (<code>ERR locked</code>). The app configures it over USB. If the tracker belongs to another phone, use <b>Reset pairing</b> or <code>unpair</code>.</td></tr>
+          <tr><td>The position without GPS is inaccurate or missing</td><td>Download the <b>Repeater map</b> (refresh it after 30 days). It is only an area based on the heard repeaters. For a Wi-Fi tag, check that a service is chosen under <b>Position from Wi-Fi</b>. If the service does not know the networks, the app says so.</td></tr>
+                    <tr><td>The console prints nothing</td><td>A different port <code>/dev/cu.usbmodem…</code>. After the tracker restarts, the console reconnects.</td></tr>
+        </tbody>
+      </table></div>
+      <p>App logs: <code>adb logcat -s LibreTag NostrMesh MeshCoreApi</code></p>
+    </section>
+
+    <section id="stav">
+      <h2>What is still missing</h2>
+      <p>The tracker runs on real hardware (Wio Tracker L1), but it is still a prototype. The Wi-Fi tag without GPS runs only on the bench. The bridges and part of the Nostr direction are verified less than the tracker itself.</p>
+      <div class="cols">
+        <div class="card"><h3>Not done</h3><p>Seeed X1 support, Apple Find My and Google Find Hub, sending only on movement. Firmware update from the app is written but has not run on a tag yet.</p></div>
+        <div class="card"><h3>To be measured</h3><p>Power use (PPK2), network latency, whether Nostr clients display messages from the tracker, the accuracy of position without GPS in different cities, commands over Bluetooth from a real phone, and a Wi-Fi tag on a battery away from its places.</p></div>
+      </div>
+    </section>
+
+    <footer>LibreTag · an open project on top of MeshCore and ZephCore. Details are in the repository: <code>SPEC.md</code>, <code>PROTOCOL.md</code>, <code>docs/nostr-mesh-bridge.md</code>.</footer>
+  </main>
+</div>
+
+<script>
+(function () {
+  var KEY = "libretag-guide-checks";
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { saved = {}; }
+  var boxes = Array.prototype.slice.call(document.querySelectorAll("#checks input[type=checkbox]"));
+  function render() {
+    var done = 0;
+    boxes.forEach(function (b) {
+      b.closest(".check").classList.toggle("done", b.checked);
+      if (b.checked) done++;
+    });
+    document.getElementById("count").textContent = done + " of " + boxes.length;
+    document.getElementById("fill").style.width = (boxes.length ? 100 * done / boxes.length : 0) + "%";
+  }
+  boxes.forEach(function (b) {
+    b.checked = !!saved[b.id];
+    b.addEventListener("change", function () {
+      saved[b.id] = b.checked;
+      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+      render();
+    });
+  });
+  document.getElementById("reset").addEventListener("click", function () {
+    saved = {};
+    boxes.forEach(function (b) { b.checked = false; });
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    render();
+  });
+  render();
+
+  document.querySelectorAll("[data-copy]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var pre = btn.parentNode.querySelector("pre");
+      var text = pre.textContent;
+      function done(ok) { btn.textContent = ok ? "Copied" : "Selected"; setTimeout(function () { btn.textContent = "Copy"; }, 1500); }
+      function select() { var r = document.createRange(); r.selectNodeContents(pre); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); done(false); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }, select);
+      } else { select(); }
+    });
+  });
+})();
+</script>

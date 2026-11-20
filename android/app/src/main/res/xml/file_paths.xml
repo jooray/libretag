@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- the diagnostic log, shared on request from Settings -->
+    <external-files-path name="log" path="." />
+    <!-- a tag's history exported as GPX or CSV (Tag menu > Export history) -->
+    <cache-path name="export" path="export/" />
+</paths>

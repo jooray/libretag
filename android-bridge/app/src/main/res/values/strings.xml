@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Nostr most</string>
+    <string name="settings">Nastavenia</string>
+    <string name="bridge_running">Most beží</string>
+    <string name="bridge_off">Most je vypnutý</string>
+    <string name="bridge_explain">Podpísané Nostr udalosti z mesh siete (Roadstr hlásenia, správy zariadení, verejné hlásenia LibreTagu) posiela na relays. Nič nepodpisuje ani nemení.</string>
+    <string name="open_meshcore">Otvoriť MeshCore Open</string>
+    <string name="activity">Aktivita</string>
+    <string name="activity_empty">Zatiaľ nič. Keď niekto v dosahu pošle rámec na #nostr alebo #roadstr, objaví sa tu.</string>
+    <string name="stat_heard">z rádia</string>
+    <string name="stat_published">na Nostr</string>
+    <string name="stat_to_radio">do rádia</string>
+    <string name="stat_dropped">zahodené</string>
+</resources>

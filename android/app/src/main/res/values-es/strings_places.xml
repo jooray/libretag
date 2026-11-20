@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <!-- Places list -->
+    <string name="places_title">Lugares</string>
+    <string name="places_lead">Aquí %1$s se mantiene en silencio.</string>
+    <string name="places_empty">Aún no hay lugares. Añade el lugar donde %1$s suele estar y allí se mantendrá en silencio.</string>
+    <string name="place_add">Añadir un lugar</string>
+    <string name="place_add_here">Añadir el lugar donde está %1$s ahora</string>
+    <string name="place_add_map">En el mapa</string>
+    <string name="place_add_wifi">Donde está el localizador ahora, por Wi-Fi</string>
+    <string name="place_add_btn">Añadir lugar</string>
+    <string name="place_needs_cable">Conecta el localizador mientras esté en el lugar: con el cable, o reinícialo y conéctalo por Bluetooth.</string>
+    <string name="place_on_tag">En el localizador</string>
+    <string name="place_waits_cable">Espera al localizador</string>
+    <string name="place_waits_cable_sub">Hasta que conectes %1$s, seguirá informando desde aquí.</string>
+    <string name="place_writing">Escribiendo…</string>
+    <string name="place_writing_to">Escribiendo en %1$s…</string>
+    <string name="place_saved_on">Guardado en %1$s.</string>
+    <string name="place_not_written">Sin escribir</string>
+    <string name="place_app_only">Solo en la app</string>
+    <string name="place_app_only_sub">Este firmware no puede guardar lugares, así que %1$s seguirá informando desde aquí.</string>
+    <string name="place_name">Nombre</string>
+    <string name="place_name_empty">Ponle un nombre al lugar.</string>
+    <string name="place_name_taken">Otro lugar ya tiene este nombre.</string>
+    <string name="place_size">Tamaño</string>
+    <string name="place_move_hint">Toca el mapa para moverlo. Arrastra el control azul para cambiar el tamaño.</string>
+    <string name="place_tap_hint">Toca el mapa donde %1$s suele estar.</string>
+    <string name="place_move">Mover en el mapa</string>
+    <string name="place_tell_leave">Avísame cuando salga</string>
+    <string name="place_tell_arrive">Avísame cuando llegue</string>
+    <string name="place_not_with_you">No cuando salga contigo.</string>
+    <string name="place_delete">Eliminar lugar</string>
+    <string name="place_delete_cable">Conecta el localizador para eliminarlo.</string>
+    <!-- Wi-Fi snap sheet -->
+    <string name="snap_start">Iniciar</string>
+    <string name="snap_step_listen">Buscando redes Wi-Fi · %1$d de %2$d</string>
+    <string name="snap_step_listen_short">Buscando redes Wi-Fi</string>
+    <string name="snap_step_save">Guardando en el localizador</string>
+    <string name="snap_step_check">Comprobando que el localizador reconoce el lugar</string>
+    <string name="snap_wait">Unos %1$d s. Deja el localizador donde está.</string>
+    <string name="snap_ok">%1$s guardado. El localizador reconoce este lugar.</string>
+    <string name="snap_weak">Guardado, pero la coincidencia es débil. Puede que el localizador no se calle aquí.</string>
+    <string name="snap_unchecked">%1$s guardado. La comprobación no terminó; toca Comprobar aquí más tarde.</string>
+    <string name="snap_none">No hay ninguna red Wi-Fi al alcance, así que no se guardó nada.</string>
+    <string name="snap_no_answer">El localizador no respondió. Revisa la conexión.</string>
+    <string name="snap_keep">Conservar</string>
+    <string name="place_check_here">Comprobar aquí</string>
+    <string name="place_check_ok">Reconocido</string>
+    <string name="place_check_weak">Débil</string>
+    <string name="place_check_no">No reconocido</string>
+    <!-- Add tag wizard, four steps -->
+    <string name="wz2_s2">Nombre</string>
+    <string name="wz2_s3">Dónde está</string>
+    <string name="wz2_rest_lead">Añade el lugar donde se queda %1$s. Allí estará en silencio.</string>
+    <string name="wz2_skip">Omitir</string>
+    <string name="wz2_mark_row">Marca: %1$s</string>
+    <string name="wz2_change">Cambiar</string>
+    <string name="wz2_done_reports">Fuera de casa informa cada hora.</string>
+    <string name="wz2_done_quiet">En %1$s se mantiene en silencio.</string>
+    <string name="wz2_done_tell">Te avisaremos si no se oye o si la batería está baja.</string>
+    <string name="wz2_devices_title">En silencio mientras estás con él</string>
+    <string name="wz2_devices_text">Elige el teléfono, el reloj u otros dispositivos que llevas contigo. Mientras uno esté cerca, %1$s se mantiene en silencio.</string>
+    <string name="wz2_devices_go">Elegir dispositivos</string>
+    <string name="wz2_pair_failed">El emparejamiento no terminó. Deja el cable conectado e inténtalo de nuevo.</string>
+    <string name="wz2_partial_text">Abre Ajustes del localizador con el localizador conectado para escribirlos otra vez.</string>
+    <!-- Known devices -->
+    <string name="kd_lead_short">%1$s se mantiene en silencio mientras uno de estos esté cerca.</string>
+</resources>

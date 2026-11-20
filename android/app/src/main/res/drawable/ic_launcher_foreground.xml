@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- LibreTag icon: a luggage tag with a red trail blaze, signal arcs. Source: branding/icon.svg -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="1024" android:viewportHeight="1024">
+    <path android:fillColor="#FFFFFF" android:pathData="M397.7,427.2 L438.5,359.3 L547.1,332.2 L615.0,373.0 L703.1,726.2 Q706.5,739.8 692.9,743.2 L502.7,790.6 Q489.1,794.0 485.7,780.4 Z"/>
+    <path android:fillColor="#D7262E" android:pathData="M426.5,542.7 L643.8,488.5 L665.8,576.8 L448.5,630.9 Z"/>
+    <path android:fillColor="#1E1E1E" android:strokeColor="#F2C200" android:strokeWidth="9.8" android:pathData="M475.6,400.1 a30.8,30.8 0 1,0 61.6,0 a30.8,30.8 0 1,0 -61.6,0"/>
+    <path android:strokeColor="#F2C200" android:strokeWidth="21" android:strokeLineCap="round" android:pathData="M545.8,325.1 A84.0,84.0 0 0,1 589.6,387.6 M572.1,275.7 A140.0,140.0 0 0,1 645.0,379.8"/>
+</vector>

@@ -1,0 +1,621 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 10:04:50 +0100
+Subject: [PATCH 08/40] bletest: BLE survey (blesurvey, richer blescan, own
+ timer) for passive owner-presence experiment
+
+---
+ zephcore/src/main_tracker.cpp | 479 +++++++++++++++++++++++++++++++---
+ 1 file changed, 446 insertions(+), 33 deletions(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 28f1941..8e6421e 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -97,9 +97,10 @@ extern "C" void bt_ctlr_assert_handle(char *file, uint32_t line)
+ #define EV_TX_RETRY    BIT(MESH_EVENT_ROLE_BASE + 3)
+ #define EV_SCAN_END    BIT(MESH_EVENT_ROLE_BASE + 4)
+ #define EV_RETX        BIT(MESH_EVENT_ROLE_BASE + 5)
++#define EV_BLE         BIT(MESH_EVENT_ROLE_BASE + 6)
+ #define EV_ALL (MESH_EVENT_LORA_RX | MESH_EVENT_LORA_TX_DONE | MESH_EVENT_CLI_RX | \
+ 		MESH_EVENT_GPS_ACTION | EV_REPORT_DUE | EV_FIX_TIMEOUT | EV_LISTEN_END | EV_TX_RETRY | \
+-		EV_SCAN_END | EV_RETX)
++		EV_SCAN_END | EV_RETX | EV_BLE)
+ 
+ static struct k_event events;
+ 
+@@ -113,6 +114,7 @@ TIMER(listen_timer, EV_LISTEN_END);
+ TIMER(retry_timer, EV_TX_RETRY);
+ TIMER(scan_timer, EV_SCAN_END);
+ TIMER(retx_timer, EV_RETX);
++TIMER(ble_tmr, EV_BLE); /* blescan / blesurvey, apart from the mesh scans */
+ 
+ static void post_lora_rx(void *) { k_event_post(&events, MESH_EVENT_LORA_RX); }
+ static void post_lora_tx_done(void *) { k_event_post(&events, MESH_EVENT_LORA_TX_DONE); }
+@@ -1458,19 +1460,40 @@ static void mesh_scan_print(void)
+ }
+ 
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
++/* blescan / blesurvey: everything one address tells in its adverts (and scan responses
++ * when scanning actively). Tables are static and bounded: ~6.5 kB per scan, ~2.6 kB survey. */
++#define BLE_MFG_MAX 12
++#define BLE_U16_MAX 4
++
+ struct ble_seen {
+ 	bt_addr_le_t addr;
+-	int8_t rssi;
+-	uint8_t adv_type;
+-	uint16_t company; /* manufacturer data company id, 0xFFFF none */
+-	uint16_t heard;
++	int8_t rssi_min, rssi_max;
++	int32_t rssi_sum;
++	uint16_t heard;           /* adverts + scan responses */
++	uint16_t rsp;             /* scan responses */
++	uint8_t props;            /* BIT(advertising PDU type) seen */
++	uint8_t flags;            /* AD flags, 0 none */
++	int8_t txp;               /* AD tx power, 127 none */
++	uint16_t appearance;      /* 0 none */
++	uint16_t company;         /* manufacturer data company id, 0xFFFF none */
++	uint8_t mfg_len;          /* bytes after the company id */
++	uint8_t mfg[BLE_MFG_MAX]; /* first of those bytes, latest advert */
++	uint8_t mfg_chg;          /* how often those bytes changed */
++	uint8_t n16;
++	uint16_t u16[BLE_U16_MAX];
++	uint8_t n128;
++	uint8_t u128[16];         /* first 128-bit uuid, little endian as on air */
++	uint16_t sd_uuid;         /* first 16-bit service data uuid, 0 none */
++	uint8_t sd_len;
++	uint8_t sd[6];
++	uint8_t name_kind;        /* 0 none, 1 shortened, 2 complete */
+ 	char name[20];
+ };
+ 
+-#define BLE_MAX 48
++#define BLE_MAX 64
+ static struct ble_seen ble_tab[BLE_MAX];
+ static uint8_t ble_n;
+-static uint32_t ble_adv_total;
++static uint32_t ble_adv_total, ble_dropped;
+ static struct k_spinlock ble_lock;
+ static bool ble_ready, ble_scanning;
+ 
+@@ -1485,11 +1508,51 @@ static bool ble_ad(struct bt_data *d, void *user)
+ 
+ 		memcpy(e->name, d->data, l);
+ 		e->name[l] = 0;
++		e->name_kind = d->type == BT_DATA_NAME_COMPLETE ? 2 : 1;
+ 		break;
+ 	}
+ 	case BT_DATA_MANUFACTURER_DATA:
+-		if (d->data_len >= 2) {
++		if (d->data_len >= 2 && e->company == 0xFFFF) {
+ 			e->company = sys_get_le16(d->data);
++			e->mfg_len = d->data_len - 2;
++			memcpy(e->mfg, d->data + 2, MIN((size_t)e->mfg_len, sizeof(e->mfg)));
++		}
++		break;
++	case BT_DATA_FLAGS:
++		if (d->data_len >= 1) {
++			e->flags = d->data[0];
++		}
++		break;
++	case BT_DATA_TX_POWER:
++		if (d->data_len >= 1) {
++			e->txp = (int8_t)d->data[0];
++		}
++		break;
++	case BT_DATA_GAP_APPEARANCE:
++		if (d->data_len >= 2) {
++			e->appearance = sys_get_le16(d->data);
++		}
++		break;
++	case BT_DATA_UUID16_SOME:
++	case BT_DATA_UUID16_ALL:
++		for (uint8_t i = 0; i + 1 < d->data_len && e->n16 < BLE_U16_MAX; i += 2) {
++			e->u16[e->n16++] = sys_get_le16(d->data + i);
++		}
++		break;
++	case BT_DATA_UUID128_SOME:
++	case BT_DATA_UUID128_ALL:
++		if (d->data_len >= 16) {
++			if (!e->n128) {
++				memcpy(e->u128, d->data, 16);
++			}
++			e->n128 += d->data_len / 16;
++		}
++		break;
++	case BT_DATA_SVC_DATA16:
++		if (d->data_len >= 2 && !e->sd_uuid) {
++			e->sd_uuid = sys_get_le16(d->data);
++			e->sd_len = d->data_len - 2;
++			memcpy(e->sd, d->data + 2, MIN((size_t)e->sd_len, sizeof(e->sd)));
+ 		}
+ 		break;
+ 	default:
+@@ -1498,13 +1561,70 @@ static bool ble_ad(struct bt_data *d, void *user)
+ 	return true;
+ }
+ 
++static void ble_merge(struct ble_seen *e, const struct ble_seen *t)
++{
++	e->rssi_min = MIN(e->rssi_min, t->rssi_min);
++	e->rssi_max = MAX(e->rssi_max, t->rssi_max);
++	e->rssi_sum += t->rssi_sum;
++	e->heard++;
++	e->rsp += t->rsp;
++	e->props |= t->props;
++	if (t->flags) {
++		e->flags = t->flags;
++	}
++	if (t->txp != 127) {
++		e->txp = t->txp;
++	}
++	if (t->appearance) {
++		e->appearance = t->appearance;
++	}
++	if (t->company != 0xFFFF) {
++		size_t l = MIN((size_t)t->mfg_len, sizeof(t->mfg));
++
++		if (e->company != 0xFFFF &&
++		    (e->company != t->company || e->mfg_len != t->mfg_len || memcmp(e->mfg, t->mfg, l))) {
++			e->mfg_chg = (uint8_t)MIN(e->mfg_chg + 1, 255);
++		}
++		e->company = t->company;
++		e->mfg_len = t->mfg_len;
++		memcpy(e->mfg, t->mfg, sizeof(e->mfg));
++	}
++	for (uint8_t i = 0; i < t->n16; i++) {
++		bool have = false;
++
++		for (uint8_t j = 0; j < e->n16; j++) {
++			have |= e->u16[j] == t->u16[i];
++		}
++		if (!have && e->n16 < BLE_U16_MAX) {
++			e->u16[e->n16++] = t->u16[i];
++		}
++	}
++	if (t->n128 && !e->n128) {
++		e->n128 = t->n128;
++		memcpy(e->u128, t->u128, 16);
++	}
++	if (t->sd_uuid && !e->sd_uuid) {
++		e->sd_uuid = t->sd_uuid;
++		e->sd_len = t->sd_len;
++		memcpy(e->sd, t->sd, sizeof(e->sd));
++	}
++	if (t->name_kind > e->name_kind) {
++		e->name_kind = t->name_kind;
++		memcpy(e->name, t->name, sizeof(e->name));
++	}
++}
++
+ static void ble_scan_cb(const bt_addr_le_t *addr, int8_t rssi, uint8_t type, struct net_buf_simple *ad)
+ {
+ 	struct ble_seen t = {};
+ 
+ 	bt_addr_le_copy(&t.addr, addr);
+-	t.rssi = rssi;
+-	t.adv_type = type;
++	t.rssi_min = t.rssi_max = rssi;
++	t.rssi_sum = rssi;
++	t.heard = 1;
++	t.rsp = type == BT_GAP_ADV_TYPE_SCAN_RSP;
++	t.props = (uint8_t)BIT(MIN(type, 7));
++	t.txp = 127;
+ 	t.company = 0xFFFF;
+ 	bt_data_parse(ad, ble_ad, &t);
+ 
+@@ -1512,24 +1632,16 @@ static void ble_scan_cb(const bt_addr_le_t *addr, int8_t rssi, uint8_t type, str
+ 
+ 	ble_adv_total++;
+ 	for (uint8_t i = 0; i < ble_n; i++) {
+-		struct ble_seen *e = &ble_tab[i];
+-
+-		if (bt_addr_le_eq(&e->addr, addr)) {
+-			e->rssi = MAX(e->rssi, rssi);
+-			e->heard++;
+-			if (!e->name[0] && t.name[0]) {
+-				memcpy(e->name, t.name, sizeof(e->name));
+-			}
+-			if (e->company == 0xFFFF) {
+-				e->company = t.company;
+-			}
++		if (bt_addr_le_eq(&ble_tab[i].addr, addr)) {
++			ble_merge(&ble_tab[i], &t);
+ 			k_spin_unlock(&ble_lock, key);
+ 			return;
+ 		}
+ 	}
+ 	if (ble_n < BLE_MAX) {
+-		t.heard = 1;
+ 		ble_tab[ble_n++] = t;
++	} else {
++		ble_dropped++;
+ 	}
+ 	k_spin_unlock(&ble_lock, key);
+ }
+@@ -1548,6 +1660,103 @@ static const char *ble_addr_kind(const bt_addr_le_t *a)
+ 	return "nrpa";
+ }
+ 
++/* payload identity that does not depend on the address: maker + first maker byte (Apple:
++ * message type), name, uuids, appearance, service data uuid */
++static uint16_t ble_fp(const struct ble_seen *e)
++{
++	uint8_t b[6] = {(uint8_t)e->company, (uint8_t)(e->company >> 8), e->mfg_len ? e->mfg[0] : (uint8_t)0,
++			(uint8_t)e->appearance, (uint8_t)(e->appearance >> 8), e->n128};
++	uint16_t c = crc16_ccitt(0xFFFF, b, sizeof(b));
++
++	c = crc16_ccitt(c, (const uint8_t *)e->name, strlen(e->name));
++	c = crc16_ccitt(c, (const uint8_t *)e->u16, e->n16 * 2);
++	if (e->n128) {
++		c = crc16_ccitt(c, e->u128, 16);
++	}
++	c = crc16_ccitt(c, (const uint8_t *)&e->sd_uuid, 2);
++	return c;
++}
++
++/* long console output: wait for room in the USB ring instead of dropping lines
++ * (bounded, so nothing hangs when no one listens) */
++static void ble_write(const char *s, size_t n)
++{
++	for (int i = 0; i < 100 && cli.availableForWrite() < (int)n; i++) {
++		k_msleep(2);
++	}
++	cli.write((const uint8_t *)s, n);
++}
++
++static void ble_cat(char *b, size_t sz, size_t *l, const char *fmt, ...)
++{
++	va_list ap;
++
++	if (*l >= sz) {
++		return;
++	}
++	va_start(ap, fmt);
++	int r = vsnprintf(b + *l, sz - *l, fmt, ap);
++	va_end(ap);
++	if (r > 0) {
++		*l = MIN(*l + (size_t)r, sz - 1);
++	}
++}
++
++static void ble_print_dev(const struct ble_seen *e)
++{
++	char b[360], h[2 * 16 + 1];
++	size_t l = 0;
++	const uint8_t *v = e->addr.a.val;
++
++	ble_cat(b, sizeof(b), &l, "D %02X:%02X:%02X:%02X:%02X:%02X %s rssi=%d/%d/%d n=%u", v[5], v[4], v[3], v[2],
++		v[1], v[0], ble_addr_kind(&e->addr), e->rssi_min, (int)(e->rssi_sum / MAX(e->heard, 1)),
++		e->rssi_max, e->heard);
++	if (e->rsp) {
++		ble_cat(b, sizeof(b), &l, " rsp=%u", e->rsp);
++	}
++	ble_cat(b, sizeof(b), &l, " pdu=%02x conn=%u", e->props, (e->props & (BIT(0) | BIT(1))) ? 1 : 0);
++	if (e->flags) {
++		ble_cat(b, sizeof(b), &l, " fl=%02x", e->flags);
++	}
++	if (e->txp != 127) {
++		ble_cat(b, sizeof(b), &l, " tx=%d", e->txp);
++	}
++	if (e->appearance) {
++		ble_cat(b, sizeof(b), &l, " ap=%04x", e->appearance);
++	}
++	if (e->company != 0xFFFF) {
++		hex(h, e->mfg, MIN((size_t)e->mfg_len, sizeof(e->mfg)));
++		ble_cat(b, sizeof(b), &l, " co=%04X ml=%u m=%s mchg=%u", e->company, e->mfg_len, h, e->mfg_chg);
++	}
++	if (e->n16) {
++		ble_cat(b, sizeof(b), &l, " u16=");
++		for (uint8_t i = 0; i < e->n16; i++) {
++			ble_cat(b, sizeof(b), &l, i ? ",%04X" : "%04X", e->u16[i]);
++		}
++	}
++	if (e->n128) {
++		uint8_t be[16];
++
++		for (int i = 0; i < 16; i++) {
++			be[i] = e->u128[15 - i];
++		}
++		hex(h, be, 16);
++		ble_cat(b, sizeof(b), &l, " u128=%s", h);
++		if (e->n128 > 1) {
++			ble_cat(b, sizeof(b), &l, "+%u", e->n128 - 1);
++		}
++	}
++	if (e->sd_uuid) {
++		hex(h, e->sd, MIN((size_t)e->sd_len, sizeof(e->sd)));
++		ble_cat(b, sizeof(b), &l, " sd=%04X:%u:%s", e->sd_uuid, e->sd_len, h);
++	}
++	if (e->name_kind) {
++		ble_cat(b, sizeof(b), &l, " name%c=\"%s\"", e->name_kind == 2 ? 'C' : 'S', e->name);
++	}
++	ble_cat(b, sizeof(b), &l, " fp=%04X\r\n", ble_fp(e));
++	ble_write(b, l);
++}
++
+ static int ble_scan_start(bool active)
+ {
+ 	if (!ble_ready) {
+@@ -1560,6 +1769,7 @@ static int ble_scan_start(bool active)
+ 	}
+ 	ble_n = 0;
+ 	ble_adv_total = 0;
++	ble_dropped = 0;
+ 	struct bt_le_scan_param p = {
+ 		.type = active ? BT_LE_SCAN_TYPE_ACTIVE : BT_LE_SCAN_TYPE_PASSIVE,
+ 		.options = BT_LE_SCAN_OPT_NONE,
+@@ -1572,17 +1782,179 @@ static int ble_scan_start(bool active)
+ 	return err;
+ }
+ 
++/* strongest first */
++static void ble_print_sorted(void)
++{
++	uint8_t idx[BLE_MAX];
++
++	for (uint8_t i = 0; i < ble_n; i++) {
++		idx[i] = i;
++	}
++	for (uint8_t i = 1; i < ble_n; i++) {
++		for (uint8_t j = i; j > 0 && ble_tab[idx[j]].rssi_max > ble_tab[idx[j - 1]].rssi_max; j--) {
++			uint8_t x = idx[j];
++
++			idx[j] = idx[j - 1];
++			idx[j - 1] = x;
++		}
++	}
++	for (uint8_t i = 0; i < ble_n; i++) {
++		ble_print_dev(&ble_tab[idx[i]]);
++	}
++}
++
+ static void ble_scan_print(void)
+ {
+ 	bt_le_scan_stop();
+ 	ble_scanning = false;
+-	out("blescan: %u advert(s) from %u device(s)\r\n", (unsigned)ble_adv_total, ble_n);
++	out("blescan: %u advert(s) from %u device(s), %u dropped\r\n", (unsigned)ble_adv_total, ble_n,
++	    (unsigned)ble_dropped);
++	ble_print_sorted();
++	out("END\r\n");
++}
++
++/* blesurvey: repeated scans; which addresses and which payloads (fp) come back each round */
++struct ble_track {
++	bt_addr_le_t addr;
++	uint16_t fp;
++	int8_t rssi_max;
++	uint32_t rounds; /* bit per round */
++};
++
++struct ble_fpt {
++	uint16_t fp;
++	uint16_t company;
++	uint8_t addrs;   /* distinct addresses with this payload */
++	int8_t rssi_max;
++	uint32_t rounds;
++	char name[16];
++};
++
++#define BLE_TRACK_MAX 128
++#define BLE_FP_MAX 48
++static struct ble_track bsv_tr[BLE_TRACK_MAX];
++static struct ble_fpt bsv_fp[BLE_FP_MAX];
++static uint8_t bsv_ntr, bsv_nfp;
++static struct {
++	bool on, gap, active, quiet;
++	uint8_t rounds, done;
++	uint16_t scan_s, gap_s;
++} bsv;
++
++static void bsv_round_end(void)
++{
++	uint8_t fresh = 0;
++	uint32_t bit = BIT(bsv.done);
++
+ 	for (uint8_t i = 0; i < ble_n; i++) {
+ 		const struct ble_seen *e = &ble_tab[i];
+-		const uint8_t *v = e->addr.a.val;
++		uint16_t fp = ble_fp(e);
++		struct ble_track *t = NULL;
++
++		for (uint8_t j = 0; j < bsv_ntr; j++) {
++			if (bt_addr_le_eq(&bsv_tr[j].addr, &e->addr)) {
++				t = &bsv_tr[j];
++			}
++		}
++		bool new_addr = !t;
++
++		if (!t && bsv_ntr < BLE_TRACK_MAX) {
++			t = &bsv_tr[bsv_ntr++];
++			bt_addr_le_copy(&t->addr, &e->addr);
++			t->rssi_max = -127;
++			t->rounds = 0;
++		}
++		fresh += new_addr;
++		if (t) {
++			t->fp = fp;
++			t->rounds |= bit;
++			t->rssi_max = MAX(t->rssi_max, e->rssi_max);
++		}
++		struct ble_fpt *f = NULL;
+ 
+-		out(" %02X:%02X:%02X:%02X:%02X:%02X %-6s rssi %d x%u co %04X \"%s\"\r\n", v[5], v[4], v[3], v[2], v[1],
+-		    v[0], ble_addr_kind(&e->addr), e->rssi, e->heard, e->company, e->name);
++		for (uint8_t j = 0; j < bsv_nfp; j++) {
++			if (bsv_fp[j].fp == fp) {
++				f = &bsv_fp[j];
++			}
++		}
++		if (!f && bsv_nfp < BLE_FP_MAX) {
++			f = &bsv_fp[bsv_nfp++];
++			memset(f, 0, sizeof(*f));
++			f->fp = fp;
++			f->company = e->company;
++			f->rssi_max = -127;
++			strncpy(f->name, e->name, sizeof(f->name) - 1);
++		}
++		if (f) {
++			f->rounds |= bit;
++			f->rssi_max = MAX(f->rssi_max, e->rssi_max);
++			if (new_addr) {
++				f->addrs = (uint8_t)MIN(f->addrs + 1, 255);
++			}
++		}
++	}
++	out("R %u/%u %us %s: %u adv, %u dev, %u new addr, %u dropped\r\n", bsv.done + 1, bsv.rounds, bsv.scan_s,
++	    bsv.active ? "active" : "passive", (unsigned)ble_adv_total, ble_n, fresh, (unsigned)ble_dropped);
++	if (!bsv.quiet) {
++		ble_print_sorted();
++	}
++}
++
++static void bsv_final(void)
++{
++	char b[200];
++
++	out("S survey %u x %us gap %us %s: %u addresses, %u payloads\r\n", bsv.rounds, bsv.scan_s, bsv.gap_s,
++	    bsv.active ? "active" : "passive", bsv_ntr, bsv_nfp);
++	for (uint8_t i = 0; i < bsv_nfp; i++) {
++		const struct ble_fpt *f = &bsv_fp[i];
++		int l = snprintf(b, sizeof(b), "F fp=%04X seen=%u/%u addrs=%u rssi=%d co=%04X name=\"%s\" r=%08x\r\n",
++				 f->fp, (unsigned)__builtin_popcount(f->rounds), bsv.rounds, f->addrs, f->rssi_max,
++				 f->company, f->name, (unsigned)f->rounds);
++
++		ble_write(b, (size_t)MIN(l, (int)sizeof(b) - 1));
++	}
++	for (uint8_t i = 0; i < bsv_ntr; i++) {
++		const struct ble_track *t = &bsv_tr[i];
++		const uint8_t *v = t->addr.a.val;
++		int l = snprintf(b, sizeof(b), "A %02X:%02X:%02X:%02X:%02X:%02X %s seen=%u/%u rssi=%d fp=%04X r=%08x\r\n",
++				 v[5], v[4], v[3], v[2], v[1], v[0], ble_addr_kind(&t->addr),
++				 (unsigned)__builtin_popcount(t->rounds), bsv.rounds, t->rssi_max, t->fp,
++				 (unsigned)t->rounds);
++
++		ble_write(b, (size_t)MIN(l, (int)sizeof(b) - 1));
++	}
++	out("END\r\n");
++}
++
++/* ble_tmr fired: end a scan, or start the next survey round */
++static void ble_timer(void)
++{
++	if (ble_scanning) {
++		if (!bsv.on) {
++			ble_scan_print();
++			return;
++		}
++		bt_le_scan_stop();
++		ble_scanning = false;
++		bsv_round_end();
++		if (++bsv.done >= bsv.rounds) {
++			bsv_final();
++			bsv.on = false;
++			return;
++		}
++		bsv.gap = true;
++		k_timer_start(&ble_tmr, bsv.gap_s ? K_SECONDS(bsv.gap_s) : K_MSEC(50), K_NO_WAIT);
++	} else if (bsv.on && bsv.gap) {
++		bsv.gap = false;
++		int err = ble_scan_start(bsv.active);
++
++		if (err) {
++			out("ERR bluetooth %d\r\nEND\r\n", err);
++			bsv.on = false;
++			return;
++		}
++		k_timer_start(&ble_tmr, K_SECONDS(bsv.scan_s), K_NO_WAIT);
+ 	}
+ }
+ #endif /* CONFIG_BT_OBSERVER */
+@@ -1695,11 +2067,7 @@ static void scan_end(void)
+ 		}
+ 		disc_quiet = false;
+ 	}
+-#if IS_ENABLED(CONFIG_BT_OBSERVER)
+-	if (ble_scanning) {
+-		ble_scan_print();
+-	}
+-#endif
++
+ }
+ 
+ /* ------------------------------------------------------------------ CLI */
+@@ -1887,6 +2255,7 @@ static void cli_exec(char *l)
+ 		out("radio <MHz> <bwkHz> <sf> <cr> | power <dBm> | pathhash 1|2|3 | region <name>|none\r\n");
+ 		out("network auto|manual | where <lat> <lon> | test [count] [interval_s] | gps | reboot | dfu\r\n");
+ 		out("meshscan [s] | discover [s] | neighbours | noise [n] | blescan [s] [passive]\r\n");
++		out("blesurvey <rounds> <scan_s> <gap_s> [passive] [quiet] | blestop\r\n");
+ #if NOSTR
+ 		out("nostr | owner <npub|hex|off> | dmalert on|off | buzz [s]\r\n");
+ #endif
+@@ -2066,14 +2435,53 @@ static void cli_exec(char *l)
+ 		/* blescan [s] [passive]: list Bluetooth LE devices around */
+ 		int sec = argc >= 2 ? atoi(argv[1]) : 20;
+ 		bool active = !(argc >= 3 && !strcmp(argv[2], "passive"));
+-		int err = ble_scan_start(active);
++		int err = (ble_scanning || bsv.on) ? -EBUSY : ble_scan_start(active);
+ 
+ 		if (err) {
+ 			out("ERR bluetooth %d\r\n", err);
+ 		} else {
+-			k_timer_start(&scan_timer, K_SECONDS(CLAMP(sec, 2, 600)), K_NO_WAIT);
++			k_timer_start(&ble_tmr, K_SECONDS(CLAMP(sec, 2, 600)), K_NO_WAIT);
+ 			out("OK %s BLE scan %d s\r\n", active ? "active" : "passive", CLAMP(sec, 2, 600));
+ 		}
++	} else if (!strcmp(c, "blesurvey")) {
++		/* blesurvey <rounds> <scan_s> <gap_s> [passive] [quiet]: repeated scans, per-round
++		 * device list, then per payload (F) and per address (A) how many rounds it came back */
++		bool active = true, quiet = false;
++
++		for (int i = 4; i < argc; i++) {
++			active &= strcmp(argv[i], "passive") != 0;
++			quiet |= !strcmp(argv[i], "quiet");
++		}
++		if (ble_scanning || bsv.on) {
++			out("ERR busy\r\n");
++		} else {
++			bsv.rounds = (uint8_t)CLAMP(argc >= 2 ? atoi(argv[1]) : 10, 1, 32);
++			bsv.scan_s = (uint16_t)CLAMP(argc >= 3 ? atoi(argv[2]) : 10, 1, 120);
++			bsv.gap_s = (uint16_t)CLAMP(argc >= 4 ? atoi(argv[3]) : 5, 0, 3600);
++			bsv.active = active;
++			bsv.quiet = quiet;
++			bsv.done = 0;
++			bsv_ntr = bsv_nfp = 0;
++			int err = ble_scan_start(active);
++
++			if (err) {
++				out("ERR bluetooth %d\r\n", err);
++			} else {
++				bsv.on = true;
++				bsv.gap = false;
++				k_timer_start(&ble_tmr, K_SECONDS(bsv.scan_s), K_NO_WAIT);
++				out("OK BLE survey %u x %u s, gap %u s, %s\r\n", bsv.rounds, bsv.scan_s, bsv.gap_s,
++				    active ? "active" : "passive");
++			}
++		}
++	} else if (!strcmp(c, "blestop")) {
++		k_timer_stop(&ble_tmr);
++		if (ble_scanning) {
++			bt_le_scan_stop();
++			ble_scanning = false;
++		}
++		bsv.on = false;
++		out("OK\r\n");
+ #endif
+ 	} else if (!strcmp(c, "gps")) {
+ 		/* satellites, NMEA count, fix age: is the module hearing anything indoors? */
+@@ -2342,6 +2750,11 @@ int main(void)
+ 		if (ev & EV_SCAN_END) {
+ 			scan_end();
+ 		}
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++		if (ev & EV_BLE) {
++			ble_timer();
++		}
++#endif
+ 	}
+ 	return 0;
+ }

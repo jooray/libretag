@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Tue, 17 Nov 2026 20:18:24 +0100
+Subject: [PATCH 29/40] tracker (ESP32): the console RX pad wakes the SoC as a
+ GPIO level wake (the UART wake source did not wake the S3 here)
+
+---
+ zephcore/src/lt_pm_uart_esp32.c | 48 +++++++++++++++++++++------------
+ 1 file changed, 31 insertions(+), 17 deletions(-)
+
+diff --git a/zephcore/src/lt_pm_uart_esp32.c b/zephcore/src/lt_pm_uart_esp32.c
+index e8c8d37..a529c7e 100644
+--- a/zephcore/src/lt_pm_uart_esp32.c
++++ b/zephcore/src/lt_pm_uart_esp32.c
+@@ -1,13 +1,19 @@
+ /*
+- * LibreTag tracker on ESP32 boards with a USB-UART bridge (Heltec V3 family): the console can wake
+- * the SoC from light sleep. helpers/pm_esp32_console.c keeps the console reachable only in a window
+- * after boot or a button press, and opening the port of a CP2102 resets the board (DTR/RTS), which
+- * counts as a reset for the tracker's boot backoff. Here the console RX pad stays live through
+- * light sleep and the UART is a wake source: a few edges on RX wake the SoC, and the tracker then
+- * stays awake for LT_PM_UART_HOLD_S so the rest of the line gets in. The characters that woke it
+- * are lost, so a host sends a line break first, waits ~100 ms, then the command.
++ * LibreTag tracker on ESP32 boards with a USB-UART bridge (Heltec V3 family): typing at the console
++ * wakes the SoC from light sleep. helpers/pm_esp32_console.c keeps the console reachable only in a
++ * window after boot or a button press, and opening the port of a CP2102 resets the board (DTR/RTS),
++ * which counts as a reset for the tracker's boot backoff.
+  *
+- * Risk on battery: with the bridge unpowered the RX pad must not float (pinctrl pulls it up).
++ * The UART's own wake source (esp_sleep_enable_uart_wakeup, also with the port on XTAL) did not wake
++ * the S3 on this board. So the console RX pad gets the same treatment as the radio's DIO1 in
++ * helpers/pm_esp32_wake.c: for each light sleep it becomes a GPIO level wake at low (the idle line is
++ * high, a start bit pulls it low), with its input kept live. After a wake from that pad the tracker
++ * stays awake for LT_PM_UART_HOLD_S. On the bench the console answered only after a few tries (the
++ * first lines after a sleep are lost or garbled, also with the port on XTAL; the RX interrupt seems
++ * to wait for more bytes), so a host repeats a command every second or two until it is echoed, and
++ * from then on the console answers at once until 30 s without input.
++ *
++ * Risk on battery: with the bridge unpowered the RX pad must not float low (pinctrl pulls it up).
+  */
+ 
+ #include <zephyr/kernel.h>
+@@ -15,17 +21,15 @@
+ #include <zephyr/pm/pm.h>
+ #include <zephyr/sys/atomic.h>
+ 
++#include <driver/gpio.h>
+ #include <esp_sleep.h>
+ #include <hal/gpio_ll.h>
+-#include <hal/uart_ll.h>
+ #include <soc/gpio_struct.h>
+ 
+ #include <helpers/pm_sleep_guard.h>
+ #include "lt_pm_uart_esp32.h"
+ 
+-#define LT_PM_UART_NUM CONFIG_ZEPHCORE_PM_CONSOLE_UART_NUM
+ #define LT_PM_UART_RX_GPIO 44   /* U0RXD on the ESP32-S3 (the Heltec V3 console) */
+-#define LT_PM_UART_EDGES 3      /* RX edges that wake the SoC */
+ #define LT_PM_UART_HOLD_S 30
+ 
+ static atomic_t held;
+@@ -60,17 +64,29 @@ static void wake_work_fn(struct k_work *w)
+ }
+ static K_WORK_DEFINE(wake_work, wake_work_fn);
+ 
++#define RX_BIT BIT(LT_PM_UART_RX_GPIO - 32)
++
+ static void uart_state_entry(enum pm_state state)
+ {
+-	if (state == PM_STATE_STANDBY) {
+-		/* keep the RX pad in its normal (UART) configuration while asleep */
+-		gpio_ll_sleep_sel_dis(&GPIO, LT_PM_UART_RX_GPIO);
++	if (state != PM_STATE_STANDBY) {
++		return;
+ 	}
++	GPIO.status1_w1tc.val = RX_BIT;
++	(void)gpio_wakeup_enable(LT_PM_UART_RX_GPIO, GPIO_INTR_LOW_LEVEL);
++	gpio_ll_sleep_sel_dis(&GPIO, LT_PM_UART_RX_GPIO); /* keep the pad's input live while asleep */
+ }
+ 
+ static void uart_state_exit(enum pm_state state)
+ {
+-	if (state == PM_STATE_STANDBY && (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_UART))) {
++	if (state != PM_STATE_STANDBY) {
++		return;
++	}
++	bool hit = (GPIO.status1.val & RX_BIT) != 0 || gpio_ll_get_level(&GPIO, LT_PM_UART_RX_GPIO) == 0;
++
++	(void)gpio_wakeup_disable(LT_PM_UART_RX_GPIO);
++	GPIO.pin[LT_PM_UART_RX_GPIO].int_type = 0;
++	GPIO.status1_w1tc.val = RX_BIT;
++	if (hit && (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_GPIO))) {
+ 		atomic_inc(&wakes);
+ 		k_work_submit(&wake_work);
+ 	}
+@@ -83,8 +99,6 @@ static struct pm_notifier uart_notifier = {
+ 
+ static int lt_pm_uart_init(void)
+ {
+-	uart_ll_set_wakeup_edge_thrd(UART_LL_GET_HW(LT_PM_UART_NUM), LT_PM_UART_EDGES);
+-	(void)esp_sleep_enable_uart_wakeup(LT_PM_UART_NUM);
+ 	pm_notifier_register(&uart_notifier);
+ 	return 0;
+ }

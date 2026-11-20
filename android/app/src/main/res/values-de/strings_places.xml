@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <!-- Places list -->
+    <string name="places_title">Orte</string>
+    <string name="places_lead">Hier bleibt %1$s ruhig.</string>
+    <string name="places_empty">Noch keine Orte. Füge den Ort hinzu, an dem %1$s meistens liegt, dann bleibt es dort ruhig.</string>
+    <string name="place_add">Ort hinzufügen</string>
+    <string name="place_add_here">Ort hinzufügen, an dem %1$s jetzt ist</string>
+    <string name="place_add_map">Auf der Karte</string>
+    <string name="place_add_wifi">Wo der Tracker jetzt ist, per WLAN</string>
+    <string name="place_add_btn">Ort hinzufügen</string>
+    <string name="place_needs_cable">Verbinde den Tracker, solange er am Ort ist: per Kabel, oder starte ihn neu und verbinde dich über Bluetooth.</string>
+    <string name="place_on_tag">Im Tracker</string>
+    <string name="place_waits_cable">Wartet auf den Tracker</string>
+    <string name="place_waits_cable_sub">Bis du %1$s verbindest, meldet er sich weiter von hier.</string>
+    <string name="place_writing">Schreibe…</string>
+    <string name="place_writing_to">Schreibe auf %1$s…</string>
+    <string name="place_saved_on">Auf %1$s gespeichert.</string>
+    <string name="place_not_written">Nicht geschrieben</string>
+    <string name="place_app_only">Nur App</string>
+    <string name="place_app_only_sub">Diese Firmware kann keine Orte speichern, deshalb meldet sich %1$s weiter von hier.</string>
+    <string name="place_name">Name</string>
+    <string name="place_name_empty">Gib dem Ort einen Namen.</string>
+    <string name="place_name_taken">Ein anderer Ort hat diesen Namen schon.</string>
+    <string name="place_size">Größe</string>
+    <string name="place_move_hint">Tippe auf die Karte, um den Ort zu verschieben. Zieh am blauen Griff, um die Größe zu ändern.</string>
+    <string name="place_tap_hint">Tippe auf die Karte, wo %1$s meistens liegt.</string>
+    <string name="place_move">Auf der Karte verschieben</string>
+    <string name="place_tell_leave">Sag mir, wenn er weggeht</string>
+    <string name="place_tell_arrive">Sag mir, wenn er ankommt</string>
+    <string name="place_not_with_you">Nicht, wenn er mit dir weggeht.</string>
+    <string name="place_delete">Ort löschen</string>
+    <string name="place_delete_cable">Zum Löschen den Tracker verbinden.</string>
+    <!-- Wi-Fi snap sheet -->
+    <string name="snap_start">Start</string>
+    <string name="snap_step_listen">Suche WLANs · %1$d von %2$d</string>
+    <string name="snap_step_listen_short">Suche WLANs</string>
+    <string name="snap_step_save">Speichere im Tracker</string>
+    <string name="snap_step_check">Prüfe, ob der Tracker den Ort erkennt</string>
+    <string name="snap_wait">Etwa %1$d s. Lass den Tracker, wo er ist.</string>
+    <string name="snap_ok">%1$s gespeichert. Der Tracker erkennt diesen Ort.</string>
+    <string name="snap_weak">Gespeichert, aber die Übereinstimmung ist schwach. Der Tracker bleibt hier womöglich nicht ruhig.</string>
+    <string name="snap_unchecked">%1$s gespeichert. Die Prüfung wurde nicht fertig, tippe später auf Hier prüfen.</string>
+    <string name="snap_none">Kein WLAN in Reichweite, es wurde nichts gespeichert.</string>
+    <string name="snap_no_answer">Der Tracker hat nicht geantwortet. Prüfe die Verbindung.</string>
+    <string name="snap_keep">Behalten</string>
+    <string name="place_check_here">Hier prüfen</string>
+    <string name="place_check_ok">Erkannt</string>
+    <string name="place_check_weak">Schwach</string>
+    <string name="place_check_no">Nicht erkannt</string>
+    <!-- Add tag wizard, four steps -->
+    <string name="wz2_s2">Name</string>
+    <string name="wz2_s3">Wo er liegt</string>
+    <string name="wz2_rest_lead">Füge den Ort hinzu, an dem %1$s bleibt. Dort bleibt er ruhig.</string>
+    <string name="wz2_skip">Überspringen</string>
+    <string name="wz2_mark_row">Markierung: %1$s</string>
+    <string name="wz2_change">Ändern</string>
+    <string name="wz2_done_reports">Meldet sich unterwegs stündlich.</string>
+    <string name="wz2_done_quiet">Bei %1$s bleibt er ruhig.</string>
+    <string name="wz2_done_tell">Du erfährst es, wenn er nicht zu hören ist oder der Akku schwach wird.</string>
+    <string name="wz2_devices_title">Ruhig, solange du dabei bist</string>
+    <string name="wz2_devices_text">Wähle Handy, Uhr oder andere Geräte, die du bei dir trägst. Solange eines davon in der Nähe ist, bleibt %1$s ruhig.</string>
+    <string name="wz2_devices_go">Geräte wählen</string>
+    <string name="wz2_pair_failed">Das Koppeln wurde nicht fertig. Lass das Kabel stecken und versuche es noch einmal.</string>
+    <string name="wz2_partial_text">Öffne die Tracker-Einstellungen bei verbundenem Tracker, um sie erneut zu schreiben.</string>
+    <!-- Known devices -->
+    <string name="kd_lead_short">%1$s bleibt ruhig, solange eines davon in der Nähe ist.</string>
+</resources>

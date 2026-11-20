@@ -1,0 +1,1006 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Tue, 17 Nov 2026 19:15:11 +0100
+Subject: [PATCH 28/40] tracker: ESP32-S3 without GPS: Wi-Fi scan (lt_wifi_scan
+ via NET_REQUEST_WIFI_SCAN, random STA MAC, radio stopped after), Wi-Fi zones
+ (wzone snap/list/show/del/clear/test/thr, hashed fingerprints in
+ /lfs/libretag/wzones), zone and parked by Wi-Fi in the wake decision, second
+ full BSSID in reports without a fix time, wifiscan/wifi passive|active, light
+ sleep for the tracker role on boards that declare it, console UART wakes the
+ SoC, sleep on|off, ESP32 energy figures
+
+---
+ zephcore/CMakeLists.txt                  |  17 +
+ zephcore/boards/common/tracker_wifi.conf |  30 ++
+ zephcore/src/lt_pm_uart_esp32.c          |  91 +++++
+ zephcore/src/lt_pm_uart_esp32.h          |  17 +
+ zephcore/src/lt_wifi_esp32.c             | 180 ++++++++++
+ zephcore/src/lt_wifi_esp32.h             |  31 ++
+ zephcore/src/main_tracker.cpp            | 440 ++++++++++++++++++++++-
+ 7 files changed, 799 insertions(+), 7 deletions(-)
+ create mode 100644 zephcore/boards/common/tracker_wifi.conf
+ create mode 100644 zephcore/src/lt_pm_uart_esp32.c
+ create mode 100644 zephcore/src/lt_pm_uart_esp32.h
+ create mode 100644 zephcore/src/lt_wifi_esp32.c
+ create mode 100644 zephcore/src/lt_wifi_esp32.h
+
+diff --git a/zephcore/CMakeLists.txt b/zephcore/CMakeLists.txt
+index 1b34761..4453664 100644
+--- a/zephcore/CMakeLists.txt
++++ b/zephcore/CMakeLists.txt
+@@ -230,6 +230,17 @@ if(ZEPHCORE_PLATFORM STREQUAL "esp32")
+         message(STATUS "  BLE OTA: auto-enabled (companion, MCUboot)")
+     endif()
+ 
++    # LibreTag tracker on an ESP32 board with Wi-Fi: Wi-Fi scans instead of GPS (tracker_wifi.conf),
++    # and light sleep between wake-ups on boards that declare it.
++    if(ZEPHCORE_BUILD_ROLE STREQUAL "tracker" AND ZEPHCORE_BOARD_WIFI)
++        zephcore_add_conf(${_zc}/tracker_wifi.conf)
++        message(STATUS "  LibreTag tracker: Wi-Fi scans (board declares wifi)")
++    endif()
++    if(ZEPHCORE_BUILD_ROLE STREQUAL "tracker" AND ZEPHCORE_BOARD_LIGHT_SLEEP)
++        zephcore_add_conf(${_zc}/pm_esp32.conf)
++        message(STATUS "  ESP32 light sleep: auto-enabled (tracker, board declares it)")
++    endif()
++
+     # WiFi companion (app over TCP beside BLE and USB) on boards whose
+     # zephcore.yml declares `capabilities: wifi: true`: the ones with the RAM
+     # for WiFi and BLE together. Companion only; the servers' WiFi is the
+@@ -642,6 +653,12 @@ elseif(CONFIG_ZEPHCORE_ROLE_TRACKER)
+   if(NOT CONFIG_CDC_ACM_SERIAL_INITIALIZE_AT_BOOT AND (CONFIG_USB_CDC_ACM OR CONFIG_USBD_CDC_ACM_CLASS))
+     target_sources(app PRIVATE adapters/usb/ZephyrUSBCDC.cpp)
+   endif()
++  if(CONFIG_LIBRETAG_WIFI AND CONFIG_WIFI_ESP32)
++    target_sources(app PRIVATE src/lt_wifi_esp32.c)
++  endif()
++  if(CONFIG_PM AND CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
++    target_sources(app PRIVATE src/lt_pm_uart_esp32.c)
++  endif()
+   if(CONFIG_LIBRETAG_NOSTR)
+     if(NOT DEFINED LIBSECP256K1_DIR)
+       set(LIBSECP256K1_DIR ${LIBRETAG_CORE_DIR}/../third_party/secp256k1)
+diff --git a/zephcore/boards/common/tracker_wifi.conf b/zephcore/boards/common/tracker_wifi.conf
+new file mode 100644
+index 0000000..07d5ccd
+--- /dev/null
++++ b/zephcore/boards/common/tracker_wifi.conf
+@@ -0,0 +1,30 @@
++# LibreTag tracker on an ESP32 board without GPS: Wi-Fi scans place the tag (LibreTag
++# docs/design/fw-wifi-esp32.md). Added by CMake to tracker builds of ESP32 boards whose
++# zephcore.yml declares `capabilities: wifi: true`; light sleep (pm_esp32.conf) comes with it on
++# boards that declare `light_sleep: true`.
++CONFIG_LIBRETAG_WIFI=y
++
++# Scan only: no IP traffic, no sockets. The ESP32 Wi-Fi driver needs the networking core and the
++# Ethernet L2 underneath the Wi-Fi management API.
++CONFIG_NETWORKING=y
++CONFIG_NET_IPV4=y
++CONFIG_NET_IPV6=n
++CONFIG_NET_TCP=n
++# the connection table (NET_MAX_CONN) only exists with UDP or TCP; nothing opens a socket
++CONFIG_NET_UDP=y
++CONFIG_NET_MAX_CONN=2
++CONFIG_NET_MAX_CONTEXTS=2
++CONFIG_NET_DHCPV4=n
++CONFIG_NET_SOCKETS=n
++CONFIG_NET_MGMT=y
++CONFIG_NET_MGMT_EVENT=y
++CONFIG_NET_MGMT_EVENT_INFO=y
++# one event per scan result (the driver yields after each); a busy street has 30+ BSSIDs
++CONFIG_NET_MGMT_EVENT_QUEUE_SIZE=48
++CONFIG_NET_L2_ETHERNET=y
++CONFIG_WIFI=y
++CONFIG_NET_L2_WIFI_MGMT=y
++CONFIG_NET_PKT_RX_COUNT=4
++CONFIG_NET_PKT_TX_COUNT=4
++CONFIG_NET_BUF_RX_COUNT=8
++CONFIG_NET_BUF_TX_COUNT=8
+diff --git a/zephcore/src/lt_pm_uart_esp32.c b/zephcore/src/lt_pm_uart_esp32.c
+new file mode 100644
+index 0000000..e8c8d37
+--- /dev/null
++++ b/zephcore/src/lt_pm_uart_esp32.c
+@@ -0,0 +1,91 @@
++/*
++ * LibreTag tracker on ESP32 boards with a USB-UART bridge (Heltec V3 family): the console can wake
++ * the SoC from light sleep. helpers/pm_esp32_console.c keeps the console reachable only in a window
++ * after boot or a button press, and opening the port of a CP2102 resets the board (DTR/RTS), which
++ * counts as a reset for the tracker's boot backoff. Here the console RX pad stays live through
++ * light sleep and the UART is a wake source: a few edges on RX wake the SoC, and the tracker then
++ * stays awake for LT_PM_UART_HOLD_S so the rest of the line gets in. The characters that woke it
++ * are lost, so a host sends a line break first, waits ~100 ms, then the command.
++ *
++ * Risk on battery: with the bridge unpowered the RX pad must not float (pinctrl pulls it up).
++ */
++
++#include <zephyr/kernel.h>
++#include <zephyr/init.h>
++#include <zephyr/pm/pm.h>
++#include <zephyr/sys/atomic.h>
++
++#include <esp_sleep.h>
++#include <hal/gpio_ll.h>
++#include <hal/uart_ll.h>
++#include <soc/gpio_struct.h>
++
++#include <helpers/pm_sleep_guard.h>
++#include "lt_pm_uart_esp32.h"
++
++#define LT_PM_UART_NUM CONFIG_ZEPHCORE_PM_CONSOLE_UART_NUM
++#define LT_PM_UART_RX_GPIO 44   /* U0RXD on the ESP32-S3 (the Heltec V3 console) */
++#define LT_PM_UART_EDGES 3      /* RX edges that wake the SoC */
++#define LT_PM_UART_HOLD_S 30
++
++static atomic_t held;
++static atomic_t wakes;
++
++static void hold_expired(struct k_work *w)
++{
++	ARG_UNUSED(w);
++	if (atomic_cas(&held, 1, 0)) {
++		zc_pm_unblock_sleep();
++	}
++}
++static K_WORK_DELAYABLE_DEFINE(hold_work, hold_expired);
++
++void lt_pm_console_touch(void)
++{
++	if (atomic_cas(&held, 0, 1)) {
++		zc_pm_block_sleep();
++	}
++	k_work_reschedule(&hold_work, K_SECONDS(LT_PM_UART_HOLD_S));
++}
++
++uint32_t lt_pm_uart_wakes(void)
++{
++	return (uint32_t)atomic_get(&wakes);
++}
++
++static void wake_work_fn(struct k_work *w)
++{
++	ARG_UNUSED(w);
++	lt_pm_console_touch();
++}
++static K_WORK_DEFINE(wake_work, wake_work_fn);
++
++static void uart_state_entry(enum pm_state state)
++{
++	if (state == PM_STATE_STANDBY) {
++		/* keep the RX pad in its normal (UART) configuration while asleep */
++		gpio_ll_sleep_sel_dis(&GPIO, LT_PM_UART_RX_GPIO);
++	}
++}
++
++static void uart_state_exit(enum pm_state state)
++{
++	if (state == PM_STATE_STANDBY && (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_UART))) {
++		atomic_inc(&wakes);
++		k_work_submit(&wake_work);
++	}
++}
++
++static struct pm_notifier uart_notifier = {
++	.state_entry = uart_state_entry,
++	.state_exit = uart_state_exit,
++};
++
++static int lt_pm_uart_init(void)
++{
++	uart_ll_set_wakeup_edge_thrd(UART_LL_GET_HW(LT_PM_UART_NUM), LT_PM_UART_EDGES);
++	(void)esp_sleep_enable_uart_wakeup(LT_PM_UART_NUM);
++	pm_notifier_register(&uart_notifier);
++	return 0;
++}
++SYS_INIT(lt_pm_uart_init, APPLICATION, 91);
+diff --git a/zephcore/src/lt_pm_uart_esp32.h b/zephcore/src/lt_pm_uart_esp32.h
+new file mode 100644
+index 0000000..64609a3
+--- /dev/null
++++ b/zephcore/src/lt_pm_uart_esp32.h
+@@ -0,0 +1,17 @@
++/* LibreTag: console UART wakes the ESP32 from light sleep (lt_pm_uart_esp32.c). */
++#pragma once
++
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* stay awake for a while (a console line arrived, or the UART woke the SoC) */
++void lt_pm_console_touch(void);
++/* light sleeps the console UART ended */
++uint32_t lt_pm_uart_wakes(void);
++
++#ifdef __cplusplus
++}
++#endif
+diff --git a/zephcore/src/lt_wifi_esp32.c b/zephcore/src/lt_wifi_esp32.c
+new file mode 100644
+index 0000000..e38bde9
+--- /dev/null
++++ b/zephcore/src/lt_wifi_esp32.c
+@@ -0,0 +1,180 @@
++/*
++ * LibreTag: Wi-Fi scan for the tracker on ESP32 boards (lt_wifi_scan(), LibreTag
++ * docs/design/fw-wifi-esp32.md). One blocking scan through Zephyr's Wi-Fi management API
++ * (NET_REQUEST_WIFI_SCAN, results as NET_EVENT_WIFI_SCAN_RESULT), then the Wi-Fi radio is stopped
++ * again so the SoC can light-sleep (the Wi-Fi library holds a sleep lock while the radio is on).
++ *
++ * Privacy: an active scan sends probe requests from the station MAC. Before each scan the station
++ * gets a fresh random locally administered MAC, so probe requests cannot follow the tag from place
++ * to place. A passive scan (`wifiscan passive`) sends nothing at all and takes longer.
++ */
++
++#include <zephyr/kernel.h>
++#include <zephyr/net/net_if.h>
++#include <zephyr/net/net_mgmt.h>
++#include <zephyr/net/wifi_mgmt.h>
++#include <zephyr/random/random.h>
++#include <string.h>
++
++#include <esp_wifi.h>
++
++#include "lt_core.h"
++#include "lt_wifi_esp32.h"
++
++#include <zephyr/logging/log.h>
++LOG_MODULE_REGISTER(lt_wifi, CONFIG_ZEPHCORE_MAIN_LOG_LEVEL);
++
++static struct net_mgmt_event_callback scan_cb;
++static K_SEM_DEFINE(scan_done, 0, 1);
++static K_MUTEX_DEFINE(scan_lock);
++static struct k_spinlock res_lock;
++static lt_wifi_ap_t *res_buf;
++static size_t res_max, res_n, res_raw;
++static int scan_status;
++static bool passive;
++static struct lt_wifi_stats stats;
++
++static void scan_event(struct net_mgmt_event_callback *cb, uint64_t ev, struct net_if *iface)
++{
++	ARG_UNUSED(iface);
++	if (ev == NET_EVENT_WIFI_SCAN_RESULT) {
++		const struct wifi_scan_result *r = (const struct wifi_scan_result *)cb->info;
++		k_spinlock_key_t key = k_spin_lock(&res_lock);
++
++		res_raw++;
++		if (res_buf && r && r->mac_length == 6) {
++			/* the same BSSID can come twice; keep the stronger */
++			size_t i;
++			for (i = 0; i < res_n && memcmp(res_buf[i].bssid, r->mac, 6); i++) {
++			}
++			if (i < res_n) {
++				if (r->rssi > res_buf[i].rssi) {
++					res_buf[i].rssi = r->rssi;
++				}
++			} else if (res_n < res_max) {
++				lt_wifi_ap_t *a = &res_buf[res_n++];
++				size_t l = MIN(r->ssid_length, sizeof(a->ssid) - 1);
++
++				memcpy(a->bssid, r->mac, 6);
++				a->rssi = r->rssi;
++				memcpy(a->ssid, r->ssid, l);
++				a->ssid[l] = 0;
++			} else {
++				/* full: replace the weakest when this one is stronger */
++				size_t w = 0;
++				for (i = 1; i < res_n; i++) {
++					if (res_buf[i].rssi < res_buf[w].rssi) {
++						w = i;
++					}
++				}
++				if (r->rssi > res_buf[w].rssi) {
++					size_t l = MIN(r->ssid_length, sizeof(res_buf[w].ssid) - 1);
++
++					memcpy(res_buf[w].bssid, r->mac, 6);
++					res_buf[w].rssi = r->rssi;
++					memcpy(res_buf[w].ssid, r->ssid, l);
++					res_buf[w].ssid[l] = 0;
++				}
++			}
++		}
++		k_spin_unlock(&res_lock, key);
++	} else if (ev == NET_EVENT_WIFI_SCAN_DONE) {
++		const struct wifi_status *st = (const struct wifi_status *)cb->info;
++
++		scan_status = st ? st->status : 0;
++		k_sem_give(&scan_done);
++	}
++}
++
++static int wifi_init(void)
++{
++	net_mgmt_init_event_callback(&scan_cb, scan_event, NET_EVENT_WIFI_SCAN_RESULT | NET_EVENT_WIFI_SCAN_DONE);
++	net_mgmt_add_event_callback(&scan_cb);
++	return 0;
++}
++SYS_INIT(wifi_init, APPLICATION, 90);
++
++void lt_wifi_set_passive(bool on)
++{
++	passive = on;
++}
++
++bool lt_wifi_passive(void)
++{
++	return passive;
++}
++
++const struct lt_wifi_stats *lt_wifi_last_stats(void)
++{
++	return &stats;
++}
++
++static void random_sta_mac(void)
++{
++	uint8_t mac[6];
++
++	sys_rand_get(mac, sizeof(mac));
++	mac[0] = (uint8_t)((mac[0] & 0xFC) | 0x02); /* locally administered, unicast */
++	int e = esp_wifi_set_mac(WIFI_IF_STA, mac);
++	if (e != ESP_OK) {
++		LOG_DBG("random MAC not set (%d)", e);
++	}
++}
++
++size_t lt_wifi_scan(lt_wifi_ap_t *aps, size_t max, uint32_t timeout_ms)
++{
++	struct net_if *iface = net_if_get_wifi_sta();
++	struct wifi_scan_params p = {};
++	int64_t t0 = k_uptime_get();
++	size_t n;
++
++	if (!iface) {
++		iface = net_if_get_first_wifi();
++	}
++	if (!iface) {
++		LOG_WRN("no Wi-Fi interface");
++		return 0;
++	}
++	k_mutex_lock(&scan_lock, K_FOREVER);
++	k_sem_reset(&scan_done);
++	{
++		k_spinlock_key_t key = k_spin_lock(&res_lock);
++		res_buf = aps;
++		res_max = max;
++		res_n = 0;
++		res_raw = 0;
++		k_spin_unlock(&res_lock, key);
++	}
++	scan_status = 0;
++	/* the radio is stopped between scans, which is when the station MAC may change */
++	(void)esp_wifi_stop();
++	random_sta_mac();
++	p.scan_type = passive ? WIFI_SCAN_TYPE_PASSIVE : WIFI_SCAN_TYPE_ACTIVE;
++	int r = net_mgmt(NET_REQUEST_WIFI_SCAN, iface, &p, sizeof(p));
++	bool ok = r == 0;
++
++	if (!ok) {
++		LOG_WRN("scan request failed (%d)", r);
++	} else if (k_sem_take(&scan_done, K_MSEC(timeout_ms)) != 0) {
++		LOG_WRN("scan: no result within %u ms", timeout_ms);
++		ok = false;
++	}
++	/* stop the radio: the Wi-Fi library keeps the SoC out of light sleep while it runs */
++	(void)esp_wifi_stop();
++	{
++		k_spinlock_key_t key = k_spin_lock(&res_lock);
++		n = res_n;
++		res_buf = NULL;
++		stats.raw = (uint16_t)MIN(res_raw, 65535);
++		k_spin_unlock(&res_lock, key);
++	}
++	stats.ms = (uint32_t)(k_uptime_get() - t0);
++	stats.count = (uint16_t)n;
++	stats.ok = ok && scan_status == 0;
++	stats.passive = passive;
++	stats.scans++;
++	k_mutex_unlock(&scan_lock);
++	LOG_INF("wifi scan: %u AP(s) (%u results) in %u ms%s", (unsigned)n, stats.raw, stats.ms,
++		stats.ok ? "" : ", failed");
++	return n;
++}
+diff --git a/zephcore/src/lt_wifi_esp32.h b/zephcore/src/lt_wifi_esp32.h
+new file mode 100644
+index 0000000..ba0ec7f
+--- /dev/null
++++ b/zephcore/src/lt_wifi_esp32.h
+@@ -0,0 +1,31 @@
++/* LibreTag: Wi-Fi scan on ESP32 boards (lt_wifi_esp32.c). lt_wifi_scan() itself is declared in
++ * main_tracker.cpp (a weak default there finds nothing). */
++#pragma once
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#include "lt_core.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++struct lt_wifi_stats {
++	uint32_t ms;     /* the last scan, request to the radio stopped */
++	uint16_t count;  /* distinct BSSIDs it returned (at most the caller's buffer) */
++	uint16_t raw;    /* scan results reported, duplicates included */
++	uint32_t scans;  /* scans since boot */
++	bool ok;
++	bool passive;
++};
++
++size_t lt_wifi_scan(lt_wifi_ap_t *aps, size_t max, uint32_t timeout_ms);
++void lt_wifi_set_passive(bool on);
++bool lt_wifi_passive(void);
++const struct lt_wifi_stats *lt_wifi_last_stats(void);
++
++#ifdef __cplusplus
++}
++#endif
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 24666eb..fbffd0f 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -86,6 +86,13 @@ extern "C" {
+ #if IS_ENABLED(CONFIG_LIBRETAG_NOSTR)
+ #include "lt_nostr.h"
+ #endif
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI) && IS_ENABLED(CONFIG_WIFI_ESP32)
++#include "lt_wifi_esp32.h"
++#endif
++#if defined(CONFIG_PM) && defined(CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
++#include <helpers/pm_sleep_guard.h>
++#include "lt_pm_uart_esp32.h"
++#endif
+ }
+ 
+ #define NOSTR IS_ENABLED(CONFIG_LIBRETAG_NOSTR)
+@@ -1111,11 +1118,25 @@ static uint32_t next_interval_s(void)
+ }
+ 
+ /* Rough charge model (SPEC 8, X1 figures): enough to tell "a month" from "a week". */
++#if defined(CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
++/* ESP32-S3 + SX1262 without GNSS (datasheet figures, not measured on the board; LibreTag
++ * docs/design/fw-wifi-esp32.md): light sleep with the radio asleep, awake = the SoC light-sleeps
++ * between events while the receiver runs, Wi-Fi active scan (RX ~90 mA with probe bursts) */
++#define UA_SLEEP 500
++#define UA_AWAKE 6000
++#define UA_RX 6000
++#define UA_TX 125000
++#define UA_BLE 30000
++#define UA_WIFI 100000
++#else
+ #define UA_SLEEP 50
+ #define UA_AWAKE 18800 /* GNSS searching + MCU */
+ #define UA_RX 8550
+ #define UA_TX 110500
+ #define UA_BLE 6000
++#define UA_WIFI 0
++#endif
++static uint32_t en_wifi_ms; /* Wi-Fi scan time in this wake-up */
+ 
+ static void energy_add(uint32_t ua, int64_t ms)
+ {
+@@ -1146,9 +1167,10 @@ static void energy_wake_end(int64_t wake_start_ms, int64_t listen_ms)
+ 	energy_add(UA_TX, en_tx_ms);
+ 	energy_add(UA_BLE, en_ble_ms);
+ 	energy_add(UA_RX, en_disc_rx_ms); /* GPS already off: the receiver instead of the search */
+-	energy_add(UA_AWAKE, awake - listen_ms - en_tx_ms - en_disc_rx_ms);
++	energy_add(UA_WIFI, en_wifi_ms);
++	energy_add(UA_AWAKE, awake - listen_ms - en_tx_ms - en_disc_rx_ms - en_wifi_ms);
+ 	en_mark_ms = now;
+-	en_tx_ms = en_ble_ms = en_disc_rx_ms = 0;
++	en_tx_ms = en_ble_ms = en_disc_rx_ms = en_wifi_ms = 0;
+ 	/* on a charger (or full) the count starts again */
+ 	if (board.getBattMilliVolts() >= 4150) {
+ 		cfg.energy_uah = 0;
+@@ -1504,6 +1526,164 @@ extern "C" __weak size_t lt_wifi_scan(lt_wifi_ap_t *aps, size_t max, uint32_t ti
+ 	ARG_UNUSED(timeout_ms);
+ 	return 0;
+ }
++
++/* Wi-Fi zones (LibreTag docs/design/fw-wifi-esp32.md): a place is a fingerprint of the access
++ * points seen there, taken with `wzone snap`. At a wake-up without a fix the scan is matched against
++ * them (lt_wzone_match) and an inside counts as a home zone in lt_wake_decide. The file keeps keyed
++ * 32-bit hashes of the BSSIDs, not the BSSIDs; the salt never leaves the tracker. */
++#define WZ_FILE  STATE_DIR "/wzones"
++#define WZ_TMP   STATE_DIR "/wzones.tmp"
++#define WZ_MAGIC 0x4C545731u /* "LTW1" */
++#define WZONES_MAX 8
++#define WZ_NAME 16
++#define WZ_SCAN_MS 8000      /* a passive scan of 13 channels takes about 5 s */
++#define WZ_SNAP_DEFAULT 5
++#define WZ_SNAP_MAX 20
++struct wzfile {
++	uint32_t magic;
++	uint8_t count;
++	uint8_t enter, stay, min_match;
++	uint8_t passive;     /* scan without probe requests */
++	uint8_t pad[3];
++	uint8_t salt[16];
++	char name[WZONES_MAX][WZ_NAME];
++	lt_wfp_t fp[WZONES_MAX];
++	uint32_t crc;
++};
++static struct wzfile wz;
++static lt_wzone_cfg_t wz_cfg;
++/* this wake-up's scan */
++static lt_wifi_ap_t wake_aps[32];
++static size_t wake_na;
++static lt_wscan_ap_t wake_ws[LT_WFP_MAX];
++static size_t wake_nws;
++static bool wake_scanned;
++static int8_t wake_wzone = -1;
++static uint8_t wake_wscore;
++static int64_t wake_scan_ms;
++static lt_wfp_t still_ref;     /* parked by Wi-Fi: the first scan of the stretch */
++static uint8_t still_score;
++
++static uint32_t wz_crc(const struct wzfile *z)
++{
++	return crc32_ieee((const uint8_t *)z, offsetof(struct wzfile, crc));
++}
++
++static void wz_apply(void)
++{
++	wz_cfg.enter = wz.enter;
++	wz_cfg.stay = wz.stay;
++	wz_cfg.min_match = wz.min_match;
++#if IS_ENABLED(CONFIG_WIFI_ESP32)
++	lt_wifi_set_passive(wz.passive);
++#endif
++}
++
++static bool wz_save(void)
++{
++	struct fs_file_t f;
++
++	wz.magic = WZ_MAGIC;
++	wz.crc = wz_crc(&wz);
++	fs_file_t_init(&f);
++	if (fs_open(&f, WZ_TMP, FS_O_CREATE | FS_O_WRITE | FS_O_TRUNC) < 0) {
++		LOG_ERR("cannot write %s", WZ_TMP);
++		return false;
++	}
++	ssize_t w = fs_write(&f, &wz, sizeof(wz));
++	int c = fs_close(&f);
++
++	if (w != (ssize_t)sizeof(wz) || c != 0 || fs_rename(WZ_TMP, WZ_FILE) != 0) {
++		LOG_ERR("wzones write failed");
++		fs_unlink(WZ_TMP);
++		return false;
++	}
++	wz_apply();
++	return true;
++}
++
++static bool wz_read(const char *path)
++{
++	struct fs_file_t f;
++
++	fs_file_t_init(&f);
++	if (fs_open(&f, path, FS_O_READ) != 0) {
++		return false;
++	}
++	ssize_t r = fs_read(&f, &wz, sizeof(wz));
++
++	fs_close(&f);
++	return r == (ssize_t)sizeof(wz) && wz.magic == WZ_MAGIC && wz.crc == wz_crc(&wz) && wz.count <= WZONES_MAX;
++}
++
++static void wz_load(void)
++{
++	if (!wz_read(WZ_TMP) && !wz_read(WZ_FILE)) {
++		memset(&wz, 0, sizeof(wz));
++		lt_wzone_cfg_default(&wz_cfg);
++		wz.enter = wz_cfg.enter;
++		wz.stay = wz_cfg.stay;
++		wz.min_match = wz_cfg.min_match;
++		rng.random(wz.salt, sizeof(wz.salt));
++		wz_save();
++	}
++	wz_apply();
++}
++
++/* one scan, as the zones see it */
++static size_t wz_scan(lt_wifi_ap_t *aps, size_t max, lt_wscan_ap_t ws[LT_WFP_MAX], size_t *nws)
++{
++	size_t n = lt_wifi_scan(aps, max, WZ_SCAN_MS);
++
++	*nws = lt_wscan_from_aps(wz.salt, aps, n, ws);
++	return n;
++}
++
++static int8_t wake_prev_wzone(void)
++{
++	return wake_st.zone >= LT_WZONE_BASE ? (int8_t)(wake_st.zone - LT_WZONE_BASE) : -1;
++}
++
++/* At the start of a wake-up that looks: scan and match (the report reuses the scan). */
++static void wifi_wake_scan(void)
++{
++	int64_t t = k_uptime_get();
++
++	wake_na = wz_scan(wake_aps, ARRAY_SIZE(wake_aps), wake_ws, &wake_nws);
++	wake_scan_ms = k_uptime_get() - t;
++	en_wifi_ms += (uint32_t)wake_scan_ms;
++	wake_scanned = true;
++	wake_wzone = lt_wzone_match(&wz_cfg, wz.fp, wz.count, wake_ws, wake_nws, wake_prev_wzone(), &wake_wscore);
++	still_score = still_ref.n ? lt_wfp_score(&still_ref, wake_ws, wake_nws, NULL) : 0;
++	LOG_INF("wifi: %u AP(s), %u for zones, zone %d score %u, parked score %u", (unsigned)wake_na,
++		(unsigned)wake_nws, wake_wzone, wake_wscore, still_score);
++}
++
++/* inputs of lt_wake_decide from this wake-up's scan */
++static void wifi_wake_in(lt_wake_in_t *w)
++{
++	if (!wake_scanned || !wake_nws) {
++		return; /* no scan, or nothing usable: no place (fail-open, as without a fix) */
++	}
++	w->wifi_valid = true;
++	w->wifi_zone = wake_wzone;
++	w->wifi_still = still_ref.n && still_score >= wz_cfg.enter;
++}
++
++static void wifi_wake_after(bool decided_by_wifi)
++{
++	if (decided_by_wifi && wake_st.still_count == 1) {
++		/* a new parked stretch starts here: this scan is its reference */
++		lt_wfp_acc_t acc;
++
++		lt_wfp_acc_init(&acc);
++		lt_wfp_acc_add(&acc, wake_ws, wake_nws);
++		lt_wfp_finish(&acc, &still_ref);
++	} else if (!decided_by_wifi && !wake_st.still_count) {
++		memset(&still_ref, 0, sizeof(still_ref));
++	}
++}
++static void wz_print_status(void);
+ #endif
+ 
+ /* the plaintext fields every report and history record share */
+@@ -1629,12 +1809,16 @@ static void send_report(bool with_fix, const lt_wake_out_t *d)
+ 		ble_sum_valid = false;
+ 	}
+ #if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
+-	static lt_wifi_ap_t aps[24];
+ 	uint8_t wifi_pt[LT_REPORT_PT_LEN];
+ 	bool wifi_pkt = false;
+-	size_t na = r.has_fix ? 0 : lt_wifi_scan(aps, ARRAY_SIZE(aps), 3000);
++	if (!r.has_fix && !wake_scanned) {
++		/* a wake-up that did not scan at its start (a console report): scan now */
++		wifi_wake_scan();
++	}
++	size_t na = r.has_fix ? 0 : wake_na;
+ 
+-	if (na && lt_wifi_select(aps, na, n_cur, &r, wifi_pt, &wifi_pkt)) {
++	/* without any fix time the position bytes are free: a second full BSSID goes there */
++	if (na && lt_wifi_select_ex(wake_aps, na, n_cur, r.fix_time == 0, &r, wifi_pt, &wifi_pkt)) {
+ 		r.has_ble = false;
+ 	}
+ #endif
+@@ -1787,7 +1971,16 @@ static void wake_finish(bool with_fix)
+ 	w.owner_seen = owner_seen;
+ 	w.zones = cfg.zones;
+ 	w.zone_count = cfg.zone_count;
++	w.wifi_zone = -1;
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
++	if (!w.has_fix) {
++		wifi_wake_in(&w);
++	}
++#endif
+ 	lt_wake_decide(&wake_cfg, &w, &wake_st, &d);
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
++	wifi_wake_after(!w.has_fix && w.wifi_valid);
++#endif
+ 	wake_forced = false;
+ 	low_forced = false;
+ 	if (d.action != LT_WAKE_SILENT) {
+@@ -1848,6 +2041,11 @@ static void start_report(void)
+ 	check_cmd = false;
+ 	wake_disc = false;
+ 	lost_disc_wait = false;
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
++	wake_scanned = false;
++	wake_na = 0;
++	wake_nws = 0;
++#endif
+ 	/* 0.7.6: above the daily flood cap a keyed wake-up that would report only listens (a command
+ 	 * there is still answered); the heartbeat still reports */
+ 	listen_only = sched_keyed() && !wake_forced && !low_forced && chk_k && !chk_hb &&
+@@ -1895,6 +2093,11 @@ static void start_report(void)
+ 			ble_scan_begin(BLE_PRESENCE, cfg.anchor_active, 30);
+ 		}
+ 	}
++#endif
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
++	/* Wi-Fi first: a few seconds, and without a fix it is what places the tag (zones, parked,
++	 * the report's Wi-Fi layout) */
++	wifi_wake_scan();
+ #endif
+ 	if (gps_is_available() && gps_is_enabled()) {
+ 		phase = PH_WAIT_FIX;
+@@ -3566,6 +3769,9 @@ static void print_status(void)
+ 	out("network %s: country %s, region %s\r\n", cfg.region_manual ? "manual" : "auto (GPS)",
+ 	    country_iso(cfg.country), cfg.scope[0] ? cfg.scope : "none");
+ 	print_quiet();
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
++	wz_print_status();
++#endif
+ 	out("energy used since full: %u mAh (estimate)\r\n", (unsigned)(cfg.energy_uah / 1000));
+ 	/* 0.7.6 (one line, keys new to every parser): floods in the rolling 24 h and the cap, the
+ 	 * low-battery alert of this crossing, resets in a row and the first-report delay they gave,
+@@ -3946,6 +4152,195 @@ static void cli_dfu(const char *how)
+ #endif
+ }
+ 
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
++static void wz_print_ap(int scan, const lt_wifi_ap_t *a)
++{
++	char ss[33];
++	size_t i;
++
++	for (i = 0; i < sizeof(ss) - 1 && a->ssid[i]; i++) {
++		ss[i] = a->ssid[i] >= 0x20 && a->ssid[i] < 0x7f && a->ssid[i] != ' ' ? a->ssid[i] : '_';
++	}
++	ss[i] = 0;
++	out("AP %d %02x:%02x:%02x:%02x:%02x:%02x %d %s%s\r\n", scan, a->bssid[0], a->bssid[1], a->bssid[2],
++	    a->bssid[3], a->bssid[4], a->bssid[5], a->rssi, lt_wifi_zone_usable(a->bssid) ? "" : "laa ", ss[0] ? ss : "-");
++}
++
++static void wz_print_scores(int scan, const lt_wscan_ap_t *ws, size_t nws)
++{
++	for (uint8_t i = 0; i < wz.count; i++) {
++		uint8_t m;
++		uint8_t sc = lt_wfp_score(&wz.fp[i], ws, nws, &m);
++
++		out("SCORE %d %u %s %u matched %u of %u\r\n", scan, i, wz.name[i], sc, m, wz.fp[i].n);
++	}
++}
++
++static void wz_print_status(void)
++{
++	out("wifi zones=%u enter=%u stay=%u min_match=%u scan=%s", wz.count, wz.enter, wz.stay, wz.min_match,
++	    wz.passive ? "passive" : "active");
++	if (wake_scanned) {
++		out(" last: %u AP (%u for zones) in %u ms, zone %d score %u, parked score %u", (unsigned)wake_na,
++		    (unsigned)wake_nws, (unsigned)wake_scan_ms, wake_wzone, wake_wscore, still_score);
++	}
++	out("\r\n");
++}
++
++static void wz_print_zone(uint8_t i, bool entries)
++{
++	const lt_wfp_t *f = &wz.fp[i];
++
++	out("WZONE %u %s %u AP from %u scan(s)\r\n", i, wz.name[i], f->n, f->scans);
++	for (uint8_t k = 0; entries && k < f->n; k++) {
++		out("  %08x %d dBm seen %u/%u spread %u\r\n", (unsigned)f->ap[k].h, f->ap[k].rssi, f->ap[k].seen, f->scans,
++		    f->ap[k].spread);
++	}
++}
++
++/* wifiscan [count] [gap_s] | wifi passive|active | wzone snap <name> [scans] | list | show <i> | del <i> |
++ * clear | test [scans] | thr <enter> <stay> [min_match] */
++static bool cli_wifi(int argc, char **argv)
++{
++	const char *c = argv[0];
++	static lt_wifi_ap_t aps[32];
++	lt_wscan_ap_t ws[LT_WFP_MAX];
++	size_t nws;
++
++	if (!strcmp(c, "wifiscan")) {
++		int cnt = argc >= 2 ? atoi(argv[1]) : 1;
++		int gap = argc >= 3 ? atoi(argv[2]) : 0;
++
++		cnt = CLAMP(cnt, 1, 100);
++		gap = CLAMP(gap, 0, 600);
++		for (int k = 0; k < cnt; k++) {
++			int64_t t = k_uptime_get();
++			size_t n = wz_scan(aps, ARRAY_SIZE(aps), ws, &nws);
++
++			out("SCAN %d %u ms %u AP %u for zones%s\r\n", k, (unsigned)(k_uptime_get() - t), (unsigned)n,
++			    (unsigned)nws, wz.passive ? " passive" : "");
++			for (size_t i = 0; i < n; i++) {
++				wz_print_ap(k, &aps[i]);
++			}
++			wz_print_scores(k, ws, nws);
++			if (gap && k + 1 < cnt) {
++				k_msleep(gap * 1000);
++			}
++		}
++		out("END\r\n");
++		return true;
++	}
++	if (!strcmp(c, "wifi") && argc == 2 && (!strcmp(argv[1], "passive") || !strcmp(argv[1], "active"))) {
++		wz.passive = !strcmp(argv[1], "passive");
++		wz_save();
++		out("OK scan %s\r\n", argv[1]);
++		return true;
++	}
++	if (strcmp(c, "wzone")) {
++		return false;
++	}
++	const char *sub = argc >= 2 ? argv[1] : "list";
++
++	if (!strcmp(sub, "snap") && argc >= 3) {
++		int scans = argc >= 4 ? atoi(argv[3]) : WZ_SNAP_DEFAULT;
++		size_t nl = strlen(argv[2]);
++		int slot = -1;
++
++		for (uint8_t i = 0; i < wz.count; i++) {
++			if (!strcmp(wz.name[i], argv[2])) {
++				slot = i; /* the same name again: replace it */
++			}
++		}
++		if (nl == 0 || nl >= WZ_NAME || scans < 1 || scans > WZ_SNAP_MAX || (slot < 0 && wz.count >= WZONES_MAX)) {
++			out("ERR wzone snap <name, 1..%u chars> [scans 1..%u], at most %u zones\r\n", WZ_NAME - 1, WZ_SNAP_MAX,
++			    WZONES_MAX);
++			return true;
++		}
++		static lt_wfp_acc_t acc;
++
++		lt_wfp_acc_init(&acc);
++		for (int k = 0; k < scans; k++) {
++			size_t n = wz_scan(aps, ARRAY_SIZE(aps), ws, &nws);
++
++			lt_wfp_acc_add(&acc, ws, nws);
++			out("SNAP %d %u AP %u for zones\r\n", k, (unsigned)n, (unsigned)nws);
++		}
++		lt_wfp_t f;
++		lt_wfp_finish(&acc, &f);
++		if (!f.n) {
++			out("ERR no access point seen in at least half of the scans\r\n");
++			return true;
++		}
++		if (slot < 0) {
++			slot = wz.count++;
++		}
++		wz.fp[slot] = f;
++		memset(wz.name[slot], 0, WZ_NAME);
++		memcpy(wz.name[slot], argv[2], nl);
++		if (wake_prev_wzone() == slot) {
++			wake_st.zone = -1; /* the fingerprint changed: enter it afresh */
++		}
++		wz_save();
++		wz_print_zone((uint8_t)slot, true);
++		out("OK wzone %d\r\n", slot);
++	} else if (!strcmp(sub, "list")) {
++		for (uint8_t i = 0; i < wz.count; i++) {
++			wz_print_zone(i, false);
++		}
++		out("END %u\r\n", wz.count);
++	} else if (!strcmp(sub, "show") && argc == 3 && atoi(argv[2]) >= 0 && atoi(argv[2]) < wz.count) {
++		wz_print_zone((uint8_t)atoi(argv[2]), true);
++	} else if (!strcmp(sub, "del") && argc == 3 && atoi(argv[2]) >= 0 && atoi(argv[2]) < wz.count) {
++		int i = atoi(argv[2]);
++
++		memmove(&wz.fp[i], &wz.fp[i + 1], (wz.count - i - 1) * sizeof(wz.fp[0]));
++		memmove(&wz.name[i], &wz.name[i + 1], (wz.count - i - 1) * sizeof(wz.name[0]));
++		wz.count--;
++		lt_wake_state_init(&wake_st); /* zone indexes moved */
++		wz_save();
++		out("OK\r\n");
++	} else if (!strcmp(sub, "clear")) {
++		wz.count = 0;
++		memset(wz.fp, 0, sizeof(wz.fp));
++		memset(wz.name, 0, sizeof(wz.name));
++		lt_wake_state_init(&wake_st);
++		wz_save();
++		out("OK\r\n");
++	} else if (!strcmp(sub, "test")) {
++		int scans = argc >= 3 ? CLAMP(atoi(argv[2]), 1, 20) : 1;
++		int8_t prev = wake_prev_wzone();
++
++		for (int k = 0; k < scans; k++) {
++			uint8_t sc;
++			size_t n = wz_scan(aps, ARRAY_SIZE(aps), ws, &nws);
++			int8_t z = lt_wzone_match(&wz_cfg, wz.fp, wz.count, ws, nws, prev, &sc);
++
++			out("TEST %d %u AP %u for zones: zone %d score %u (was %d)\r\n", k, (unsigned)n, (unsigned)nws, z, sc,
++			    prev);
++			wz_print_scores(k, ws, nws);
++			prev = z;
++		}
++		out("END\r\n");
++	} else if (!strcmp(sub, "thr") && argc >= 4) {
++		int e = atoi(argv[2]), s = atoi(argv[3]), m = argc >= 5 ? atoi(argv[4]) : wz.min_match;
++
++		if (e < 1 || e > 100 || s < 1 || s > e || m < 1 || m > LT_WFP_MAX) {
++			out("ERR wzone thr <enter 1..100> <stay 1..enter> [min_match 1..%u]\r\n", LT_WFP_MAX);
++			return true;
++		}
++		wz.enter = (uint8_t)e;
++		wz.stay = (uint8_t)s;
++		wz.min_match = (uint8_t)m;
++		wz_save();
++		out("OK enter %d stay %d min_match %d\r\n", e, s, m);
++	} else {
++		out("ERR wzone snap <name> [scans] | list | show <i> | del <i> | clear | test [scans] | "
++		    "thr <enter> <stay> [min_match]\r\n");
++	}
++	return true;
++}
++#endif
++
+ static void cli_exec(char *l)
+ {
+ 	char *argv[10];
+@@ -3970,6 +4365,24 @@ static void cli_exec(char *l)
+ 	if (cli_quiet(argc, argv)) {
+ 		return;
+ 	}
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
++	if (cli_wifi(argc, argv)) {
++		return;
++	}
++#endif
++#if defined(CONFIG_PM) && defined(CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
++	if (!strcmp(c, "sleep")) {
++		/* light sleep between wake-ups (ESP32): `sleep off` keeps the console reachable */
++		if (argc == 2 && (!strcmp(argv[1], "on") || !strcmp(argv[1], "off"))) {
++			zc_pm_set_powersaving(!strcmp(argv[1], "on"));
++		}
++		char b[160];
++
++		zc_pm_format_stats(b, sizeof(b));
++		out("SLEEP %s uart%u\r\n", b + 2, (unsigned)lt_pm_uart_wakes());
++		return;
++	}
++#endif
+ 
+ 	if (!strcmp(c, "help")) {
+ 		/* one line per out(): its buffer is 200 bytes */
+@@ -3987,6 +4400,13 @@ static void cli_exec(char *l)
+ 		out("anchor add addr|name|mfg|svc|irk <value> | anchor list|del <i>|clear|gps on|off|scan active|passive\r\n");
+ #if NOSTR
+ 		out("nostr | owner <npub|hex|off> | dmalert on|off | buzz [s]\r\n");
++#endif
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
++		out("wifiscan [count] [gap_s] | wifi passive|active\r\n");
++		out("wzone snap <name> [scans]|list|show <i>|del <i>|clear|test [scans]|thr <enter> <stay> [min_match]\r\n");
++#endif
++#if defined(CONFIG_PM) && defined(CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
++		out("sleep [on|off]: light sleep between wake-ups (off keeps the console awake)\r\n");
+ #endif
+ 	} else if (!strcmp(c, "version")) {
+ 		out("LibreTag tracker %s on ZephCore %s, board %s\r\n", LT_FW_VERSION, LT_ZEPHCORE_BASE, CONFIG_BOARD);
+@@ -4183,7 +4603,7 @@ static void cli_exec(char *l)
+ 			}
+ 			bool silent = h->j == LT_J_HIST_SILENT;
+ 
+-			out("L %u %u %u %u %u %u %u %u %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s\r\n", (unsigned)h->seq, (unsigned)h->n,
++			out("L %u %u %u %u %u %u %u %u %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s\r\n", (unsigned)h->seq, (unsigned)h->n,
+ 			    h->j ? h->j : LT_J_HIST, (unsigned)h->uptime_s, h->search_s, h->batt, h->mode, h->nb_total,
+ 			    h->flags & HF_FIX ? "fix " : "nofix ",
+ 			    silent ? "silent " : h->flags & HF_RELAYED ? "relayed " : "not-relayed ",
+@@ -4193,7 +4613,7 @@ static void cli_exec(char *l)
+ 			    h->flags2 & HF2_QUIET ? "quiet " : "", h->flags2 & HF2_OWNER ? "owner " : "",
+ 			    h->flags2 & HF2_ZONE ? "zone " : "", h->flags2 & HF2_EPOCH_SKIP ? "epoch-skip " : "",
+ 			    h->flags2 & HF2_PARKED ? "parked " : "", h->flags2 & HF2_CHECK ? "check " : "",
+-			    h->flags2 & HF2_BLE ? "ble" : "");
++			    h->flags2 & HF2_WIFI ? "wifi " : "", h->flags2 & HF2_BLE ? "ble" : "");
+ 		});
+ 		out("END\r\n");
+ 	} else if (!strcmp(c, "history")) {
+@@ -4393,6 +4813,9 @@ static void cli_exec(char *l)
+ 
+ static void cli_poll(void)
+ {
++#if defined(CONFIG_PM) && defined(CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
++	lt_pm_console_touch(); /* someone is typing: stay awake for the rest of the line and the next one */
++#endif
+ 	while (cli.available() > 0) {
+ 		int ch = cli.read();
+ 
+@@ -4469,6 +4892,9 @@ int main(void)
+ 	initNodePrefs(&prefs);
+ 	load_cfg();
+ 	hist_init();
++#if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
++	wz_load();
++#endif
+ 	apply_radio_cfg();
+ 	lt_channel_key("#libretag", chan_key);
+ #if NOSTR

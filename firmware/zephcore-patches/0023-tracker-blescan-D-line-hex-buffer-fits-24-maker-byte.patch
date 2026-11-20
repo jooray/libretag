@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 23:29:20 +0100
+Subject: [PATCH 23/40] tracker: blescan D line hex buffer fits 24 maker bytes
+ (was 16+1: a long maker payload overran it into the sort index and printed
+ empty table slots as 00:00:00:00:00:00 rows)
+
+---
+ zephcore/src/main_tracker.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index c6bf0b3..cc2e155 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -2449,7 +2449,7 @@ static void ble_cat(char *b, size_t sz, size_t *l, const char *fmt, ...)
+ 
+ static void ble_print_dev(const struct ble_seen *e)
+ {
+-	char b[360], h[2 * 16 + 1];
++	char b[360], h[2 * BLE_MFG_MAX + 1]; /* mfg: up to 24 bytes (was 16: a long maker payload overran h into the sort index, rows of empty slots) */
+ 	size_t l = 0;
+ 	const uint8_t *v = e->addr.a.val;
+ 

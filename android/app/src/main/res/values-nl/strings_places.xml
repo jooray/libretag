@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <!-- Places list -->
+    <string name="places_title">Plekken</string>
+    <string name="places_lead">Hier blijft %1$s stil.</string>
+    <string name="places_empty">Nog geen plekken. Voeg de plek toe waar %1$s meestal ligt, dan blijft hij daar stil.</string>
+    <string name="place_add">Een plek toevoegen</string>
+    <string name="place_add_here">Plek toevoegen waar %1$s nu is</string>
+    <string name="place_add_map">Op de kaart</string>
+    <string name="place_add_wifi">Waar de tracker nu is, via wifi</string>
+    <string name="place_add_btn">Plek toevoegen</string>
+    <string name="place_needs_cable">Verbind de tracker terwijl hij op de plek is: met de kabel, of start hem opnieuw op en verbind via Bluetooth.</string>
+    <string name="place_on_tag">Op de tracker</string>
+    <string name="place_waits_cable">Wacht op de tracker</string>
+    <string name="place_waits_cable_sub">Tot je %1$s aansluit, blijft hij vanaf hier melden.</string>
+    <string name="place_writing">Schrijven…</string>
+    <string name="place_writing_to">Schrijven naar %1$s…</string>
+    <string name="place_saved_on">Opgeslagen op %1$s.</string>
+    <string name="place_not_written">Niet geschreven</string>
+    <string name="place_app_only">Alleen app</string>
+    <string name="place_app_only_sub">Deze firmware kan geen plekken opslaan, dus %1$s blijft vanaf hier melden.</string>
+    <string name="place_name">Naam</string>
+    <string name="place_name_empty">Geef de plek een naam.</string>
+    <string name="place_name_taken">Een andere plek heeft deze naam al.</string>
+    <string name="place_size">Grootte</string>
+    <string name="place_move_hint">Tik op de kaart om de plek te verplaatsen. Sleep de blauwe greep om de grootte te wijzigen.</string>
+    <string name="place_tap_hint">Tik op de kaart waar %1$s meestal ligt.</string>
+    <string name="place_move">Op de kaart verplaatsen</string>
+    <string name="place_tell_leave">Meld het als hij weggaat</string>
+    <string name="place_tell_arrive">Meld het als hij aankomt</string>
+    <string name="place_not_with_you">Niet als hij met jou meegaat.</string>
+    <string name="place_delete">Plek verwijderen</string>
+    <string name="place_delete_cable">Verbind de tracker om te verwijderen.</string>
+    <!-- Wi-Fi snap sheet -->
+    <string name="snap_start">Start</string>
+    <string name="snap_step_listen">Wifi-netwerken beluisteren · %1$d van %2$d</string>
+    <string name="snap_step_listen_short">Wifi-netwerken beluisteren</string>
+    <string name="snap_step_save">Opslaan op de tracker</string>
+    <string name="snap_step_check">Controleren of de tracker de plek herkent</string>
+    <string name="snap_wait">Ongeveer %1$d s. Laat de tracker waar hij is.</string>
+    <string name="snap_ok">%1$s opgeslagen. De tracker herkent deze plek.</string>
+    <string name="snap_weak">Opgeslagen, maar de overeenkomst is zwak. De tracker blijft hier misschien niet stil.</string>
+    <string name="snap_unchecked">%1$s opgeslagen. De controle is niet afgerond, tik later op Hier controleren.</string>
+    <string name="snap_none">Geen wifi-netwerk binnen bereik, er is niets opgeslagen.</string>
+    <string name="snap_no_answer">De tracker antwoordde niet. Controleer de verbinding.</string>
+    <string name="snap_keep">Behouden</string>
+    <string name="place_check_here">Hier controleren</string>
+    <string name="place_check_ok">Herkend</string>
+    <string name="place_check_weak">Zwak</string>
+    <string name="place_check_no">Niet herkend</string>
+    <!-- Add tag wizard, four steps -->
+    <string name="wz2_s2">Naam</string>
+    <string name="wz2_s3">Waar hij ligt</string>
+    <string name="wz2_rest_lead">Voeg de plek toe waar %1$s blijft. Daar is hij stil.</string>
+    <string name="wz2_skip">Overslaan</string>
+    <string name="wz2_mark_row">Markering: %1$s</string>
+    <string name="wz2_change">Wijzigen</string>
+    <string name="wz2_done_reports">Meldt elk uur als hij weg is.</string>
+    <string name="wz2_done_quiet">Bij %1$s blijft hij stil.</string>
+    <string name="wz2_done_tell">Je hoort het als hij niet te horen is of de batterij bijna leeg is.</string>
+    <string name="wz2_devices_title">Stil zolang je erbij bent</string>
+    <string name="wz2_devices_text">Kies de telefoon, het horloge of andere apparaten die je bij je hebt. Zolang er een in de buurt is, blijft %1$s stil.</string>
+    <string name="wz2_devices_go">Apparaten kiezen</string>
+    <string name="wz2_pair_failed">Het koppelen is niet afgerond. Laat de kabel erin en probeer het opnieuw.</string>
+    <string name="wz2_partial_text">Open de trackerinstellingen met de tracker verbonden om ze opnieuw te schrijven.</string>
+    <!-- Known devices -->
+    <string name="kd_lead_short">%1$s blijft stil zolang een van deze in de buurt is.</string>
+</resources>

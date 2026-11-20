@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 0.10.0: the tag's console over Bluetooth after a restart (firmware 0.8.0, PROTOCOL.md 6.2) -->
+<resources>
+    <string name="blecon_connect">Verbinden via Bluetooth</string>
+    <string name="blecon_sheet_title">Verbinden via Bluetooth</string>
+    <string name="blecon_restart">Start %1$s opnieuw op: druk één keer op de resetknop. Hij luistert dan 3 minuten via Bluetooth.</string>
+    <string name="blecon_once">Druk één keer. Twee keer drukken zet de tracker in updatemodus.</string>
+    <string name="blecon_looking">Zoeken naar %1$s…</string>
+    <string name="blecon_found">Gevonden. Verbinden…</string>
+    <string name="blecon_not_seen">%1$s niet gezien. Start hem opnieuw op en houd de telefoon dichtbij.</string>
+    <string name="blecon_listening">%1$s luistert via Bluetooth. Nog %2$d s.</string>
+    <string name="blecon_connect_short">Verbinden</string>
+    <string name="blecon_needs_fw">Bluetooth vraagt firmware %1$s. De app zag op deze tracker voor het laatst %2$s. Heeft de tracker nieuwere firmware, dan verbindt hij toch.</string>
+    <string name="blecon_connected">Verbonden via Bluetooth</string>
+    <string name="blecon_disconnect">Verbinding verbreken</string>
+    <string name="blecon_lost">Bluetooth-verbinding verbroken. Start de tracker opnieuw op om weer te verbinden, of gebruik de kabel.</string>
+    <string name="blecon_tag_closed">De tracker heeft de sessie gesloten. Start hem opnieuw op om door te gaan.</string>
+    <string name="blecon_reconnecting">Verbinding verbroken. Opnieuw verbinden…</string>
+    <string name="blecon_reconnected">Opnieuw verbonden</string>
+    <string name="blecon_failed">Verbinden via Bluetooth mislukt: %1$s</string>
+    <string name="blecon_permission">Bluetooth heeft de toestemming Apparaten in de buurt nodig.</string>
+    <string name="blecon_bt_off">Bluetooth staat uit. Zet het aan om te verbinden.</string>
+    <string name="blecon_fw_cable">Firmware-updates vragen de kabel.</string>
+    <string name="blecon_needs_cable">Vraagt de kabel.</string>
+    <!-- 0.11.2: open the tag's Bluetooth without a restart (BLE_CONSOLE command, firmware 0.9.2) -->
+    <string name="cmd_ble_console">Bluetooth openen</string>
+    <string name="blecon_remote">Bluetooth op afstand openen</string>
+    <string name="blecon_remote_at">%1$s opent Bluetooth rond %2$s.</string>
+    <string name="blecon_remote_next">%1$s opent Bluetooth bij de volgende controle.</string>
+    <string name="blecon_remote_via_ble">Deze telefoon geeft het verzoek via Bluetooth door aan de tracker, houd hem dus dichtbij.</string>
+    <string name="blecon_remote_via_node">Je MeshCore-node stuurt het verzoek alleen naar radio\'s binnen bereik. Repeaters geven het niet door.</string>
+    <string name="blecon_remote_via_nostr">Nostr-bridges leveren het verzoek af.</string>
+    <string name="blecon_remote_wait">Laat dit scherm open. Zodra de tracker luistert, verschijnt er een knop Verbinden.</string>
+    <string name="blecon_remote_replace_title">Wachtend commando vervangen?</string>
+    <string name="blecon_remote_replace">%1$s heeft de tracker nog niet bereikt. Bluetooth openen vervangt het.</string>
+    <string name="blecon_remote_replace_ok">Vervangen</string>
+    <!-- the tag's console in Service (long press on the firmware row) -->
+    <string name="blecon_console">Console</string>
+    <string name="blecon_console_hint">Commando</string>
+    <string name="blecon_console_send">Verstuur</string>
+</resources>

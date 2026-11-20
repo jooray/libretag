@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 0.10.0: the tag's console over Bluetooth after a restart (firmware 0.8.0, PROTOCOL.md 6.2) -->
+<resources>
+    <string name="blecon_connect">Conectar por Bluetooth</string>
+    <string name="blecon_sheet_title">Conectar por Bluetooth</string>
+    <string name="blecon_restart">Reinicia %1$s: pulsa una vez su botón de reinicio. Escucha por Bluetooth durante 3 minutos.</string>
+    <string name="blecon_once">Pulsa una sola vez. Una doble pulsación pone el localizador en modo de actualización.</string>
+    <string name="blecon_looking">Buscando %1$s…</string>
+    <string name="blecon_found">Encontrado. Conectando…</string>
+    <string name="blecon_not_seen">No se ha visto %1$s. Reinícialo y mantén el teléfono cerca.</string>
+    <string name="blecon_listening">%1$s está escuchando por Bluetooth. Quedan %2$d s.</string>
+    <string name="blecon_connect_short">Conectar</string>
+    <string name="blecon_needs_fw">Bluetooth necesita el firmware %1$s. La app vio %2$s por última vez en este localizador. Si el localizador tiene un firmware más reciente, se conecta igualmente.</string>
+    <string name="blecon_connected">Conectado por Bluetooth</string>
+    <string name="blecon_disconnect">Desconectar</string>
+    <string name="blecon_lost">Se perdió la conexión Bluetooth. Reinicia el localizador para conectar de nuevo, o usa el cable.</string>
+    <string name="blecon_tag_closed">El localizador cerró la sesión. Reinícialo para continuar.</string>
+    <string name="blecon_reconnecting">Conexión perdida. Reconectando…</string>
+    <string name="blecon_reconnected">Reconectado</string>
+    <string name="blecon_failed">No se pudo conectar por Bluetooth: %1$s</string>
+    <string name="blecon_permission">Bluetooth necesita el permiso Dispositivos cercanos.</string>
+    <string name="blecon_bt_off">Bluetooth está desactivado. Actívalo para conectar.</string>
+    <string name="blecon_fw_cable">Las actualizaciones de firmware necesitan el cable.</string>
+    <string name="blecon_needs_cable">Necesita el cable.</string>
+    <!-- 0.11.2: open the tag's Bluetooth without a restart (BLE_CONSOLE command, firmware 0.9.2) -->
+    <string name="cmd_ble_console">Abrir Bluetooth</string>
+    <string name="blecon_remote">Abrir Bluetooth a distancia</string>
+    <string name="blecon_remote_at">%1$s abre Bluetooth alrededor de %2$s.</string>
+    <string name="blecon_remote_next">%1$s abre Bluetooth en su próxima comprobación.</string>
+    <string name="blecon_remote_via_ble">Este teléfono pasa la petición al localizador por Bluetooth, así que mantenlo cerca.</string>
+    <string name="blecon_remote_via_node">Tu nodo MeshCore envía la petición solo a radios al alcance. Los repetidores no la reenvían.</string>
+    <string name="blecon_remote_via_nostr">Los puentes Nostr entregan la petición.</string>
+    <string name="blecon_remote_wait">Deja esta pantalla abierta. Cuando el localizador escuche, aparecerá un botón Conectar.</string>
+    <string name="blecon_remote_replace_title">¿Reemplazar el comando en espera?</string>
+    <string name="blecon_remote_replace">%1$s aún no ha llegado al localizador. Abrir Bluetooth lo reemplaza.</string>
+    <string name="blecon_remote_replace_ok">Reemplazar</string>
+    <!-- the tag's console in Service (long press on the firmware row) -->
+    <string name="blecon_console">Consola</string>
+    <string name="blecon_console_hint">Comando</string>
+    <string name="blecon_console_send">Enviar</string>
+</resources>

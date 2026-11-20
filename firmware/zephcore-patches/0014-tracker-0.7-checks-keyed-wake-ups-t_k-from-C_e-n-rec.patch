@@ -1,0 +1,717 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Mon, 16 Nov 2026 20:44:43 +0100
+Subject: [PATCH 14/40] tracker 0.7: checks (keyed wake-ups t_k from C_e(n),
+ receiver window alongside GPS and BLE, commands at check k, report n+1 right
+ after), parked quiet (STILL), CHECKS flag, SET_IDLE check_s, console
+ check/still/heartbeat, quiet shows the next check, state v7 migration; still
+ interval doubling removed
+
+---
+ zephcore/src/main_tracker.cpp | 371 +++++++++++++++++++++++++++++-----
+ 1 file changed, 323 insertions(+), 48 deletions(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 1773172..5f877a1 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -107,9 +107,10 @@ extern "C" void bt_ctlr_assert_handle(char *file, uint32_t line)
+ #define EV_OWNER       BIT(MESH_EVENT_ROLE_BASE + 7) /* an anchor was seen during a presence scan */
+ #define EV_USB_LINE    BIT(MESH_EVENT_ROLE_BASE + 8) /* DTR dropped: the serial port closed */
+ #define EV_PAIR        BIT(MESH_EVENT_ROLE_BASE + 9) /* blepair: something happened */
++#define EV_CHECK_END   BIT(MESH_EVENT_ROLE_BASE + 10) /* 0.7: the receiver window of a check is over */
+ #define EV_ALL (MESH_EVENT_LORA_RX | MESH_EVENT_LORA_TX_DONE | MESH_EVENT_CLI_RX | \
+ 		MESH_EVENT_GPS_ACTION | EV_REPORT_DUE | EV_FIX_TIMEOUT | EV_LISTEN_END | EV_TX_RETRY | \
+-		EV_SCAN_END | EV_RETX | EV_BLE | EV_OWNER | EV_USB_LINE | EV_PAIR)
++		EV_SCAN_END | EV_RETX | EV_BLE | EV_OWNER | EV_USB_LINE | EV_PAIR | EV_CHECK_END)
+ 
+ static struct k_event events;
+ 
+@@ -125,6 +126,7 @@ TIMER(scan_timer, EV_SCAN_END);
+ TIMER(retx_timer, EV_RETX);
+ TIMER(ble_tmr, EV_BLE); /* blescan / blesurvey / presence / BLE_SCAN, apart from the mesh scans */
+ TIMER(pair_tmr, EV_PAIR); /* blepair window */
++TIMER(check_tmr, EV_CHECK_END); /* 0.7: end of a check's receiver window */
+ 
+ static void post_lora_rx(void *) { k_event_post(&events, MESH_EVENT_LORA_RX); }
+ static void post_lora_tx_done(void *) { k_event_post(&events, MESH_EVENT_LORA_TX_DONE); }
+@@ -151,7 +153,8 @@ static NodePrefs prefs;
+ #define STATE_MAGIC_V3 0x4C544733u /* "LTG3": v2 + network (path hash size, region) */
+ #define STATE_MAGIC_V4 0x4C544734u /* "LTG4": v3 + last fix, mode, last command */
+ #define STATE_MAGIC_V5 0x4C544735u /* "LTG5": v4 + reports slow down while still */
+-#define STATE_MAGIC 0x4C544736u    /* "LTG6": v5 + zones, BLE anchors, LOST BLE, energy */
++#define STATE_MAGIC_V6 0x4C544736u /* "LTG6": v5 + zones, BLE anchors, LOST BLE, energy */
++#define STATE_MAGIC 0x4C544737u    /* "LTG7": v6 + checks, parked quiet, heartbeats (0.7) */
+ #define N_CHECKPOINT 16
+ 
+ #define ZONES_MAX 8
+@@ -200,7 +203,7 @@ struct persisted {
+ 	uint16_t mode_left_min;   /* minutes of TRACK/LOST left when saved */
+ 	uint16_t track_interval_s;
+ 	/* v5 */
+-	uint16_t still_max_min;   /* 0 off; else IDLE interval doubles while fixes do not move, up to this */
++	uint16_t unused_still_max_min; /* 0.5/0.6 interval doubling while still; ignored since 0.7 */
+ 	/* v6: quiet (PROTOCOL.md 2.1) */
+ 	lt_zone_t zones[ZONES_MAX];
+ 	uint8_t zone_count;
+@@ -212,13 +215,21 @@ struct persisted {
+ 	uint8_t lost_ble_packets;
+ 	uint8_t pad6[2];
+ 	uint32_t energy_uah;      /* estimated charge used since the last full charge */
++	/* v7: checks and parked quiet (PROTOCOL.md 2.1, 0.7) */
++	uint8_t check_s;          /* listening at a check, 0..60 s; 0 = no listening */
++	uint8_t still_after;      /* parked: wake-ups in a row at the same place, 0 = off */
++	uint8_t still_hb_h;       /* parked: one report every this many hours */
++	uint8_t zone_hb_h;        /* home zone heartbeat, hours */
++	uint8_t owner_hb_h;       /* owner nearby: cap, hours (at most 8) */
++	uint8_t pad7[3];
+ };
+ 
+ #define V1_SIZE offsetof(struct persisted, nostr_sk)
+ #define V2_SIZE offsetof(struct persisted, path_hash_size)
+ #define V3_SIZE offsetof(struct persisted, last_fix_time)
+-#define V4_SIZE offsetof(struct persisted, still_max_min)
++#define V4_SIZE offsetof(struct persisted, unused_still_max_min)
+ #define V5_SIZE offsetof(struct persisted, zones)
++#define V6_SIZE offsetof(struct persisted, check_s)
+ #define BORDER_M 3000U /* within this of a border, the neighbour's network is a candidate */
+ /* Second copy on the neighbour's network only when the home network was silent in this many
+  * listen windows in a row: if home repeaters are audible (often true just across a border), they
+@@ -231,7 +242,7 @@ static uint8_t scope_key[16]; /* of cfg.scope */
+ static lt_net_t alt_net;      /* the neighbour's network near a border */
+ static uint8_t alt_scope_key[16];
+ 
+-enum phase { PH_SLEEP, PH_WAIT_FIX, PH_TX, PH_LISTEN, PH_BLESCAN };
++enum phase { PH_SLEEP, PH_WAIT_FIX, PH_TX, PH_LISTEN, PH_BLESCAN, PH_CHECK };
+ static enum phase phase = PH_SLEEP;
+ 
+ static uint32_t n_cur;            /* next report counter */
+@@ -270,8 +281,28 @@ static int8_t ble_sum_rssi;
+ static int64_t en_mark_ms;        /* last time the estimate was brought up to date */
+ static uint32_t en_tx_ms, en_ble_ms;
+ static int64_t tx_start_ms;
+-static uint16_t still_factor = 1; /* IDLE interval multiplier while the tracker does not move */
+-#define STILL_RADIUS_M 50.0
++/* 0.7 checks: after report n_report (transmission start chk_t0_ms), while quiet in IDLE, wake-up k
++ * falls at chk_t0_ms + lt_check_offset(); the app computes the same times from C_e(n). */
++static int64_t chk_t0_ms;         /* transmission start of report n_report */
++static bool chk_t0_pending;       /* set when its first packet starts */
++static uint8_t chk_key[32];       /* C_e(n_report): the key ratchet may move on during the stretch */
++static uint32_t chk_base_s;       /* the IDLE interval when report n_report went out */
++static uint16_t chk_k;            /* the scheduled check (0 = none / heartbeat) */
++static uint32_t chk_off_s;        /* its offset from chk_t0 */
++static int64_t chk_due_ms;        /* when the scheduled wake-up starts */
++static bool chk_hb;               /* the scheduled wake-up is the heartbeat */
++static bool check_rx;             /* the receiver window of check (n_report, chk_k) is open */
++static int64_t check_rx_ms;       /* its start, for the energy estimate */
++static uint32_t en_check_rx_ms;   /* receiver time at checks in this wake-up (in parallel with the GPS) */
++static bool check_wait;           /* decided, waiting for the window to close (PH_CHECK) */
++static bool check_wait_fix;
++static bool at_check;             /* apply_command() runs for a command taken at a check */
++static bool check_cmd;            /* this wake-up took a command at a check */
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++static bool ble_cmd_deferred;     /* BLE_SCAN taken at a check: runs in the window after report n + 1 */
++static uint8_t ble_def_sec, ble_def_np;
++static bool ble_def_active;
++#endif
+ 
+ /* packets of one wake-up, sent back to back before the LISTEN window */
+ #define TXQ_MAX 7
+@@ -401,7 +432,11 @@ enum {
+ 	HF_FIX = 1, HF_RELAYED = 2, HF_RETX = 4, HF_DROPPED = 8, HF_CMD = 16, HF_BORDER = 32,
+ 	HF_DISCOVER = 64, HF_LOW = 128,
+ };
+-enum { HF2_QUIET = 1, HF2_OWNER = 2, HF2_ZONE = 4, HF2_EPOCH_SKIP = 8, HF2_BLE = 16, HF2_WIFI = 32 };
++enum {
++	HF2_QUIET = 1, HF2_OWNER = 2, HF2_ZONE = 4, HF2_EPOCH_SKIP = 8, HF2_BLE = 16, HF2_WIFI = 32,
++	HF2_PARKED = 64, /* 0.7: quiet because parked (STILL) */
++	HF2_CHECK = 128, /* 0.7: sent right after a command taken at a check */
++};
+ struct histrec {
+ 	uint8_t magic;
+ 	uint8_t flags;
+@@ -610,6 +645,21 @@ static void defaults(void)
+ 	cfg.owner_gps = 1;
+ 	cfg.lost_ble_every = 5;
+ 	cfg.lost_ble_packets = 1;
++	cfg.check_s = LT_CHECK_S_DEFAULT;
++	cfg.still_after = 3;
++	cfg.still_hb_h = 6;
++	cfg.zone_hb_h = 24;
++	cfg.owner_hb_h = 8;
++}
++
++/* the wake rules from the settings */
++static void wake_cfg_apply(void)
++{
++	lt_wake_cfg_default(&wake_cfg);
++	wake_cfg.heartbeat_s = (uint32_t)CLAMP(cfg.zone_hb_h, 1, 34) * 3600U;
++	wake_cfg.owner_cap_s = (uint32_t)CLAMP(cfg.owner_hb_h, 1, 8) * 3600U;
++	wake_cfg.still_after = cfg.still_after;
++	wake_cfg.still_hb_s = (uint32_t)CLAMP(cfg.still_hb_h, 1, 24) * 3600U;
+ }
+ 
+ static void load_cfg(void)
+@@ -629,20 +679,29 @@ static void load_cfg(void)
+ 		uint32_t was = cfg.magic;
+ 		size_t keep = was == STATE_MAGIC_V1 ? V1_SIZE : was == STATE_MAGIC_V2 ? V2_SIZE :
+ 			      was == STATE_MAGIC_V3 ? V3_SIZE : was == STATE_MAGIC_V4 ? V4_SIZE :
+-			      was == STATE_MAGIC_V5 ? V5_SIZE : 0;
++			      was == STATE_MAGIC_V5 ? V5_SIZE : was == STATE_MAGIC_V6 ? V6_SIZE : 0;
+ 		if (!ok && keep && r >= (ssize_t)keep) {
+-			LOG_INF("migrating LibreTag state %08x -> v6", was);
++			LOG_INF("migrating LibreTag state %08x -> v7", was);
+ 			memset((uint8_t *)&cfg + keep, 0, sizeof(cfg) - keep);
+ 			cfg.magic = STATE_MAGIC;
+ 			if (keep < V3_SIZE) {
+ 				cfg.region_manual = 0;
+ 				cfg.path_hash_size = 1;
+ 			}
+-			cfg.low_batt_pct = CONFIG_LIBRETAG_LOW_BATT_PCT; /* 25 %: the app's DM step (PROTOCOL.md 5) */
+-			cfg.dm_alerts = 1;
+-			cfg.owner_gps = 1;
+-			cfg.lost_ble_every = 5;
+-			cfg.lost_ble_packets = 1;
++			if (keep < V6_SIZE) {
++				cfg.low_batt_pct = CONFIG_LIBRETAG_LOW_BATT_PCT; /* 25 %: the app's DM step (PROTOCOL.md 5) */
++				cfg.dm_alerts = 1;
++				cfg.owner_gps = 1;
++				cfg.lost_ble_every = 5;
++				cfg.lost_ble_packets = 1;
++			}
++			/* 0.7: checks and parked quiet on, 0.6 heartbeats */
++			cfg.unused_still_max_min = 0;
++			cfg.check_s = LT_CHECK_S_DEFAULT;
++			cfg.still_after = 3;
++			cfg.still_hb_h = 6;
++			cfg.zone_hb_h = 24;
++			cfg.owner_hb_h = 8;
+ 			ok = true;
+ 		}
+ 	}
+@@ -853,10 +912,10 @@ static uint32_t next_interval_s(void)
+ 		LOG_INF("mode %d expired, back to IDLE", mode);
+ 		mode = LT_MODE_IDLE;
+ 	}
+-	/* quiet: the fix is the only motion detector, so do not slow the wake-ups (only reports) */
++	/* 0.7: no slowing down while still (checks need a fixed base); parked quiet replaces it */
+ 	uint32_t base = (mode == LT_MODE_TRACK || mode == LT_MODE_LOST)
+ 				? track_interval_s
+-				: (uint32_t)cfg.interval_min * 60U * (wake_st.quiet ? 1U : still_factor);
++				: (uint32_t)cfg.interval_min * 60U;
+ 	/* +-10 % jitter so the period is not a fingerprint */
+ 	int32_t span = (int32_t)base / 5;
+ 	int32_t j = span > 0 ? (int32_t)(sys_rand32_get() % (uint32_t)span) - span / 2 : 0;
+@@ -888,6 +947,8 @@ static void energy_wake_end(int64_t wake_start_ms, int64_t listen_ms)
+ 	int64_t awake = wake_start_ms ? now - wake_start_ms : 0;
+ 
+ 	energy_add(UA_RX, listen_ms);
++	energy_add(UA_RX, en_check_rx_ms); /* checks: the receiver runs alongside the GPS, on top of it */
++	en_check_rx_ms = 0;
+ 	energy_add(UA_TX, en_tx_ms);
+ 	energy_add(UA_BLE, en_ble_ms);
+ 	energy_add(UA_AWAKE, awake - listen_ms - en_tx_ms);
+@@ -902,6 +963,38 @@ static void energy_wake_end(int64_t wake_start_ms, int64_t listen_ms)
+ static int64_t listen_start_ms;
+ static int64_t wake_start_ms;
+ 
++/* 0.7: the next wake-up while quiet in IDLE: check k + 1 after report n_report, or the heartbeat when
++ * that check would fall at or after it. Idempotent until the scheduled time passes. 0 = none known. */
++static int64_t quiet_next_wake_ms(void)
++{
++	int64_t now = k_uptime_get();
++	uint32_t hb = lt_wake_heartbeat(&wake_cfg, wake_st.reason);
++
++	if (!n_report_valid || !chk_t0_ms || !hb || !chk_base_s) {
++		return 0;
++	}
++	for (;;) {
++		if (chk_due_ms > now + 500) {
++			return chk_due_ms;
++		}
++		if (chk_hb || chk_k >= 4096) {
++			return 0;
++		}
++		uint16_t k = (uint16_t)(chk_k + 1);
++		uint32_t off = (uint32_t)((int32_t)(chk_off_s + chk_base_s) + lt_check_jitter(chk_key, n_report, k,
++											       chk_base_s));
++		if (off >= hb) {
++			chk_hb = true; /* checks at or after the heartbeat are not made */
++			chk_k = 0;
++			chk_due_ms = chk_t0_ms + (int64_t)hb * 1000;
++			continue;
++		}
++		chk_k = k;
++		chk_off_s = off;
++		chk_due_ms = chk_t0_ms + (int64_t)off * 1000 - (cfg.check_s ? (int64_t)lt_check_guard_ms(off) : 0);
++	}
++}
++
+ /* next wake-up: the planned one (next_in), the quiet heartbeat, or the interval */
+ static uint32_t sleep_s_now(void)
+ {
+@@ -915,7 +1008,7 @@ static uint32_t sleep_s_now(void)
+ 		s = next_interval_s();
+ 	}
+ 	if (wake_st.quiet && mode == LT_MODE_IDLE) {
+-		uint32_t hb = wake_st.reason == LT_QUIET_ZONE ? wake_cfg.heartbeat_s : wake_cfg.owner_cap_s;
++		uint32_t hb = lt_wake_heartbeat(&wake_cfg, wake_st.reason);
+ 		uint32_t now = (uint32_t)(k_uptime_get() / 1000);
+ 		uint32_t due = wake_st.last_tx_s + hb;
+ 
+@@ -924,8 +1017,21 @@ static uint32_t sleep_s_now(void)
+ 	return s;
+ }
+ 
++/* close the receiver window of a check (the radio itself is handled by the caller) */
++static void check_rx_close(void)
++{
++	if (check_rx) {
++		check_rx = false;
++		k_timer_stop(&check_tmr);
++		en_check_rx_ms += (uint32_t)(k_uptime_get() - check_rx_ms);
++	}
++}
++
+ static void go_to_sleep(void)
+ {
++	check_rx_close();
++	check_wait = false;
++	check_cmd = false;
+ 	energy_wake_end(wake_start_ms, phase == PH_LISTEN && listen_start_ms ? k_uptime_get() - listen_start_ms : 0);
+ 	wake_start_ms = 0;
+ 	listen_start_ms = 0;
+@@ -966,6 +1072,21 @@ static void go_to_sleep(void)
+ 		schedule_next(wait_s);
+ 		return;
+ 	}
++	if (wake_st.quiet && mode == LT_MODE_IDLE) {
++		/* 0.7: keyed check schedule, to the millisecond (the app computes the same times) */
++		int64_t due = quiet_next_wake_ms();
++
++		if (due) {
++			int64_t w = due - k_uptime_get();
++
++			planned_due_ms = 0;
++			save_mode();
++			LOG_INF("sleeping %lld ms (quiet, %s %u after n=%u)", (long long)w, chk_hb ? "heartbeat" : "check",
++				chk_hb ? 0U : chk_k, n_report);
++			k_timer_start(&report_timer, K_MSEC(MAX(w, 1000)), K_NO_WAIT);
++			return;
++		}
++	}
+ 	uint32_t s = sleep_s_now();
+ 	save_mode();
+ 	LOG_INF("sleeping %u s (mode %d%s)", s, mode, wake_st.quiet ? ", quiet" : "");
+@@ -998,6 +1119,10 @@ static void try_tx(void)
+ 	if (radio.startSendRaw(txq[txq_i], (int)txq_len[txq_i])) {
+ 		phase = PH_TX;
+ 		tx_start_ms = k_uptime_get();
++		if (chk_t0_pending && txq_i == 0) {
++			chk_t0_ms = tx_start_ms; /* t0 of the check schedule: transmission start of the report */
++			chk_t0_pending = false;
++		}
+ 		return;
+ 	}
+ 	if (++tx_tries > 30) {
+@@ -1014,6 +1139,10 @@ static void try_tx(void)
+ 	k_timer_start(&retry_timer, K_MSEC(200 + (sys_rand32_get() % 400)), K_NO_WAIT);
+ }
+ 
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++static bool ble_start_deferred(void);
++#endif
++
+ /* one packet sent: next one after a short random gap, or open the RX window */
+ static void tx_finished(void)
+ {
+@@ -1027,6 +1156,12 @@ static void tx_finished(void)
+ 		return;
+ 	}
+ 	radio_home();
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++	if (ble_cmd_deferred && !txq_no_listen && ble_start_deferred()) {
++		phase = PH_BLESCAN;
++		return;
++	}
++#endif
+ 	if (cfg.listen_s == 0 || txq_no_listen) {
+ 		go_to_sleep();
+ 	} else {
+@@ -1114,6 +1249,20 @@ static void ble_scan_halt(void);
+ static size_t ble_result_packets(uint32_t n, size_t max_packets, uint8_t seconds, bool active);
+ static void ble_cmd_done(void);
+ static uint8_t ble_cmd_packets = 2, ble_cmd_seconds = 8;
++
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++/* BLE_SCAN taken at a check: scan now, the packets go out as copies of report n + 1 */
++static bool ble_start_deferred(void)
++{
++	ble_cmd_deferred = false;
++	if (ble_scan_begin(BLE_CMD, ble_def_active, ble_def_sec) != 0) {
++		return false;
++	}
++	ble_cmd_seconds = ble_def_sec;
++	ble_cmd_packets = ble_def_np;
++	return true;
++}
++#endif
+ #endif
+ #if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
+ /* Wi-Fi scan driver hook (docs/design/wifi-positioning.md): boards with a Wi-Fi radio provide it. */
+@@ -1158,6 +1307,8 @@ static void hist_silent(const lt_wake_out_t *d)
+ 	report_fields(&r, true, pct, pct <= cfg.low_batt_pct);
+ 	r.quiet = true;
+ 	r.quiet_owner = d->reason == LT_QUIET_OWNER;
++	r.quiet_parked = d->reason == LT_QUIET_STILL;
++	r.checks = cfg.check_s > 0;
+ 	keys_for(n_cur);
+ 	h.magic = HIST_MAGIC;
+ 	h.n = n_cur;
+@@ -1167,7 +1318,7 @@ static void hist_silent(const lt_wake_out_t *d)
+ 	h.uptime_s = (uint32_t)(k_uptime_get() / 1000);
+ 	h.search_s = wake_ms ? (uint16_t)MIN((k_uptime_get() - wake_ms) / 1000, 65535) : 0;
+ 	h.flags = HF_FIX;
+-	h.flags2 = HF2_QUIET | (r.quiet_owner ? HF2_OWNER : HF2_ZONE);
++	h.flags2 = HF2_QUIET | (r.quiet_owner ? HF2_OWNER : r.quiet_parked ? HF2_PARKED : HF2_ZONE);
+ 	h.p_len = (uint8_t)lt_seal_report(keys.k.view, n_cur, LT_J_HIST_SILENT, &r, false, h.p);
+ 	hist_write(&h);
+ }
+@@ -1198,9 +1349,11 @@ static void send_report(bool with_fix, const lt_wake_out_t *d)
+ 	r.cmd_ack = pending_ack;
+ 	r.cmd_seq = last_cmd_seq;
+ 	fill_neighbours(&r); /* nearby repeaters, in every report (PROTOCOL.md 2) */
++	r.checks = cfg.check_s > 0; /* 0.7: listens at checks while quiet, on the configured interval */
+ 	if (d->action == LT_WAKE_REPORT_QUIET) {
+ 		r.quiet = true;
+ 		r.quiet_owner = d->reason == LT_QUIET_OWNER;
++		r.quiet_parked = d->reason == LT_QUIET_STILL;
+ 		r.next_in = lt_next_in_encode(d->quiet_next_s);
+ 		planned_due_ms = 0;
+ 	} else if (!test_left && !ping_requested) {
+@@ -1254,14 +1407,25 @@ static void send_report(bool with_fix, const lt_wake_out_t *d)
+ 		h->nb_total = r.nb_total;
+ 		h->flags = (r.has_fix ? HF_FIX : 0) | (r.nb_discover ? HF_DISCOVER : 0) | (low ? HF_LOW : 0) |
+ 			   (nets == 2 ? HF_BORDER : 0);
+-		h->flags2 = (r.quiet ? HF2_QUIET : 0) | (r.quiet ? (r.quiet_owner ? HF2_OWNER : HF2_ZONE) : 0) |
+-			    (d->epoch_skip ? HF2_EPOCH_SKIP : 0) | (r.has_wifi ? HF2_WIFI : 0);
++		h->flags2 = (r.quiet ? HF2_QUIET : 0) |
++			    (r.quiet ? (r.quiet_owner ? HF2_OWNER : r.quiet_parked ? HF2_PARKED : HF2_ZONE) : 0) |
++			    (d->epoch_skip ? HF2_EPOCH_SKIP : 0) | (r.has_wifi ? HF2_WIFI : 0) |
++			    (check_cmd ? HF2_CHECK : 0);
+ 		h->p_len = (uint8_t)lt_seal_report(keys.k.view, n_cur, LT_J_HIST, &r, false, h->p);
+ 		hist_open = true;
+ 		wake_ms = 0;
+ 	}
+ 	n_report = n_cur; /* app commands are bound to this report */
+ 	n_report_valid = true;
++	/* 0.7: the check schedule restarts from this report */
++	memcpy(chk_key, keys.k.cmd, sizeof(chk_key));
++	chk_base_s = (uint32_t)cfg.interval_min * 60U;
++	chk_k = 0;
++	chk_off_s = 0;
++	chk_due_ms = 0;
++	chk_hb = false;
++	chk_t0_ms = k_uptime_get(); /* replaced by the real transmission start in try_tx() */
++	chk_t0_pending = true;
+ 	/* Near a border, the same report as copy j=1 on the neighbour's network: the tag
+ 	 * differs, so repeaters there do not drop it as a duplicate. */
+ 	if (nets == 2) {
+@@ -1326,6 +1490,15 @@ static void wake_finish(bool with_fix)
+ 		ble_purpose = BLE_NONE;
+ 	}
+ #endif
++	if (check_rx) {
++		/* 0.7: the receiver window of a check is still open; a command there makes this wake-up
++		 * report (n + 1, with CMD_ACK), so decide when the window closes or a command came */
++		check_wait = true;
++		check_wait_fix = with_fix;
++		phase = PH_CHECK;
++		return;
++	}
++	check_wait = false;
+ 	lt_wake_in_t w = {};
+ 	lt_wake_out_t d;
+ 
+@@ -1346,7 +1519,8 @@ static void wake_finish(bool with_fix)
+ 		send_report(with_fix, &d);
+ 		return;
+ 	}
+-	LOG_INF("quiet (%s): no report", d.reason == LT_QUIET_ZONE ? "zone" : "owner");
++	LOG_INF("quiet (%s): no report", d.reason == LT_QUIET_ZONE ? "zone" : d.reason == LT_QUIET_OWNER ? "owner"
++										       : "parked");
+ 	if (d.reason == LT_QUIET_OWNER && w.has_fix) {
+ 		hist_silent(&d);
+ 	}
+@@ -1364,6 +1538,24 @@ static void start_report(void)
+ 	wake_ms = k_uptime_get();
+ 	wake_start_ms = wake_ms;
+ 	owner_seen = false;
++	check_cmd = false;
++	if (wake_st.quiet && mode == LT_MODE_IDLE && !wake_forced && chk_k && !chk_hb && cfg.check_s &&
++	    n_report_valid) {
++		/* 0.7: check k after report n: receive from t_k - g_k to t_k + check_s + g_k, alongside the
++		 * GPS search and the Bluetooth scan */
++		int64_t end = chk_t0_ms + (int64_t)chk_off_s * 1000 + (int64_t)cfg.check_s * 1000 +
++			      lt_check_guard_ms(chk_off_s);
++		int64_t left = end - k_uptime_get();
++
++		if (left > 0) {
++			radio_home();
++			radio.recoverRxState();
++			check_rx = true;
++			check_rx_ms = k_uptime_get();
++			k_timer_start(&check_tmr, K_MSEC(left), K_NO_WAIT);
++			LOG_INF("check %u after n=%u: listening %lld ms", chk_k, n_report, (long long)left);
++		}
++	}
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
+ 	if (mode == LT_MODE_LOST) {
+ 		bool due = cfg.lost_ble_every && (lost_reports++ % cfg.lost_ble_every) == 0;
+@@ -1429,15 +1621,6 @@ static void gps_fix_cb(double lat, double lon, int64_t utc)
+ 	fix_alt_m = pos.altitude_mm / 1000;
+ 	fix_time = utc > 0 ? (uint32_t)utc : now_unix();
+ 	first_fix_pending = false;
+-	if (cfg.still_max_min && cfg.last_fix_time) {
+-		double kx = 111320.0 * cos(lat * 0.017453292519943295);
+-		double dx = (lon - cfg.last_lon_e7 / 1e7) * kx, dy = (lat - cfg.last_lat_e7 / 1e7) * 110540.0;
+-		uint16_t cap = (uint16_t)MAX(1, cfg.still_max_min / MAX(cfg.interval_min, 1));
+-
+-		still_factor = sqrt(dx * dx + dy * dy) < STILL_RADIUS_M ? (uint16_t)MIN(still_factor * 2, cap) : 1;
+-	} else {
+-		still_factor = 1;
+-	}
+ 	if (fix_time) {
+ 		/* the next report without a fix carries this (with its GPS time) */
+ 		cfg.last_fix_time = fix_time;
+@@ -1509,13 +1692,17 @@ static void apply_command(const lt_command_t *c)
+ 	}
+ 	case LT_OP_SET_IDLE: {
+ 		uint16_t iv = u16le(c->args), ls = u16le(c->args + 2);
++		uint8_t cs = c->args[4]; /* 0.7: check_s at offset 7; 0 keeps, LT_CHECK_OFF turns listening off */
+ 
+ 		if (iv) {
+-			cfg.interval_min = iv;
++			cfg.interval_min = MIN(iv, 1440);
+ 		}
+ 		if (ls) {
+ 			cfg.listen_s = MIN(ls, 600);
+ 		}
++		if (cs) {
++			cfg.check_s = cs == LT_CHECK_OFF ? 0 : MIN(cs, LT_CHECK_S_MAX);
++		}
+ 		save_cfg();
+ 		break;
+ 	}
+@@ -1528,6 +1715,14 @@ static void apply_command(const lt_command_t *c)
+ 		uint8_t sec = c->args[0] ? MIN(c->args[0], 20) : 8;
+ 		uint8_t np = c->args[2] ? MIN(c->args[2], LT_BLE_MAX_PACKETS) : 2;
+ 
++		if (at_check) {
++			/* at a check the presence scan may be running and report n + 1 goes out first */
++			ble_cmd_deferred = true;
++			ble_def_sec = sec;
++			ble_def_np = np;
++			ble_def_active = c->args[1] & 1;
++			break;
++		}
+ 		if (ble_scan_begin(BLE_CMD, c->args[1] & 1, sec) == 0) {
+ 			ble_cmd_seconds = sec;
+ 			ble_cmd_packets = np;
+@@ -1557,6 +1752,24 @@ static void handle_rx(void)
+ 		if (phase == PH_LISTEN && !radio.hasRadioOverride()) {
+ 			home_heard = true;
+ 		}
++		lt_command_t c;
++
++		if (check_rx && lt_parse_channel_command_packet_k(chk_key, chan_key, n_report, chk_k, buf, (size_t)len,
++								  &c)) {
++			/* 0.7: a command at check k: execute, then report n + 1 in this wake-up */
++			LOG_INF("command at check %u after n=%u", chk_k, n_report);
++			at_check = true;
++			apply_command(&c);
++			at_check = false;
++			check_cmd = true;
++			check_rx_close();
++			wake_forced = true;
++			if (phase == PH_CHECK) {
++				wake_finish(check_wait_fix);
++				return;
++			}
++			continue; /* the GPS is still searching: the report follows when it is done */
++		}
+ 		if (phase != PH_LISTEN) {
+ 			continue;
+ 		}
+@@ -1569,8 +1782,6 @@ static void handle_rx(void)
+ 				k_timer_stop(&retx_timer);
+ 			}
+ 		}
+-		lt_command_t c;
+-
+ 		if (n_report_valid &&
+ 		    lt_parse_channel_command_packet(keys.k.cmd, chan_key, n_report, buf, (size_t)len, &c)) {
+ 			apply_command(&c);
+@@ -2893,7 +3104,7 @@ static void scan_end(void)
+ 			mesh_noise_avg = (int16_t)(sum / 20);
+ 			mesh_noise_max = (int16_t)mx;
+ 		}
+-		if (phase == PH_SLEEP || phase == PH_WAIT_FIX) {
++		if ((phase == PH_SLEEP || phase == PH_WAIT_FIX) && !check_rx) {
+ 			radio.sleepRadio();
+ 		}
+ 		if (!disc_quiet) {
+@@ -2955,8 +3166,10 @@ static void print_status(void)
+ 		out("battery %u%%\r\n", board.getBattPercent());
+ 		return;
+ 	}
+-	out("n=%u mode=%d interval=%umin listen=%us fixto=%us transport=%s\r\n", n_cur, mode,
+-	    cfg.interval_min, cfg.listen_s, cfg.fix_timeout_s, cfg.channel_mode ? "channel" : "stealth");
++	out("n=%u mode=%d interval=%umin listen=%us fixto=%us transport=%s check=%us\r\n", n_cur, mode,
++	    cfg.interval_min, cfg.listen_s, cfg.fix_timeout_s, cfg.channel_mode ? "channel" : "stealth", cfg.check_s);
++	out("still=%u still_hb=%uh zone_hb=%uh owner_hb=%uh\r\n", cfg.still_after, cfg.still_hb_h, cfg.zone_hb_h,
++	    cfg.owner_hb_h);
+ 	out("radio %.3f MHz bw=%.1f sf=%u cr=%u pwr=%d dBm path=%uB\r\n", (double)cfg.freq, (double)cfg.bw,
+ 	    cfg.sf, cfg.cr, cfg.tx_power, cfg.path_hash_size);
+ 	if (test_left) {
+@@ -3112,10 +3325,24 @@ static void print_quiet(void)
+ 		out("QUIET none, %u zone(s), %u anchor(s)\r\n", cfg.zone_count, cfg.anchor_count);
+ 		return;
+ 	}
+-	uint32_t hb = wake_st.reason == LT_QUIET_ZONE ? wake_cfg.heartbeat_s : wake_cfg.owner_cap_s;
+-	out("QUIET %s since %u s, last report %u s ago, next report in %u s, zone %d\r\n",
+-	    wake_st.reason == LT_QUIET_ZONE ? "zone" : "owner", now - wake_st.quiet_since_s, now - wake_st.last_tx_s,
+-	    wake_st.last_tx_s + hb > now ? wake_st.last_tx_s + hb - now : 0, wake_st.zone);
++	uint32_t hb = lt_wake_heartbeat(&wake_cfg, wake_st.reason);
++	char chk[48];
++	int64_t now_ms = k_uptime_get();
++	/* the report is due hb after the transmission of the last one (that is what next_in said) */
++	int64_t hb_ms = chk_t0_ms ? chk_t0_ms + (int64_t)hb * 1000 : (int64_t)(wake_st.last_tx_s + hb) * 1000;
++
++	if (mode == LT_MODE_IDLE && chk_k && !chk_hb && chk_due_ms > now_ms) {
++		/* 0.7: the next check (t_k, not the earlier start of its window) */
++		int64_t tk = chk_t0_ms + (int64_t)chk_off_s * 1000;
++
++		snprintf(chk, sizeof(chk), "check %u in %u s", chk_k, (unsigned)(MAX(tk - now_ms, 0) / 1000));
++	} else {
++		snprintf(chk, sizeof(chk), "check none");
++	}
++	out("QUIET %s since %u s, last report %u s ago, next report in %u s, zone %d, %s, listen %u s\r\n",
++	    wake_st.reason == LT_QUIET_ZONE ? "zone" : wake_st.reason == LT_QUIET_OWNER ? "owner" : "parked",
++	    now - wake_st.quiet_since_s, now - wake_st.last_tx_s,
++	    (unsigned)(hb_ms > now_ms ? (hb_ms - now_ms) / 1000 : 0), wake_st.zone, chk, cfg.check_s);
+ }
+ 
+ static bool cli_quiet(int argc, char **argv)
+@@ -3318,7 +3545,8 @@ static void cli_exec(char *l)
+ 	if (!strcmp(c, "help")) {
+ 		/* one line per out(): its buffer is 200 bytes */
+ 		out("status | version | challenge | auth <hex> | lock | unpair | key <hex64> | newkey\r\n");
+-		out("report | interval <min> | listen <s> | fixto <s> | still <max_min>\r\n");
++		out("report | interval <min> | listen <s> | fixto <s> | check <s>\r\n");
++		out("still <after> <heartbeat_h> | still off | heartbeat zone|owner <h>\r\n");
+ 		out("log [count] | history [from_n]\r\n");
+ 		out("track <interval_s> <minutes> | idle | transport channel|stealth\r\n");
+ 		out("radio <MHz> <bwkHz> <sf> <cr> | power <dBm> | pathhash 1|2|3 | region <name>|none\r\n");
+@@ -3406,10 +3634,40 @@ static void cli_exec(char *l)
+ 	} else if (!strcmp(c, "buzz")) {
+ 		buzz(argc >= 2 ? (uint8_t)CLAMP(atoi(argv[1]), 1, 60) : 3);
+ 		out("OK\r\n");
+-	} else if (!strcmp(c, "still") && argc == 2) {
+-		cfg.still_max_min = (uint16_t)CLAMP(atoi(argv[1]), 0, 1440);
++	} else if (!strcmp(c, "still") && (argc == 2 || argc == 3)) {
++		/* 0.7 parked quiet: still <after> <heartbeat_h> | still off */
++		if (argc == 2 && (!strcmp(argv[1], "off") || !strcmp(argv[1], "0"))) {
++			cfg.still_after = 0;
++		} else if (argc == 3) {
++			cfg.still_after = (uint8_t)CLAMP(atoi(argv[1]), 0, 20);
++			cfg.still_hb_h = (uint8_t)CLAMP(atoi(argv[2]), 1, 24);
++		} else {
++			out("ERR still <after 1..20> <heartbeat_h 1..24> | still off\r\n");
++			return;
++		}
++		save_cfg();
++		wake_cfg_apply();
++		if (cfg.still_after) {
++			out("OK still %u %u\r\n", cfg.still_after, cfg.still_hb_h);
++		} else {
++			out("OK still off\r\n");
++		}
++	} else if (!strcmp(c, "heartbeat") && argc == 3 && (!strcmp(argv[1], "zone") || !strcmp(argv[1], "owner"))) {
++		bool zone = !strcmp(argv[1], "zone");
++		int h = atoi(argv[2]);
++
++		if (zone) {
++			cfg.zone_hb_h = (uint8_t)CLAMP(h, 1, 34); /* next_in reaches 34.75 h */
++		} else {
++			cfg.owner_hb_h = (uint8_t)CLAMP(h, 1, 8); /* a phone stolen with the car: at most 8 h */
++		}
++		save_cfg();
++		wake_cfg_apply();
++		out("OK heartbeat %s %u\r\n", argv[1], zone ? cfg.zone_hb_h : cfg.owner_hb_h);
++	} else if (!strcmp(c, "check") && argc == 2) {
++		cfg.check_s = (uint8_t)CLAMP(atoi(argv[1]), 0, LT_CHECK_S_MAX);
+ 		save_cfg();
+-		out("OK %s\r\n", cfg.still_max_min ? "reports slow down while the tracker does not move" : "off");
++		out("OK check %u\r\n", cfg.check_s);
+ 	} else if (!strcmp(c, "report")) {
+ 		if (phase == PH_SLEEP) {
+ 			k_timer_stop(&report_timer);
+@@ -3485,7 +3743,7 @@ static void cli_exec(char *l)
+ 			}
+ 			bool silent = h->j == LT_J_HIST_SILENT;
+ 
+-			out("L %u %u %u %u %u %u %u %u %s%s%s%s%s%s%s%s%s%s%s%s%s\r\n", (unsigned)h->seq, (unsigned)h->n,
++			out("L %u %u %u %u %u %u %u %u %s%s%s%s%s%s%s%s%s%s%s%s%s%s%s\r\n", (unsigned)h->seq, (unsigned)h->n,
+ 			    h->j ? h->j : LT_J_HIST, (unsigned)h->uptime_s, h->search_s, h->batt, h->mode, h->nb_total,
+ 			    h->flags & HF_FIX ? "fix " : "nofix ",
+ 			    silent ? "silent " : h->flags & HF_RELAYED ? "relayed " : "not-relayed ",
+@@ -3494,6 +3752,7 @@ static void cli_exec(char *l)
+ 			    h->flags & HF_DISCOVER ? "discover " : "", h->flags & HF_LOW ? "low " : "",
+ 			    h->flags2 & HF2_QUIET ? "quiet " : "", h->flags2 & HF2_OWNER ? "owner " : "",
+ 			    h->flags2 & HF2_ZONE ? "zone " : "", h->flags2 & HF2_EPOCH_SKIP ? "epoch-skip " : "",
++			    h->flags2 & HF2_PARKED ? "parked " : "", h->flags2 & HF2_CHECK ? "check " : "",
+ 			    h->flags2 & HF2_BLE ? "ble" : "");
+ 		});
+ 		out("END\r\n");
+@@ -3596,7 +3855,14 @@ static void cli_exec(char *l)
+ 		/* else: the report under way counts as the first one */
+ 		out("OK test %u report(s), every %u s\r\n", (unsigned)test_left, (unsigned)test_interval_s);
+ 	} else if (!strcmp(c, "interval") && argc == 2) {
+-		cfg.interval_min = (uint16_t)CLAMP(atoi(argv[1]), 1, 1440);
++		uint16_t iv = (uint16_t)CLAMP(atoi(argv[1]), 1, 1440);
++
++		if (iv != cfg.interval_min && wake_st.quiet) {
++			/* the checks after the last report run on the old interval: the next wake-up reports,
++			 * so the app's schedule starts again from a report on the new one */
++			wake_forced = true;
++		}
++		cfg.interval_min = iv;
+ 		save_cfg();
+ 		out("OK\r\n");
+ 	} else if (!strcmp(c, "listen") && argc == 2) {
+@@ -3783,7 +4049,7 @@ int main(void)
+ 		gps_enable(true);
+ 	}
+ 
+-	lt_wake_cfg_default(&wake_cfg);
++	wake_cfg_apply();
+ 	lt_wake_state_init(&wake_st);
+ #if ZEPHCORE_USB_STACK && DT_HAS_COMPAT_STATUS_OKAY(zephyr_cdc_acm_uart) && \
+ 	!IS_ENABLED(CONFIG_CDC_ACM_SERIAL_INITIALIZE_AT_BOOT)
+@@ -3880,6 +4146,15 @@ int main(void)
+ 		if (ev & EV_SCAN_END) {
+ 			scan_end();
+ 		}
++		if ((ev & EV_CHECK_END) && check_rx) {
++			/* the check's window is over: no command */
++			check_rx_close();
++			if (phase == PH_CHECK) {
++				wake_finish(check_wait_fix);
++			} else if (phase == PH_WAIT_FIX && !mesh_scanning) {
++				radio.sleepRadio(); /* the GPS searches on; the receiver is not needed */
++			}
++		}
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
+ 		if (ev & EV_BLE) {
+ 			ble_timer();

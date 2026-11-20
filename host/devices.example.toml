@@ -1,0 +1,7 @@
+# Device register for dm4.ref (4-byte key references). Sensitive: chmod 600.
+[[device]]
+name = "sensor1"
+pubkey = "<device npub or hex>"
+owner = "<your npub or hex>"
+allow_from = ["<your npub or hex>"]   # who may DM the device (relays -> mesh)
+rendezvous = true                     # sleeps; DMs wait for its next uplink

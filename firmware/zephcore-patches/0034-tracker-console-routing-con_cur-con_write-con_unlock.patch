@@ -1,0 +1,125 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Wed, 18 Nov 2026 14:44:29 +0100
+Subject: [PATCH 34/40] tracker: console routing (con_cur, con_write,
+ con_unlocked): output goes to the console that sent the last line; no
+ behaviour change
+
+---
+ zephcore/src/main_tracker.cpp | 56 +++++++++++++++++++++++++----------
+ 1 file changed, 41 insertions(+), 15 deletions(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index fb51cab..e364475 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -433,6 +433,26 @@ static uint32_t now_unix(void)
+ 
+ /* ------------------------------------------------------------------ CLI output */
+ 
++/* 0.8.0: the console a line came from. Output, also later output of that command (scan results,
++ * SNAP lines, PAIR events), goes to the console that sent the last line. */
++enum { CON_USB = 0, CON_BLE = 1 };
++static uint8_t con_cur = CON_USB;
++static void bcon_tx(const uint8_t *b, size_t n);
++
++static void con_write(const uint8_t *b, size_t n)
++{
++	if (con_cur == CON_BLE) {
++		bcon_tx(b, n);
++		return;
++	}
++	/* long listings (history, blescan): wait for room in the USB ring instead of dropping
++	 * lines, but bounded, so nothing hangs when no one reads */
++	for (int i = 0; i < 100 && cli.availableForWrite() < (int)n; i++) {
++		k_msleep(2);
++	}
++	cli.write(b, n);
++}
++
+ static void out(const char *fmt, ...)
+ {
+ 	char buf[200];
+@@ -442,14 +462,7 @@ static void out(const char *fmt, ...)
+ 	int l = vsnprintf(buf, sizeof(buf), fmt, ap);
+ 	va_end(ap);
+ 	if (l > 0) {
+-		size_t n = MIN((size_t)l, sizeof(buf) - 1);
+-
+-		/* long listings (history, blescan): wait for room in the USB ring instead of dropping
+-		 * lines, but bounded, so nothing hangs when no one reads */
+-		for (int i = 0; i < 100 && cli.availableForWrite() < (int)n; i++) {
+-			k_msleep(2);
+-		}
+-		cli.write((const uint8_t *)buf, n);
++		con_write((const uint8_t *)buf, MIN((size_t)l, sizeof(buf) - 1));
+ 	}
+ }
+ 
+@@ -3053,10 +3066,7 @@ static uint16_t ble_fp(const struct ble_seen *e)
+  * (bounded, so nothing hangs when no one listens) */
+ static void ble_write(const char *s, size_t n)
+ {
+-	for (int i = 0; i < 100 && cli.availableForWrite() < (int)n; i++) {
+-		k_msleep(2);
+-	}
+-	cli.write((const uint8_t *)s, n);
++	con_write((const uint8_t *)s, n);
+ }
+ 
+ static void ble_cat(char *b, size_t sz, size_t *l, const char *fmt, ...)
+@@ -3865,6 +3875,21 @@ static bool usb_unlocked(void)
+ 	return usb_session && k_uptime_get() < usb_session_until;
+ }
+ 
++/* no Bluetooth console in this build (yet) */
++static void bcon_tx(const uint8_t *b, size_t n)
++{
++	ARG_UNUSED(b);
++	ARG_UNUSED(n);
++}
++static bool bcon_authed(void) { return false; }
++
++/* the console of the current line has the owner's rights: USB after `auth`, Bluetooth after the
++ * handshake (a Bluetooth session is authenticated or does not exist) */
++static bool con_unlocked(void)
++{
++	return con_cur == CON_BLE ? bcon_authed() : usb_unlocked();
++}
++
+ /* What a locked console still answers: reading the state, diagnostics, a reset of the pairing. */
+ static bool cli_needs_unlock(const char *c)
+ {
+@@ -3922,13 +3947,13 @@ static void print_status(void)
+ 	hex(k, keys.k.id, LT_ID_SIZE);
+ 	out("LIBRETAG ID %s\r\n", k);
+ 	if (keys.locked) {
+-		out("locked%s\r\n", usb_unlocked() ? " (unlocked for this connection)" : ": challenge, then auth <hex>");
++		out("locked%s\r\n", con_unlocked() ? " (unlocked for this connection)" : ": challenge, then auth <hex>");
+ 	} else if (keys.has_k0) {
+ 		hex(k, keys.k0, LT_K0_SIZE);
+ 		out("LIBRETAG KEY %s\r\n", k);
+ 	}
+ 	out("firmware LibreTag %s, ZephCore %s\r\n", LT_FW_VERSION, LT_ZEPHCORE_BASE);
+-	if (keys.locked && !usb_unlocked()) {
++	if (keys.locked && !con_unlocked()) {
+ 		/* a stranger with a cable learns the id, the version and the battery, not where it was */
+ 		out("battery %u%%\r\n", board.getBattPercent());
+ 		return;
+@@ -4588,7 +4613,7 @@ static void cli_exec(char *l)
+ 		return;
+ 	}
+ 	const char *c = argv[0];
+-	if (keys.locked && !usb_unlocked() && cli_needs_unlock(c)) {
++	if (keys.locked && !con_unlocked() && cli_needs_unlock(c)) {
+ 		out("ERR locked: challenge, then auth <hex> (or unpair to reset)\r\n");
+ 		return;
+ 	}
+@@ -5066,6 +5091,7 @@ static void cli_poll(void)
+ 		if (ch == '\r' || ch == '\n') {
+ 			if (line_len) {
+ 				line[line_len] = 0;
++				con_cur = CON_USB;
+ 				out("\r\n");
+ 				cli_exec(line);
+ 				line_len = 0;

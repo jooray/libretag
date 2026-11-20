@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- LibreTag tracker firmware: ZephCore tracker role, Zephyr VID 0x2fe3, PID 0x0007 -->
+<resources>
+    <usb-device vendor-id="12259" product-id="7" />
+</resources>

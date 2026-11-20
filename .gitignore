@@ -1,0 +1,34 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+firmware/lt_core/test/host_test
+*.sqlite
+*.db
+firmware/zephcore/
+firmware/.venv/
+firmware/*.log
+dist/
+*.jks
+*.keystore
+keystore.properties
+local.properties
+firmware/lt_core/test/nostr_test
+firmware/lt_core/test/*.o
+firmware/lt_core/test/region_test
+
+# private, kept in the vault
+docs/monetization.md
+docs/audit-*.md
+# local tool config (Impeccable hook for Copilot)
+.github/
+docs/internal/board/.decision-board/
+
+# owner-only agent instructions and idea notes (not public)
+/AGENTS.md
+/CLAUDE.md
+docs/review-*-ideas.md
+docs/audit-*.json
+
+# private working documents (reviews, audits, research, release procedure)
+/docs/internal/

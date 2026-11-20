@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <!-- Places list -->
+    <string name="places_title">Místa</string>
+    <string name="places_lead">Tady je %1$s ticho.</string>
+    <string name="places_empty">Zatím žádná místa. Přidej místo, kde %1$s obvykle bývá, a bude tam ticho.</string>
+    <string name="place_add">Přidat místo</string>
+    <string name="place_add_here">Přidat místo, kde je teď %1$s</string>
+    <string name="place_add_map">Na mapě</string>
+    <string name="place_add_wifi">Kde je lokátor teď, podle Wi-Fi</string>
+    <string name="place_add_btn">Přidat místo</string>
+    <string name="place_needs_cable">Připoj lokátor, když je na tom místě: kabelem, nebo ho restartuj a připoj přes Bluetooth.</string>
+    <string name="place_on_tag">V lokátoru</string>
+    <string name="place_waits_cable">Čeká na lokátor</string>
+    <string name="place_waits_cable_sub">Dokud nepřipojíš %1$s, hlásí se dál odtud.</string>
+    <string name="place_writing">Zapisuji…</string>
+    <string name="place_writing_to">Zapisuji do lokátoru %1$s…</string>
+    <string name="place_saved_on">Uloženo v lokátoru %1$s.</string>
+    <string name="place_not_written">Nezapsáno</string>
+    <string name="place_app_only">Jen v aplikaci</string>
+    <string name="place_app_only_sub">Tento firmware místa ukládat neumí, proto se %1$s dál hlásí odtud.</string>
+    <string name="place_name">Název</string>
+    <string name="place_name_empty">Dej místu název.</string>
+    <string name="place_name_taken">Jiné místo už má tento název.</string>
+    <string name="place_size">Velikost</string>
+    <string name="place_move_hint">Klepni na mapu a místo se přesune. Modrým úchytem změníš velikost.</string>
+    <string name="place_tap_hint">Klepni na mapu tam, kde %1$s obvykle bývá.</string>
+    <string name="place_move">Přesunout na mapě</string>
+    <string name="place_tell_leave">Upozorni mě, když odejde</string>
+    <string name="place_tell_arrive">Upozorni mě, když přijde</string>
+    <string name="place_not_with_you">Ne, když odejde s tebou.</string>
+    <string name="place_delete">Smazat místo</string>
+    <string name="place_delete_cable">Ke smazání připoj lokátor.</string>
+    <!-- Wi-Fi snap sheet -->
+    <string name="snap_start">Spustit</string>
+    <string name="snap_step_listen">Poslouchám sítě Wi-Fi · %1$d z %2$d</string>
+    <string name="snap_step_listen_short">Poslouchám sítě Wi-Fi</string>
+    <string name="snap_step_save">Ukládám do lokátoru</string>
+    <string name="snap_step_check">Ověřuji, jestli lokátor místo pozná</string>
+    <string name="snap_wait">Asi %1$d s. Nech lokátor, kde je.</string>
+    <string name="snap_ok">%1$s uloženo. Lokátor toto místo pozná.</string>
+    <string name="snap_weak">Uloženo, ale shoda je slabá. Lokátor tu možná neztichne.</string>
+    <string name="snap_unchecked">%1$s uloženo. Ověření se nedokončilo, později klepni na Ověřit tady.</string>
+    <string name="snap_none">V dosahu není žádná síť Wi-Fi, nic se neuložilo.</string>
+    <string name="snap_no_answer">Lokátor neodpověděl. Zkontroluj spojení.</string>
+    <string name="snap_keep">Ponechat</string>
+    <string name="place_check_here">Ověřit tady</string>
+    <string name="place_check_ok">Poznáno</string>
+    <string name="place_check_weak">Slabé</string>
+    <string name="place_check_no">Nepoznáno</string>
+    <!-- Add tag wizard, four steps -->
+    <string name="wz2_s2">Název</string>
+    <string name="wz2_s3">Kde bývá</string>
+    <string name="wz2_rest_lead">Přidej místo, kde %1$s bývá. Bude tam ticho.</string>
+    <string name="wz2_skip">Přeskočit</string>
+    <string name="wz2_mark_row">Značka: %1$s</string>
+    <string name="wz2_change">Změnit</string>
+    <string name="wz2_done_reports">Když je pryč, hlásí každou hodinu.</string>
+    <string name="wz2_done_quiet">Na místě %1$s je ticho.</string>
+    <string name="wz2_done_tell">Dáme ti vědět, když se neozve nebo mu dochází baterie.</string>
+    <string name="wz2_devices_title">Ticho, dokud jsi u něj</string>
+    <string name="wz2_devices_text">Vyber telefon, hodinky nebo jiná zařízení, která nosíš. Dokud je jedno z nich poblíž, je %1$s ticho.</string>
+    <string name="wz2_devices_go">Vybrat zařízení</string>
+    <string name="wz2_pair_failed">Spárování se nedokončilo. Nech kabel zapojený a zkus to znovu.</string>
+    <string name="wz2_partial_text">Otevři Nastavení lokátoru s připojeným lokátorem a zapiš je znovu.</string>
+    <!-- Known devices -->
+    <string name="kd_lead_short">Dokud je poblíž některé z nich, je %1$s ticho.</string>
+</resources>

@@ -1,0 +1,301 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Tue, 17 Nov 2026 22:01:49 +0100
+Subject: [PATCH 30/40] tracker: commands over Bluetooth advertising (the
+ presence and LOST scans take a command advert with the 4 B tag of this
+ wake-up's check or k = 0xFFFF, opened like a mesh command and taken like one
+ at a check; 2 s more scanning after an anchor answers; boards without GPS
+ give the presence scan 3 s after the Wi-Fi scan; blecmd console)
+
+---
+ zephcore/src/main_tracker.cpp | 180 ++++++++++++++++++++++++++++++++--
+ 1 file changed, 173 insertions(+), 7 deletions(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index fbffd0f..c8f5ae3 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -119,9 +119,10 @@ extern "C" void bt_ctlr_assert_handle(char *file, uint32_t line)
+ #define EV_USB_LINE    BIT(MESH_EVENT_ROLE_BASE + 8) /* DTR dropped: the serial port closed */
+ #define EV_PAIR        BIT(MESH_EVENT_ROLE_BASE + 9) /* blepair: something happened */
+ #define EV_CHECK_END   BIT(MESH_EVENT_ROLE_BASE + 10) /* 0.7: the receiver window of a check is over */
++#define EV_BLECMD      BIT(MESH_EVENT_ROLE_BASE + 11) /* 0.7.7: an advert carried a command with our tag */
+ #define EV_ALL (MESH_EVENT_LORA_RX | MESH_EVENT_LORA_TX_DONE | MESH_EVENT_CLI_RX | \
+ 		MESH_EVENT_GPS_ACTION | EV_REPORT_DUE | EV_FIX_TIMEOUT | EV_LISTEN_END | EV_TX_RETRY | \
+-		EV_SCAN_END | EV_RETX | EV_BLE | EV_OWNER | EV_USB_LINE | EV_PAIR | EV_CHECK_END)
++		EV_SCAN_END | EV_RETX | EV_BLE | EV_OWNER | EV_USB_LINE | EV_PAIR | EV_CHECK_END | EV_BLECMD)
+ 
+ static struct k_event events;
+ 
+@@ -330,6 +331,22 @@ static bool check_cmd;            /* this wake-up took a command at a check */
+ static bool ble_cmd_deferred;     /* BLE_SCAN taken at a check: runs in the window after report n + 1 */
+ static uint8_t ble_def_sec, ble_def_np;
+ static bool ble_def_active;
++/* 0.7.7: a command from the owner's phone in its Bluetooth advertising (PROTOCOL.md 3.1). The scans
++ * of a wake-up that looks (presence, LOST) filter adverts by the 4 B tag of the command this
++ * wake-up would take from the mesh: check k of report n_report, or LT_BLE_K_NEXT when the wake-up is
++ * not a check. A match is opened like a mesh command and taken like one at a check. */
++#define BLECMD_GRACE_MS 2000  /* after an anchor answers, listen this long for the phone's command */
++#define BLECMD_NOGPS_MS 3000  /* boards without GPS: the presence scan's own window after the Wi-Fi scan */
++static volatile bool blecmd_armed;     /* a scan of this wake-up looks for a command advert */
++static uint16_t blecmd_k;
++static uint8_t blecmd_tag[LT_TAG_LEN]; /* xc(n_report, blecmd_k) */
++static uint8_t blecmd_buf[LT_BLE_CMD_LEN];
++static volatile bool blecmd_full;      /* blecmd_buf holds an advert not yet opened */
++static bool blecmd_taken;              /* this wake-up took one */
++static bool owner_finish_pending;      /* anchor gps off: decide when the grace is over */
++static bool blecmd_inject;             /* console `blecmd adv`: fed at the next armed scan */
++static uint8_t blecmd_inject_buf[LT_BLE_CMD_LEN];
++static uint32_t blecmd_seen, blecmd_ok;
+ #endif
+ 
+ /* packets of one wake-up, sent back to back before the LISTEN window */
+@@ -1272,6 +1289,10 @@ static void go_to_sleep(void)
+ 	check_rx_close();
+ 	check_wait = false;
+ 	check_cmd = false;
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++	blecmd_armed = false;
++	owner_finish_pending = false;
++#endif
+ 	energy_wake_end(wake_start_ms, phase == PH_LISTEN && listen_start_ms ? k_uptime_get() - listen_start_ms : 0);
+ 	listen_only = false;
+ 	wake_start_ms = 0;
+@@ -1391,6 +1412,8 @@ static void try_tx(void)
+ 
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
+ static bool ble_start_deferred(void);
++static void blecmd_arm(void);
++static void blecmd_handle(void);
+ #endif
+ 
+ /* one packet sent: next one after a short random gap, or open the RX window */
+@@ -1866,6 +1889,9 @@ static void send_report(bool with_fix, const lt_wake_out_t *d)
+ 	}
+ 	n_report = n_cur; /* app commands are bound to this report */
+ 	n_report_valid = true;
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++	blecmd_armed = false; /* armed for the previous report */
++#endif
+ 	/* 0.7: the check schedule restarts from this report */
+ 	memcpy(chk_key, keys.k.cmd, sizeof(chk_key));
+ 	chk_base_s = (uint32_t)cfg.interval_min * 60U;
+@@ -2083,14 +2109,15 @@ static void start_report(void)
+ 	if (mode == LT_MODE_LOST) {
+ 		bool due = cfg.lost_ble_every && (lost_reports++ % cfg.lost_ble_every) == 0;
+ 
+-		if (due && ble_purpose == BLE_NONE) {
+-			ble_scan_begin(BLE_LOST, false, 8);
++		if (due && ble_purpose == BLE_NONE && ble_scan_begin(BLE_LOST, false, 8) == 0) {
++			blecmd_arm();
+ 		}
+ 	} else {
+ 		lost_reports = 0;
+-		if (mode == LT_MODE_IDLE && cfg.anchor_count && ble_purpose == BLE_NONE) {
++		if (mode == LT_MODE_IDLE && cfg.anchor_count && ble_purpose == BLE_NONE &&
++		    ble_scan_begin(BLE_PRESENCE, cfg.anchor_active, 30) == 0) {
+ 			/* owner presence: passive by default, at most as long as the GPS search */
+-			ble_scan_begin(BLE_PRESENCE, cfg.anchor_active, 30);
++			blecmd_arm();
+ 		}
+ 	}
+ #endif
+@@ -2116,6 +2143,14 @@ static void start_report(void)
+ 	} else {
+ 		phase = PH_WAIT_FIX; /* no GPS: the search ended without a fix */
+ 		fix_valid = false;
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++		if (ble_purpose == BLE_PRESENCE && k_timer_remaining_get(&ble_tmr) > 0) {
++			/* 0.7.7: no GPS search to run alongside, so the presence scan (the owner, a command
++			 * from the phone) gets a short window of its own after the Wi-Fi scan */
++			k_timer_start(&fix_timer, K_MSEC(BLECMD_NOGPS_MS), K_NO_WAIT);
++			return;
++		}
++#endif
+ 		search_done(false);
+ 	}
+ }
+@@ -2367,6 +2402,76 @@ static void handle_rx(void)
+ }
+ 
+ 
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++/* 0.7.7: a scan of this wake-up started: which command advert would we take (PROTOCOL.md 3.1) */
++static void blecmd_arm(void)
++{
++	blecmd_full = false;
++	blecmd_taken = false;
++	owner_finish_pending = false;
++	blecmd_armed = false;
++	if (!n_report_valid) {
++		return; /* no report since boot: no command can be bound to anything */
++	}
++	/* the check of this wake-up, as at the mesh window; any other wake-up: "the next one" */
++	blecmd_k = (sched_keyed() && chk_k && !chk_hb) ? chk_k : (uint16_t)LT_BLE_K_NEXT;
++	lt_command_tag_k(chk_key, n_report, blecmd_k, blecmd_tag);
++	blecmd_armed = true;
++	if (blecmd_inject) {
++		/* console `blecmd adv <hex>`: through the same filter as an advert on air */
++		blecmd_inject = false;
++		if (!memcmp(blecmd_inject_buf + 1, blecmd_tag, LT_TAG_LEN)) {
++			memcpy(blecmd_buf, blecmd_inject_buf, LT_BLE_CMD_LEN);
++			blecmd_full = true;
++			k_event_post(&events, EV_BLECMD);
++		} else {
++			LOG_WRN("blecmd adv: tag is not that of n=%u k=%u", n_report, blecmd_k);
++		}
++	}
++}
++
++/* an advert with our tag: open it like a mesh command and take it like one at a check */
++static void blecmd_handle(void)
++{
++	uint8_t a[LT_BLE_CMD_LEN];
++	lt_command_t c;
++
++	if (!blecmd_full) {
++		return;
++	}
++	memcpy(a, blecmd_buf, sizeof(a));
++	blecmd_seen++;
++	bool ok = blecmd_armed && !blecmd_taken && phase == PH_WAIT_FIX &&
++		  lt_ble_command_open(chk_key, n_report, blecmd_k, a, sizeof(a), &c);
++
++	blecmd_full = false; /* the next advert with the tag may be the real one */
++	if (!ok) {
++		if (blecmd_armed && !blecmd_taken) {
++			LOG_WRN("Bluetooth command: tag matched, MAC did not");
++		}
++		return;
++	}
++	blecmd_taken = true;
++	blecmd_ok++;
++	LOG_INF("command over Bluetooth for n=%u k=%u", n_report, blecmd_k);
++	at_check = true; /* BLE_SCAN waits for the window after report n + 1, as at a check */
++	apply_command(&c);
++	at_check = false;
++	if (blecmd_k != LT_BLE_K_NEXT) {
++		check_cmd = true;
++	}
++	check_rx_close(); /* the command is here: the check window has done its job */
++	wake_forced = true; /* report n + 1 with CMD_ACK when the search ends */
++	if (ble_purpose == BLE_PRESENCE && (owner_seen || owner_finish_pending)) {
++		ble_scan_halt(); /* presence is known and the command taken */
++	}
++	if (owner_finish_pending) {
++		owner_finish_pending = false;
++		wake_finish(false);
++	}
++}
++#endif
++
+ /* ------------------------------------------------------------------ position without GPS (experiment)
+  *
+  * meshscan: which repeaters does the tracker hear directly, how loud, and where are they
+@@ -2819,6 +2924,17 @@ static void ble_scan_cb(const bt_addr_le_t *addr, int8_t rssi, uint8_t type, str
+ {
+ 	struct ble_seen t = {};
+ 
++	if (blecmd_armed && !blecmd_full && (ble_purpose == BLE_PRESENCE || ble_purpose == BLE_LOST)) {
++		/* 0.7.7: before bt_data_parse, which consumes the buffer. A foreign advert costs a walk
++		 * over its AD structures and a 4 B compare, nothing cryptographic. */
++		const uint8_t *m = lt_ble_command_find(ad->data, ad->len);
++
++		if (m && !memcmp(m + 1, blecmd_tag, LT_TAG_LEN)) {
++			memcpy(blecmd_buf, m, LT_BLE_CMD_LEN);
++			blecmd_full = true;
++			k_event_post(&events, EV_BLECMD);
++		}
++	}
+ 	bt_addr_le_copy(&t.addr, addr);
+ 	t.rssi_min = t.rssi_max = rssi;
+ 	t.rssi_sum = rssi;
+@@ -3141,6 +3257,10 @@ static void ble_timer(void)
+ {
+ 	if (ble_purpose == BLE_PRESENCE) {
+ 		ble_scan_halt(); /* the GPS is still searching; decide when it is done */
++		if (owner_finish_pending && phase == PH_WAIT_FIX) {
++			owner_finish_pending = false; /* anchor gps off: the grace for a command is over */
++			wake_finish(false);
++		}
+ 		return;
+ 	}
+ 	if (ble_purpose == BLE_LOST) {
+@@ -4054,6 +4174,31 @@ static bool cli_quiet(int argc, char **argv)
+ 		return true;
+ 	}
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
++	if (!strcmp(c, "blecmd")) {
++		/* 0.7.7: blecmd: the command advert the next wake-up takes; blecmd adv <hex>: feed one in */
++		if (argc == 3 && !strcmp(argv[1], "adv")) {
++			if (parse_hex(argv[2], blecmd_inject_buf, LT_BLE_CMD_LEN) || blecmd_inject_buf[0] != LT_TYPE_COMMAND) {
++				out("ERR blecmd adv <%u bytes hex, starting 22>\r\n", LT_BLE_CMD_LEN);
++				return true;
++			}
++			blecmd_inject = true;
++			out("OK fed to the next wake-up's scan (needs an anchor, or LOST)\r\n");
++			return true;
++		}
++		uint16_t k = (sched_keyed() && chk_k && !chk_hb) ? chk_k : (uint16_t)LT_BLE_K_NEXT;
++		uint8_t tag[LT_TAG_LEN];
++		char h[2 * LT_TAG_LEN + 1];
++
++		if (!n_report_valid) {
++			out("BLECMD none (no report since boot) seen=%u taken=%u\r\n", blecmd_seen, blecmd_ok);
++			return true;
++		}
++		lt_command_tag_k(chk_key, n_report, k, tag);
++		hex(h, tag, sizeof(tag));
++		out("BLECMD n=%u k=%u tag=%s scan=%s seen=%u taken=%u\r\n", n_report, k, h,
++		    mode == LT_MODE_LOST ? "lost" : cfg.anchor_count ? "presence" : "none", blecmd_seen, blecmd_ok);
++		return true;
++	}
+ 	if (!strcmp(c, "blepkt")) {
+ 		/* blepkt [s] [packets] [active]: BLE_SCAN without the radio, packets printed as `B n j hex` */
+ 		ble_cmd_seconds = (uint8_t)(argc >= 2 ? CLAMP(atoi(argv[1]), 1, 20) : 8);
+@@ -4396,6 +4541,9 @@ static void cli_exec(char *l)
+ 		out("dfu [serial|ble|uf2]: reboot into the bootloader (serial DFU by default)\r\n");
+ 		out("meshscan [s] | discover [s] | neighbours | noise [n] | blescan [s] [passive]\r\n");
+ 		out("blesurvey <rounds> <scan_s> <gap_s> [passive] [quiet] | blestop | blepair [s]\r\n");
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++		out("blecmd [adv <hex>]: the command advert the next wake-up takes from the owner's phone\r\n");
++#endif
+ 		out("zone add <lat> <lon> <r_m>|list|del <i>|clear | quiet | lostble <every> [packets]\r\n");
+ 		out("anchor add addr|name|mfg|svc|irk <value> | anchor list|del <i>|clear|gps on|off|scan active|passive\r\n");
+ #if NOSTR
+@@ -4959,15 +5107,33 @@ int main(void)
+ 			gps_stop_acquiring(); /* or the module searches on for minutes */
+ 			search_done(false);
+ 		}
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++		if (ev & EV_BLECMD) {
++			blecmd_handle();
++		}
++#endif
+ 		if ((ev & EV_OWNER) && phase == PH_WAIT_FIX) {
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
++			/* 0.7.7: the owner's phone may be handing over a command: scan a moment longer */
++			bool grace = blecmd_armed && !blecmd_taken && ble_purpose == BLE_PRESENCE && ble_scanning;
++
+ 			if (!cfg.owner_gps) {
+ 				LOG_INF("owner nearby: GPS off, deciding now");
+ 				gps_stop_acquiring();
+ 				fix_valid = false;
+-				wake_finish(false);
++				if (grace) {
++					k_timer_stop(&fix_timer);
++					owner_finish_pending = true;
++					k_timer_start(&ble_tmr, K_MSEC(BLECMD_GRACE_MS), K_NO_WAIT);
++				} else {
++					wake_finish(false);
++				}
+ 			} else if (ble_purpose == BLE_PRESENCE) {
+-				ble_scan_halt(); /* known; the fix still goes to the history */
++				if (!grace) {
++					ble_scan_halt(); /* known; the fix still goes to the history */
++				} else if (k_timer_remaining_get(&ble_tmr) > BLECMD_GRACE_MS) {
++					k_timer_start(&ble_tmr, K_MSEC(BLECMD_GRACE_MS), K_NO_WAIT);
++				}
+ 			}
+ #endif
+ 		}

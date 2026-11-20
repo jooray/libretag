@@ -1,0 +1,6 @@
+# ZephCore base the LibreTag tracker role is built on. Zephyr and all modules are pinned by
+# zephcore/west.yml at this commit, so this one line pins the whole firmware tree.
+# Change it only with `firmware/tools/zephcore.sh update <ref>`.
+url=https://github.com/liquidraver/ZephCore.git
+commit=da3513aa6d088b7b9fbe5e42e35cffdb289d0d50
+date=2026-11-01

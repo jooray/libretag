@@ -1,0 +1,32 @@
+[project]
+name = "libretag"
+version = "0.5.0"
+description = "LibreTag base station, tracker simulator, protocol reference and Nostr<->MeshCore bridge"
+requires-python = ">=3.11"
+dependencies = [
+    "cryptography>=42",
+    "pyserial>=3.5",
+    "websockets>=17.4",
+]
+
+[project.scripts]
+libretag = "libretag.cli:main"
+nostrmesh = "nostrmesh.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-timeout>=2.4.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/libretag", "src/nostrmesh"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# a hang fails the test instead of blocking the run (the whole suite takes a few seconds)
+timeout = 60

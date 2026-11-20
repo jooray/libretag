@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI redesign 0.9: strings owned by one package (docs: ui-review section 5). Same keys in all six locales. -->
+<resources>
+    <string name="channel_places">Plekken</string>
+    <string name="channel_places_desc">Tracker heeft een van zijn plekken verlaten of bereikt</string>
+
+    <!-- Status: the list row and the detail's plate (ui-review section 3) -->
+    <string name="st_heard">Gemeld %1$s</string>
+    <string name="st_heard_late">Gemeld %1$s · laat</string>
+    <string name="st_left">%1$s verlaten %2$s</string>
+    <string name="st_left_wifi">Wifi-plek verlaten %1$s</string>
+    <string name="st_quiet_place">%1$s · stil</string>
+    <string name="st_quiet_wifi_place">Wifi-plek · stil</string>
+    <string name="st_quiet_with_you">Bij jou · stil</string>
+    <string name="st_quiet_still">Beweegt niet · stil</string>
+    <string name="st_quiet_parked2">Geparkeerd · stil</string>
+    <string name="st_not_heard">Al %1$s geen melding · verwacht %2$s</string>
+    <string name="st_lost2">Verloren-modus · %1$s</string>
+
+    <!-- The plate's second line -->
+    <string name="sub_since">Sinds %1$s</string>
+    <string name="sub_since_device">Sinds %1$s · %2$s is in de buurt</string>
+    <string name="sub_since_your_device">Sinds %1$s · je apparaat is in de buurt</string>
+    <string name="sub_paired">Gekoppeld %1$s</string>
+    <string name="sub_lost_until2">Tot %1$s</string>
+    <string name="sub_guard_left">Bewaakte plek verlaten %1$s</string>
+    <string name="sub_not_heard">Laatst gemeld %1$s · %2$s</string>
+
+    <!-- The When row: the one "next report" line -->
+    <string name="next_report">Volgende melding ~%1$s</string>
+    <string name="next_due">Was verwacht ~%1$s</string>
+    <string name="next_latest">Volgende melding uiterlijk %1$s</string>
+    <string name="next_when_leaves">Als hij %1$s verlaat</string>
+    <string name="next_when_leaves_wifi">Als hij de wifi-plek verlaat</string>
+    <string name="next_when_part">Als je apparaat niet meer in de buurt is</string>
+    <string name="next_when_moves">Als hij beweegt</string>
+    <!-- %1$s is one of the three lines above, %2$s a duration such as "1 h" -->
+    <string name="next_within">%1$s (binnen %2$s)</string>
+    <!-- %1$s is the line above, %2$s a time such as "18:40" or "tomorrow 18:40" -->
+    <string name="next_and_latest">%1$s, uiterlijk %2$s</string>
+    <string name="next_overdue">Te laat</string>
+    <string name="next_first">Eerste melding binnen %1$s</string>
+
+    <!-- Commands: the one line under the buttons, then the slip that replaces it -->
+    <string name="cmd_reach">Een commando bereikt hem ~%1$s</string>
+    <string name="cmd_reach_report">Een commando bereikt hem met de volgende melding, uiterlijk %1$s</string>
+    <string name="cmd_reach_heard">Een commando bereikt hem zodra hij weer van zich laat horen</string>
+    <string name="cmd_reach_first">Een commando bereikt hem met de eerste melding</string>
+    <string name="cmd_reach_bridge">%1$s · via een brug</string>
+    <string name="cmd_offline">Offline. Commando\'s wachten tot de app weer verbinding heeft.</string>
+    <string name="cmd_stop_lost">Verloren-modus stoppen</string>
+    <string name="cmd_stop_track">Volgen stoppen</string>
+    <string name="slip2_out">%1$s · wordt verstuurd ~%2$s</string>
+    <string name="slip2_out_latest">%1$s · wordt uiterlijk %2$s verstuurd</string>
+    <string name="slip2_out_heard">%1$s · wordt verstuurd zodra hij weer van zich laat horen</string>
+    <string name="slip2_out_first">%1$s · wordt met de eerste melding verstuurd</string>
+    <string name="slip2_sent">%1$s · verstuurd %2$s, wacht op de tracker</string>
+    <string name="slip2_confirmed">%1$s · bevestigd %2$s</string>
+    <string name="slip2_retry">%1$s · geen antwoord, volgende poging ~%2$s</string>
+    <string name="slip2_retry_later">%1$s · nog geen antwoord, nieuwe poging volgt</string>
+    <!-- the list row: command and time only, "Beep · ~1:13" -->
+    <string name="slip2_row">%1$s · %2$s</string>
+
+    <!-- Where row, Wi-Fi lookup and guard -->
+    <string name="where_at_place">Bij %1$s</string>
+    <string name="where_at_wifi_place">Op een wifi-plek</string>
+    <string name="pos_at_place_gps">Bij %1$s · GPS ±%2$s</string>
+    <string name="where_place_wifi">Herkend aan zijn wifi-netwerken</string>
+    <plurals name="where_wifi_heard">
+        <item quantity="one">Geen GPS · %1$d wifi-netwerk gehoord</item>
+        <item quantity="other">Geen GPS · %1$d wifi-netwerken gehoord</item>
+    </plurals>
+    <string name="wifi_looking">Opzoeken…</string>
+    <string name="wifi_unknown">%1$s kent deze netwerken niet</string>
+    <string name="wifi_busy">%1$s beperkt het aantal opzoekingen. Probeer het later opnieuw.</string>
+    <string name="wifi_failed">Opzoeken mislukt. Controleer de verbinding en probeer het opnieuw.</string>
+    <string name="guard_here">Deze plek bewaken</string>
+    <string name="guard_since">Bewaakt sinds %1$s · alarm als hij %2$s beweegt</string>
+    <string name="guard_stop">Stoppen met bewaken</string>
+    <string name="guard_new_spot">Nieuwe plek bewaken</string>
+    <string name="a11y_guarded">bewaakt</string>
+
+    <!-- Notifications on the Places channel -->
+    <string name="notif_left">%1$s verliet %2$s om %3$s</string>
+    <string name="notif_arrived">%1$s kwam om %3$s aan bij %2$s</string>
+    <string name="notif_left_wifi">%1$s verliet om %2$s een wifi-plek</string>
+    <string name="notif_arrived_wifi">%1$s kwam om %2$s aan bij een wifi-plek</string>
+    <string name="notif_place_text">%1$s. %2$s</string>
+</resources>

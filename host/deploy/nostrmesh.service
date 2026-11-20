@@ -1,0 +1,34 @@
+# systemd user unit for the nostrmesh bridge (template, docs/nostr-mesh-bridge.md 8.11).
+#
+# Install (as the user that owns the radio and the checkout):
+#   mkdir -p ~/.config/systemd/user
+#   cp host/deploy/nostrmesh.service ~/.config/systemd/user/
+#   edit the two paths below (checkout and uv), then:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now nostrmesh
+#   loginctl enable-linger "$USER"     # keep it running without a login session
+#   journalctl --user -u nostrmesh -f  # log, including the hourly heartbeat line
+#
+# The bridge exits with status 3 when the radio has been silent for [watchdog] rx_silence_s;
+# systemd restarts it after RestartSec.
+
+[Unit]
+Description=nostrmesh MeshCore <-> Nostr bridge
+After=network-online.target
+Wants=network-online.target
+# never give up: the watchdog may restart it every 30 min while the radio is away
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# %h is the user's home directory; the checkout and uv may live elsewhere
+WorkingDirectory=%h/libre-tag/host
+ExecStart=%h/.local/bin/uv run --frozen --project %h/libre-tag/host nostrmesh run -c %h/.config/nostrmesh/bridge.toml
+Restart=on-failure
+RestartForceExitStatus=3
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+# the serial port of a USB node: the user must be in the group that owns it (dialout or uucp)
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.Bridge" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand_dark</item>
+        <item name="colorSecondary">#6FD3A3</item>
+        <item name="android:statusBarColor">?attr/colorSurface</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+    <style name="StatNumber" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="android:textStyle">bold</item>
+    </style>
+</resources>

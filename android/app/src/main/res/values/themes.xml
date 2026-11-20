@@ -1,0 +1,328 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Material 3 with the Trail Blaze palette (no dynamic colour: the blazes and the graphite
+         plates are the brand). Type: Archivo for names and headings, Archivo Narrow for the dense
+         signpost lines, tabular figures everywhere. -->
+    <style name="Base.Theme.LibreTag" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorOnPrimary">@color/on_primary</item>
+        <item name="colorPrimaryContainer">@color/tonal</item>
+        <item name="colorOnPrimaryContainer">@color/on_tonal</item>
+        <item name="colorPrimaryInverse">@color/inverse_act</item>
+        <item name="colorSecondary">@color/ink2</item>
+        <item name="colorOnSecondary">@color/bg</item>
+        <item name="colorSecondaryContainer">@color/tonal</item>
+        <item name="colorOnSecondaryContainer">@color/on_tonal</item>
+        <item name="colorTertiary">@color/focus</item>
+        <item name="colorOnTertiary">@color/on_focus</item>
+        <item name="colorTertiaryContainer">@color/surf3</item>
+        <item name="colorOnTertiaryContainer">@color/ink</item>
+        <item name="android:colorBackground">@color/bg</item>
+        <item name="colorSurface">@color/bg</item>
+        <item name="colorOnSurface">@color/ink</item>
+        <item name="colorSurfaceVariant">@color/surf3</item>
+        <item name="colorOnSurfaceVariant">@color/ink2</item>
+        <item name="colorSurfaceContainerLowest">@color/bg</item>
+        <item name="colorSurfaceContainerLow">@color/bg</item>
+        <item name="colorSurfaceContainer">@color/surf2</item>
+        <item name="colorSurfaceContainerHigh">@color/sheet</item>
+        <item name="colorSurfaceContainerHighest">@color/surf3</item>
+        <item name="colorSurfaceInverse">@color/inverse</item>
+        <item name="colorOnSurfaceInverse">@color/on_inverse</item>
+        <item name="colorOutline">@color/outline</item>
+        <item name="colorOutlineVariant">@color/line</item>
+        <item name="colorError">@color/crit</item>
+        <item name="colorOnError">@color/on_crit</item>
+        <item name="colorErrorContainer">@color/crit</item>
+        <item name="colorOnErrorContainer">@color/on_crit</item>
+        <item name="android:windowLightStatusBar">@bool/light_bars</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">@bool/light_bars</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:textColorHighlight">#521F5FB4</item>
+
+        <item name="fontFamily">@font/archivo_medium</item>
+        <item name="android:fontFamily">@font/archivo_medium</item>
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.LibreTag.HeadlineSmall</item>
+        <item name="textAppearanceTitleLarge">@style/TextAppearance.LibreTag.TitleLarge</item>
+        <item name="textAppearanceTitleMedium">@style/TextAppearance.LibreTag.TitleMedium</item>
+        <item name="textAppearanceTitleSmall">@style/TextAppearance.LibreTag.TitleSmall</item>
+        <item name="textAppearanceBodyLarge">@style/TextAppearance.LibreTag.BodyLarge</item>
+        <item name="textAppearanceBodyMedium">@style/TextAppearance.LibreTag.BodyMedium</item>
+        <item name="textAppearanceBodySmall">@style/TextAppearance.LibreTag.BodySmall</item>
+        <item name="textAppearanceLabelLarge">@style/TextAppearance.LibreTag.LabelLarge</item>
+        <item name="textAppearanceLabelMedium">@style/TextAppearance.LibreTag.LabelMedium</item>
+        <item name="textAppearanceLabelSmall">@style/TextAppearance.LibreTag.LabelSmall</item>
+
+        <item name="materialButtonStyle">@style/Widget.LibreTag.Button</item>
+        <item name="materialButtonOutlinedStyle">@style/Widget.LibreTag.Button.Outlined</item>
+        <item name="borderlessButtonStyle">@style/Widget.LibreTag.Button.Text</item>
+        <item name="chipStyle">@style/Widget.LibreTag.Chip</item>
+        <item name="extendedFloatingActionButtonStyle">@style/Widget.LibreTag.Fab</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.LibreTag.Dialog</item>
+        <item name="bottomSheetDialogTheme">@style/ThemeOverlay.LibreTag.BottomSheet</item>
+        <item name="snackbarStyle">@style/Widget.LibreTag.Snackbar</item>
+        <item name="snackbarTextViewStyle">@style/Widget.LibreTag.SnackbarText</item>
+        <item name="materialSwitchStyle">@style/Widget.Material3.CompoundButton.MaterialSwitch</item>
+        <item name="sliderStyle">@style/Widget.LibreTag.Slider</item>
+        <item name="toolbarStyle">@style/Widget.LibreTag.Toolbar</item>
+        <item name="popupMenuStyle">@style/Widget.LibreTag.PopupMenu</item>
+        <item name="textInputStyle">@style/Widget.Material3.TextInputLayout.OutlinedBox</item>
+    </style>
+
+    <style name="Theme.LibreTag" parent="Base.Theme.LibreTag" />
+
+    <!-- routing activities (USB attach, share links): no flash of an empty window -->
+    <style name="Theme.LibreTag.Translucent" parent="Theme.LibreTag">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
+    <style name="ThemeOverlay.LibreTag.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorSurface">@color/sheet</item>
+        <item name="colorSurfaceContainerHigh">@color/sheet</item>
+        <item name="materialAlertDialogTitleTextStyle">@style/LibreTag.DialogTitle</item>
+        <item name="materialAlertDialogBodyTextStyle">@style/LibreTag.DialogBody</item>
+        <item name="buttonBarPositiveButtonStyle">@style/Widget.LibreTag.Button.Text</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Widget.LibreTag.Button.Text</item>
+        <item name="buttonBarNeutralButtonStyle">@style/Widget.LibreTag.Button.Text</item>
+    </style>
+    <style name="LibreTag.DialogTitle" parent="MaterialAlertDialog.Material3.Title.Text">
+        <item name="android:textAppearance">@style/TextAppearance.LibreTag.TitleLarge</item>
+    </style>
+    <style name="LibreTag.DialogBody" parent="MaterialAlertDialog.Material3.Body.Text">
+        <item name="android:textAppearance">@style/TextAppearance.LibreTag.BodyMedium</item>
+        <item name="android:textColor">@color/ink2</item>
+    </style>
+
+    <style name="ThemeOverlay.LibreTag.BottomSheet" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/Widget.LibreTag.BottomSheet</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="enableEdgeToEdge">true</item>
+    </style>
+    <style name="Widget.LibreTag.BottomSheet" parent="Widget.Material3.BottomSheet.Modal">
+        <item name="backgroundTint">@color/sheet</item>
+        <item name="maxWidth">640dp</item>
+    </style>
+
+    <style name="Widget.LibreTag.Toolbar" parent="Widget.Material3.Toolbar">
+        <item name="titleTextAppearance">@style/TextAppearance.LibreTag.TitleLarge</item>
+        <item name="subtitleTextAppearance">@style/TextAppearance.LibreTag.LabelMedium</item>
+        <item name="subtitleTextColor">@color/ink3</item>
+    </style>
+
+    <style name="Widget.LibreTag.PopupMenu" parent="Widget.Material3.PopupMenu">
+        <item name="android:popupBackground">@drawable/bg_menu</item>
+    </style>
+
+    <!-- buttons: pill, 40 dp visual inside a 48 dp target -->
+    <style name="Widget.LibreTag.Button" parent="Widget.Material3.Button">
+        <item name="android:textAppearance">@style/TextAppearance.LibreTag.LabelLarge</item>
+        <item name="android:paddingStart">20dp</item>
+        <item name="android:paddingEnd">20dp</item>
+        <item name="iconSize">18dp</item>
+        <item name="iconPadding">8dp</item>
+    </style>
+    <style name="Widget.LibreTag.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:textAppearance">@style/TextAppearance.LibreTag.LabelLarge</item>
+        <item name="android:textColor">@color/ink</item>
+        <item name="iconTint">@color/ink</item>
+        <item name="strokeColor">@color/outline</item>
+        <item name="iconSize">18dp</item>
+        <item name="iconPadding">8dp</item>
+    </style>
+    <style name="Widget.LibreTag.Button.Text" parent="Widget.Material3.Button.TextButton">
+        <item name="android:textAppearance">@style/TextAppearance.LibreTag.LabelLarge</item>
+        <item name="android:textColor">@color/ink</item>
+        <item name="iconTint">@color/ink</item>
+        <item name="iconSize">18dp</item>
+    </style>
+    <style name="Widget.LibreTag.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
+        <item name="android:textAppearance">@style/TextAppearance.LibreTag.LabelLarge</item>
+        <item name="iconSize">18dp</item>
+        <item name="iconPadding">8dp</item>
+    </style>
+    <style name="Widget.LibreTag.Button.Crit" parent="Widget.LibreTag.Button">
+        <item name="backgroundTint">@color/crit</item>
+        <item name="android:textColor">@color/on_crit</item>
+        <item name="iconTint">@color/on_crit</item>
+    </style>
+    <style name="Widget.LibreTag.Button.OnMap" parent="Widget.Material3.Button.ElevatedButton">
+        <item name="android:textAppearance">@style/TextAppearance.LibreTag.LabelLarge</item>
+        <item name="backgroundTint">@color/chip</item>
+        <item name="android:textColor">@color/ink</item>
+        <item name="iconTint">@color/ink</item>
+        <item name="iconSize">18dp</item>
+        <item name="iconPadding">8dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+    </style>
+
+    <style name="Widget.LibreTag.Chip" parent="Widget.Material3.Chip.Filter">
+        <item name="android:textAppearance">@style/TextAppearance.LibreTag.LabelLarge</item>
+        <item name="chipBackgroundColor">@color/chip_bg</item>
+        <item name="chipStrokeColor">@color/chip_stroke</item>
+        <item name="chipCornerRadius">8dp</item>
+    </style>
+
+    <style name="Widget.LibreTag.Fab" parent="Widget.Material3.ExtendedFloatingActionButton.Icon.Primary">
+        <item name="backgroundTint">@color/primary</item>
+        <item name="android:textColor">@color/on_primary</item>
+        <item name="iconTint">@color/on_primary</item>
+        <item name="android:textAppearance">@style/TextAppearance.LibreTag.LabelLarge</item>
+    </style>
+
+    <style name="Widget.LibreTag.Snackbar" parent="Widget.Material3.Snackbar">
+        <item name="backgroundTint">@color/inverse</item>
+    </style>
+    <style name="Widget.LibreTag.SnackbarText" parent="Widget.Material3.Snackbar.TextView">
+        <item name="android:textAppearance">@style/TextAppearance.LibreTag.BodyMedium</item>
+        <item name="android:textColor">@color/on_inverse</item>
+        <item name="android:maxLines">4</item>
+    </style>
+
+    <style name="Widget.LibreTag.Slider" parent="Widget.Material3.Slider">
+        <item name="trackColorActive">@color/primary</item>
+        <item name="trackColorInactive">@color/surf3</item>
+        <item name="thumbColor">@color/primary</item>
+        <item name="haloColor">#331E1E1E</item>
+        <item name="tickVisible">false</item>
+        <item name="labelBehavior">gone</item>
+    </style>
+
+    <!-- type scale -->
+    <style name="TextAppearance.LibreTag" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:fontFeatureSettings">tnum</item>
+        <item name="fontFamily">@font/archivo_medium</item>
+        <item name="android:fontFamily">@font/archivo_medium</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+    <style name="TextAppearance.LibreTag.HeadlineSmall">
+        <item name="fontFamily">@font/archivo_extrabold</item>
+        <item name="android:fontFamily">@font/archivo_extrabold</item>
+        <item name="android:textSize">24sp</item>
+        <item name="lineHeight">30sp</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+    <style name="TextAppearance.LibreTag.TitleLarge">
+        <item name="fontFamily">@font/archivo_extrabold</item>
+        <item name="android:fontFamily">@font/archivo_extrabold</item>
+        <item name="android:textSize">22sp</item>
+        <item name="lineHeight">28sp</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+    <style name="TextAppearance.LibreTag.TitleMedium">
+        <item name="fontFamily">@font/archivo_extrabold</item>
+        <item name="android:fontFamily">@font/archivo_extrabold</item>
+        <item name="android:textSize">18sp</item>
+        <item name="lineHeight">22sp</item>
+    </style>
+    <style name="TextAppearance.LibreTag.TitleSmall">
+        <item name="fontFamily">@font/archivo_extrabold</item>
+        <item name="android:fontFamily">@font/archivo_extrabold</item>
+        <item name="android:textSize">15sp</item>
+        <item name="lineHeight">20sp</item>
+    </style>
+    <style name="TextAppearance.LibreTag.BodyLarge">
+        <item name="android:textSize">16sp</item>
+        <item name="lineHeight">24sp</item>
+    </style>
+    <style name="TextAppearance.LibreTag.BodyMedium">
+        <item name="android:textSize">15sp</item>
+        <item name="lineHeight">22sp</item>
+    </style>
+    <style name="TextAppearance.LibreTag.BodySmall">
+        <item name="fontFamily">@font/archivo_narrow_medium</item>
+        <item name="android:fontFamily">@font/archivo_narrow_medium</item>
+        <item name="android:textSize">14sp</item>
+        <item name="lineHeight">19sp</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+    <style name="TextAppearance.LibreTag.LabelLarge">
+        <item name="fontFamily">@font/archivo_semibold</item>
+        <item name="android:fontFamily">@font/archivo_semibold</item>
+        <item name="android:textSize">14sp</item>
+        <item name="lineHeight">20sp</item>
+        <item name="android:letterSpacing">0.01</item>
+    </style>
+    <style name="TextAppearance.LibreTag.LabelMedium">
+        <item name="fontFamily">@font/archivo_narrow_semibold</item>
+        <item name="android:fontFamily">@font/archivo_narrow_semibold</item>
+        <item name="android:textSize">13sp</item>
+        <item name="lineHeight">16sp</item>
+    </style>
+    <style name="TextAppearance.LibreTag.LabelSmall">
+        <item name="fontFamily">@font/archivo_narrow_semibold</item>
+        <item name="android:fontFamily">@font/archivo_narrow_semibold</item>
+        <item name="android:textSize">12sp</item>
+        <item name="lineHeight">16sp</item>
+    </style>
+
+    <!-- signpost roles -->
+    <style name="TextAppearance.LibreTag.TagName">
+        <item name="fontFamily">@font/archivo_extrabold</item>
+        <item name="android:fontFamily">@font/archivo_extrabold</item>
+        <item name="android:textSize">18sp</item>
+        <item name="lineHeight">22sp</item>
+    </style>
+    <style name="TextAppearance.LibreTag.Status">
+        <item name="fontFamily">@font/archivo_narrow_semibold</item>
+        <item name="android:fontFamily">@font/archivo_narrow_semibold</item>
+        <item name="android:textSize">15sp</item>
+        <item name="lineHeight">20sp</item>
+    </style>
+    <style name="TextAppearance.LibreTag.Band">
+        <item name="fontFamily">@font/archivo_narrow_bold</item>
+        <item name="android:fontFamily">@font/archivo_narrow_bold</item>
+        <item name="android:textSize">15sp</item>
+        <item name="lineHeight">20sp</item>
+    </style>
+    <style name="TextAppearance.LibreTag.PosLine">
+        <item name="fontFamily">@font/archivo_narrow_medium</item>
+        <item name="android:fontFamily">@font/archivo_narrow_medium</item>
+        <item name="android:textSize">14sp</item>
+        <item name="lineHeight">19sp</item>
+        <item name="android:textColor">@color/ink2</item>
+    </style>
+    <style name="TextAppearance.LibreTag.Age">
+        <item name="fontFamily">@font/archivo_narrow_bold</item>
+        <item name="android:fontFamily">@font/archivo_narrow_bold</item>
+        <item name="android:textSize">16sp</item>
+        <item name="lineHeight">22sp</item>
+    </style>
+    <style name="TextAppearance.LibreTag.BigStatus">
+        <item name="fontFamily">@font/archivo_extrabold</item>
+        <item name="android:fontFamily">@font/archivo_extrabold</item>
+        <item name="android:textSize">21sp</item>
+        <item name="lineHeight">27sp</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+    <style name="TextAppearance.LibreTag.RowKey">
+        <item name="fontFamily">@font/archivo_narrow_bold</item>
+        <item name="android:fontFamily">@font/archivo_narrow_bold</item>
+        <item name="android:textSize">14sp</item>
+        <item name="lineHeight">22sp</item>
+        <item name="android:textColor">@color/ink3</item>
+    </style>
+    <style name="TextAppearance.LibreTag.RowValue">
+        <item name="fontFamily">@font/archivo_semibold</item>
+        <item name="android:fontFamily">@font/archivo_semibold</item>
+        <item name="android:textSize">16sp</item>
+        <item name="lineHeight">22sp</item>
+    </style>
+    <style name="TextAppearance.LibreTag.Section">
+        <item name="fontFamily">@font/archivo_extrabold</item>
+        <item name="android:fontFamily">@font/archivo_extrabold</item>
+        <item name="android:textSize">17sp</item>
+        <item name="lineHeight">24sp</item>
+    </style>
+    <style name="TextAppearance.LibreTag.MapLabel">
+        <item name="fontFamily">@font/archivo_narrow_bold</item>
+        <item name="android:fontFamily">@font/archivo_narrow_bold</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+</resources>

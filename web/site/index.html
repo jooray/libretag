@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LibreTag: an open GPS tag on the MeshCore mesh</title>
+<meta name="description" content="A GPS tag that sleeps, reports once an hour over LoRa and tells only you where it is. No SIM card, no cloud, no account.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1A1C1E" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://cypherpunk.today/libretag/">
+<link rel="alternate" hreflang="en" href="https://cypherpunk.today/libretag/">
+<link rel="alternate" hreflang="sk" href="https://cypherpunk.today/libretag/sk/">
+<link rel="alternate" hreflang="x-default" href="https://cypherpunk.today/libretag/">
+<link rel="icon" type="image/svg+xml" href="img/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="LibreTag">
+<meta property="og:title" content="LibreTag: an open GPS tag on the MeshCore mesh">
+<meta property="og:description" content="A GPS tag that sleeps, reports once an hour over LoRa and tells only you where it is. No SIM card, no cloud, no account.">
+<meta property="og:url" content="https://cypherpunk.today/libretag/">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="https://cypherpunk.today/libretag/img/og-en.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="LibreTag: a GPS tag that sleeps, reports once an hour and tells only you.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="LibreTag: an open GPS tag on the MeshCore mesh">
+<meta name="twitter:description" content="A GPS tag that sleeps, reports once an hour over LoRa and tells only you where it is. No SIM card, no cloud, no account.">
+<meta name="twitter:image" content="https://cypherpunk.today/libretag/img/og-en.png">
+<link rel="preload" href="fonts/archivo_extrabold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/archivo_regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+<script>document.documentElement.classList.add("js")</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="./"><img src="img/icon-512.png" width="36" height="36" alt="">LibreTag</a>
+    <nav aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#features">Features</a>
+      <a href="#hardware">Hardware</a>
+      <a href="#get">Get it</a>
+    </nav>
+    <div class="top-r">
+      <div class="lang" role="group" aria-label="Language / Jazyk">
+        <span aria-current="true" lang="en">EN</span><a href="sk/" hreflang="sk" lang="sk">SK</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <h1>A GPS tag that sleeps, reports once an hour and tells only you.</h1>
+      <p class="lede">LibreTag is an open tracker that reports over the MeshCore LoRa mesh. It needs no SIM card, no cloud and no account. When it has no GPS fix, the app shows an area, not an invented point.</p>
+      <div class="cta">
+        <a class="btn" href="#get">Get the app</a>
+        <a class="btn ghost" href="#video">Watch the video (6 min)</a>
+      </div>
+      <p class="status">Status: a working prototype. The tag runs on real hardware. The app and the bridges are still early.</p>
+    </div>
+    <div class="hero-art">
+      <img class="bg" src="img/hero-trail.webp" width="1024" height="1024" alt="A birch trunk with a red and white trail marker and a small luggage tag hanging from a branch, over misty hills." fetchpriority="high">
+      <div class="plates" role="group" aria-label="Example of two tags in the app">
+        <p class="cap">Two tags as the app shows them (example)</p>
+        <article class="plate"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><div><div class="plate-name">Car<span>thing</span></div><p class="st">Heard 12&nbsp;min ago · next ~14:31</p><p>GPS ±8&nbsp;m · 48.70120, 21.25410</p></div><div class="plate-side"><span class="age">12&nbsp;min</span><span class="bat"><svg viewBox="0 0 18 10" aria-hidden="true"><rect x=".75" y=".75" width="14.5" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="16" y="3" width="2" height="4" fill="currentColor"/><rect x="2.5" y="2.5" width="11.5" height="5" fill="currentColor"/></svg>82&nbsp;%</span></div><span class="ticket">Beep · goes out ~14:31</span></article>
+        <article class="plate"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><div><div class="plate-name">Backpack<span>thing</span></div><p class="st">Heard 41&nbsp;min ago · next ~14:50</p><p>No GPS · area ±1.2&nbsp;km (68&nbsp;%)</p></div><div class="plate-side"><span class="age">41&nbsp;min</span><span class="bat"><svg viewBox="0 0 18 10" aria-hidden="true"><rect x=".75" y=".75" width="14.5" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="16" y="3" width="2" height="4" fill="currentColor"/><rect x="2.5" y="2.5" width="9" height="5" fill="currentColor"/></svg>64&nbsp;%</span></div></article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!--VIDEO-->
+<section id="video">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><h2>Watch the explainer (6 minutes)</h2></div>
+    <p class="sec-intro">A short explainer of the idea and of how a report finds its way to your phone.</p>
+    <div class="video" id="videobox">
+      <video controls preload="none" playsinline poster="media/libretag-explainer-en.jpg" aria-label="LibreTag explainer video, English">
+        <source src="media/libretag-explainer-en.mp4" type="video/mp4">
+        Your browser cannot play this video.
+      </video>
+    </div>
+  </div>
+</section>
+<!--/VIDEO-->
+
+<section id="what" class="tint">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><h2>What it is</h2></div>
+    <p class="sec-intro">LibreTag is a small tag for a car, a bag or a child's backpack. It sleeps almost all the time. About once an hour it wakes up, looks for a GPS fix, sends one encrypted packet over the MeshCore mesh and listens for a short while in case you sent a command. Then it goes back to sleep.</p>
+    <ul class="rows">
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><h3>Radio, not a phone network</h3><p>The tag talks over LoRa on the community MeshCore mesh. There is no SIM card to buy and no data plan to pay for.</p></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><h3>Nobody in the middle</h3><p>Positions travel between the tag, your phone and relays that anyone can run. There is no company server that holds them, and only you can read them.</p></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><h3>Pairing by cable</h3><p>You pair the tag with a USB-C cable. That is the whole setup, and you never create an account. Later changes work over the cable or over Bluetooth.</p></li>
+    </ul>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><h2>How it works</h2></div>
+    <p class="sec-intro">The tag does nothing for most of the hour, to save battery. Each wake-up follows the same cycle.</p>
+    <ol class="cycle">
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><b>Sleep</b><span>Almost the whole hour. The wake-up time shifts by about ±10&nbsp;%, so nobody can read a period from it.</span></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><b>Look for GPS</b><span>It waits up to 90&nbsp;seconds for a fix and notes the repeaters it can hear.</span></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><b>Report</b><span>One sealed packet goes out on the mesh. Nothing else is transmitted.</span></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><b>Listen</b><span>A short window for a command from you, over the mesh or, when your phone is near, over Bluetooth.</span></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><b>Sleep again</b><span>A command, if one arrived, is carried out now.</span></li>
+    </ol>
+    <div class="cols three" style="margin-top:40px">
+      <div><h3>Over the mesh</h3><p>The packet hops through MeshCore repeaters. If your phone is connected to your own MeshCore node, it hears the report directly, and when the tag is in that node's range a command goes straight from it, to radios in range only. For now this needs our modified MeshCore Open, see <a href="#own-node">Your own node</a>.</p></div>
+      <div><h3>Through Nostr bridges</h3><p>A bridge is a MeshCore node plus a small program that publishes what it hears to Nostr relays. It decrypts nothing and signs every report with a random key. Thanks to bridges the app finds the tag in another town or another country. Commands travel back the same way: the app leaves them in a Nostr mailbox, and a bridge that heard the tag sends them. Bridges announce themselves on Nostr, so the app can address a command to the ones that heard your tag.</p></div>
+      <div><h3>Commands</h3><p>Lost mode (a report every 10&nbsp;minutes for 24&nbsp;hours), Track for an hour at an interval you choose, Beep, a Bluetooth scan, and Open Bluetooth remotely. Lost mode and Track can be stopped early. The tag sleeps, so a command goes out at its next report or check, and the app tells you when and which way: “Beep · goes out ~14:31”, then “confirmed” once the tag answers. With your phone next to the tag the command goes over Bluetooth, otherwise from your own node if the tag is in its range, and through the bridges if neither reaches it.</p></div>
+    </div>
+    <p class="note">Without your own node, the app works over the USB cable or Bluetooth (pairing and settings) and Nostr. Reports and commands then go through bridges between MeshCore and Nostr, so a bridge has to be within reach of the tag, in its country or area. With no bridge nearby, no reports arrive over Nostr.</p>
+  </div>
+</section>
+
+<section id="nogps" class="tint">
+  <div class="wrap cols split">
+    <div>
+      <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><h2>No GPS? You get an area and how sure it is</h2></div>
+      <p>In a garage or under thick cover the tag may have no fix. Every report also carries up to five MeshCore repeaters the tag heard, and its last GPS fix with the time.</p>
+      <p>The app matches those repeaters against a public repeater map (about 55&nbsp;000 repeaters, downloaded once and refreshed after 30&nbsp;days) and draws two areas, one at 68&nbsp;% and one at 95&nbsp;%. It is an area, not a point. When a repeater code is shared by several repeaters, the app says it cannot tell instead of guessing.</p>
+      <p>On real data the estimate was off by about 1 to 1.4&nbsp;km. Treat it as the place to start looking. Your positions are never sent to a geocoder.</p>
+    </div>
+    <figure class="mapbox" style="margin:0">
+      <svg viewBox="0 0 520 380" role="img" aria-labelledby="mapt mapd">
+<title id="mapt">Map with an estimated area</title><desc id="mapd">A map with four repeaters, a tag marker in the middle and two dashed circles, the inner for 68 percent and the outer for 95 percent.</desc>
+<rect class="m-paper" width="520" height="380" fill="#F3F0E8"/>
+<path class="m-forest" d="M0 250 C60 230 120 270 170 300 C200 320 150 360 120 380 L0 380Z" fill="#E0E7D0"/>
+<path class="m-forest" d="M380 0 C420 30 470 20 520 50 L520 0Z" fill="#E0E7D0"/>
+<path class="m-water" d="M330 380 C350 330 400 320 430 290 C470 250 500 250 520 230 L520 380Z" fill="#C3D7E8"/>
+<g fill="none" stroke="#D7CBA9" stroke-width="1.2"><path d="M0 120 C100 90 180 140 260 100 C340 60 420 90 520 60"/><path d="M0 150 C100 120 180 170 260 130 C340 90 420 120 520 90"/><path d="M0 90 C100 60 180 110 260 70 C340 30 420 60 520 30" stroke-width="2"/></g>
+<path class="m-road" d="M0 300 C90 280 160 230 240 220 C330 210 400 150 520 140" fill="none" stroke="#fff" stroke-width="7"/>
+<path d="M0 300 C90 280 160 230 240 220 C330 210 400 150 520 140" fill="none" stroke="#D6CFBE" stroke-width="9" opacity=".35"/>
+<circle cx="268" cy="190" r="150" fill="#1F5FB4" fill-opacity=".05" stroke="#1F5FB4" stroke-width="2" stroke-dasharray="3 7" stroke-linecap="round"/>
+<circle cx="268" cy="190" r="92" fill="#1F5FB4" fill-opacity=".14" stroke="#1F5FB4" stroke-width="2.5" stroke-dasharray="9 6"/>
+<g stroke="#1E1E1E" stroke-width="1.2" stroke-dasharray="2 4" opacity=".55">
+<line x1="268" y1="190" x2="120" y2="110"/><line x1="268" y1="190" x2="390" y2="95"/><line x1="268" y1="190" x2="150" y2="290"/><line x1="268" y1="190" x2="420" y2="270"/></g>
+<g class="m-rep" fill="#1E1E1E" stroke="#fff" stroke-width="2">
+<rect x="113" y="103" width="14" height="14"/><rect x="383" y="88" width="14" height="14"/><rect x="143" y="283" width="14" height="14"/><rect x="413" y="263" width="14" height="14"/></g>
+<g transform="translate(268 190)"><circle r="15" fill="#fff" stroke="#1E1E1E" stroke-width="2.5"/><rect x="-9" y="-3" width="18" height="6" fill="#D7262E"/></g>
+<g class="m-lab" font-family="Archivo Narrow,Arial Narrow,sans-serif" font-weight="700" font-size="14" fill="#1E1E1E">
+<text x="276" y="106">68 %</text><text x="348" y="140" transform="rotate(0)">95 %</text></g>
+</svg>
+      <figcaption>Illustration with synthetic data. Squares are repeaters the tag heard.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="privacy" class="night">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><h2>Only the owner can read it</h2></div>
+    <p class="sec-intro">Every feature is judged by what a thief with the device, a relay operator or someone with a radio can learn from it.</p>
+    <ul class="rows">
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><h3>Sealed reports</h3><p>Reports are encrypted in SIV mode, so a repeated counter reveals nothing.</p></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><h3>A fresh tag every time</h3><p>Each report carries a rotating 4-byte tag instead of a permanent identity. Only you can tell which tag a packet belongs to.</p></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><h3>A ratchet</h3><p>The keys advance every 64&nbsp;reports and the old ones are overwritten on the tag. Someone who steals it and reads it out cannot read the older reports.</p></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><h3>A locked USB port</h3><p>After pairing, the key leaves the tag and its USB console locks. Only your app can unlock it.</p></li>
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M4 20 L20 4 L25 9 L9 25 Z" fill="#D7262E" transform="translate(-1 0)"/></svg><h3>Signed commands</h3><p>Each report points to a key that only you and the people you gave control of the tag can sign with. Bridges send only commands signed with it, so a stranger cannot get a bridge to send anything to your tag.</p></li>
+    </ul>
+    <div class="honest"><h3>What a radio observer can still see</h3><p>That a LibreTag report was sent, and roughly where, from the first repeater in its path. They cannot see which tag it was or what the report says. The #libretag channel itself is public. While the tag listens on Bluetooth, a phone nearby sees a device advertising from a private address, but not which tag it is, and without your key the tag answers nothing.</p></div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M4 20 L20 4 L25 9 L9 25 Z" fill="#D7262E" transform="translate(-1 0)"/></svg><h2>What works today</h2></div>
+    <p class="sec-intro">These features exist in the current app and firmware.</p>
+    <ul class="feat">
+      <li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><div><h3>Places</h3><p>Tap the map where the tag usually rests, such as home or the garage. Inside a place the tag stays quiet and sends only a heartbeat once a day. It reports when it leaves. For each place you choose whether the app tells you when the tag leaves and when it arrives.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><div><h3>Quiet near your Bluetooth devices</h3><p>Pick devices you carry that keep a steady Bluetooth identity, such as a ring, a watch or a hearing aid. While one of them is around, the tag stays quiet, with a heartbeat at least every 8&nbsp;hours. A phone changes its Bluetooth address and usually sends nothing at rest, so it rarely works as one of these devices.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><div><h3>Encrypted history</h3><p>Connect the tag to the phone by cable or over Bluetooth and the app copies the history stored on it. The transfer is encrypted.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><div><h3>Settings over Bluetooth</h3><p>After a restart the tag listens on Bluetooth for 3&nbsp;minutes. The app connects without a cable and can do everything the cable does, except a firmware update, a new key and a reset of the pairing. You can also skip the restart: Open Bluetooth remotely asks the tag to listen at its next check, and the app shows when that will be. It needs Android 12 or newer.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M4 20 L20 4 L25 9 L9 25 Z" fill="#D7262E" transform="translate(-1 0)"/></svg><div><h3>Battery estimate</h3><p>After about two weeks of data the app estimates the remaining runtime. It is an estimate. We have not measured it on a bench yet.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><div><h3>Low battery message</h3><p>At 25&nbsp;% the app sends you a Nostr direct message from the tag's own key. Below 10&nbsp;% the tag sends it by itself over the mesh, through any bridge. The message disappears from relays after 14&nbsp;days.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><div><h3>Bluetooth scan on command</h3><p>Ask the tag which Bluetooth devices are around it and it reports them. In Lost mode it includes them on its own.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><div><h3>Lost mode</h3><p>A report every 10&nbsp;minutes for 24&nbsp;hours. It survives a restart of the tag. If the tag stays in one place for 2&nbsp;hours, it reports every 20&nbsp;minutes until it moves.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><div><h3>Track</h3><p>The tag reports every 2, 5, 10, 15 or 30 minutes for an hour, as you choose.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M4 20 L20 4 L25 9 L9 25 Z" fill="#D7262E" transform="translate(-1 0)"/></svg><div><h3>Fair to the mesh</h3><p>Track and Lost mode report at most every 2&nbsp;minutes. A tag that has sent 200 packets in a day slows to one report an hour until the count drops, and it still answers your commands. It does not transmit when the battery voltage is too low.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><div><h3>Timeline</h3><p>Browse a tag's history by day (Today, Yesterday) with a slider over its reports. The map and the status follow the slider.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><div><h3>Checks</h3><p>A quiet tag still wakes every hour, looks around and listens for about 30 seconds, longer while the GPS searches. A command reaches it within an hour, without waiting for its next heartbeat 8 or 24&nbsp;hours away. It transmits only if something changed.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><div><h3>Parked quiet</h3><p>A car that has not moved goes quiet after about three reports instead of saying “still here” every hour. It reports again as soon as it moves.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><div><h3>Your own intervals</h3><p>Choose how often the tag reports: 15&nbsp;minutes, 30&nbsp;minutes, 1, 2, 3 or 6&nbsp;hours. It can also wake more often than it reports, only to listen for commands, which saves battery and mesh traffic.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M4 20 L20 4 L25 9 L9 25 Z" fill="#D7262E" transform="translate(-1 0)"/></svg><div><h3>Web app</h3><p>For the day you lose your phone, or when you want a bigger screen. Sign in with Nostr or restore with your recovery phrase, then see your tags and their positions, and send or cancel commands. It works only through Nostr, so a bridge has to be near the tag, and without GPS it shows no area estimate. <a href="app/">Open the web app</a>.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><div><h3>Alerts</h3><p>Guard a spot and the app raises an alarm if the tag moves more than 300&nbsp;m. That is the only alarm. The app also tells you when a tag is not heard when expected and when its battery is low, and you choose both per tag.</p></div></li>
+    </ul>
+  </div>
+</section>
+
+<section id="next" class="tint">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><h2>In testing</h2></div>
+    <div class="next">
+      <div>
+        <span class="tag-state">Ready, being tested</span>
+        <p>Built, waiting for tests in the field.</p>
+        <ul class="stack"><li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><div><h3>A tag without GPS that knows places by Wi-Fi</h3><p>A small ESP32-S3 board (Heltec Wireless Stick Lite V3) runs the firmware on the bench. It has no GPS. You snap a place with the tag on the cable, and from then on it recognises the place by the Wi-Fi networks it hears and stays quiet there. That works on the bench. Leaving a place has only been simulated, and nobody has run the board on a battery yet. The X1 and the Wio Tracker L1 Pro have no Wi-Fi.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><div><h3>Position from Wi-Fi</h3><p>A report from that board lists the Wi-Fi networks it heard. The app can turn them into a position through BeaconDB, a GrapheneOS proxy or Apple: only when you tap, in Lost mode, or for every report without GPS. Each lookup tells the service which networks are near the tag, so it is off until you choose a service.</p></div></li>
+<li><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><div><h3>Commands over Bluetooth</h3><p>When your phone is near the tag, it sends a waiting command over Bluetooth, and the tag looks for it at every wake-up, so the command arrives at the next check without crossing the mesh. The tag side works on the bench. Delivery from a real phone over the air has not been tested yet.</p></div></li></ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="uses">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><h2>Things and people</h2></div>
+    <p class="sec-intro">The same tag, set up differently in the app.</p>
+    <div class="cols two">
+      <div class="use">
+        <div class="h3row"><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><h3>Things: a car, a bag, keys</h3></div>
+        <ul><li>The tag stays quiet while a device you carry is near, because you are together. A thief does not carry your watch.</li><li>A heartbeat at least every 8&nbsp;hours covers the case where that device was stolen with the car.</li><li>Parked quiet keeps a parked car from reporting every hour. Places keep it quiet at home.</li></ul>
+        <p class="limit">It does not prevent a theft. It tells you where the thing was an hour ago, and where it is now if it is still reporting. A thief who finds the tag and removes it ends the trail.</p>
+      </div>
+      <div class="use">
+        <div class="h3row"><svg class="blaze " viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><circle cx="14" cy="14" r="7.5" fill="#2F8F3A"/></svg><h3>People: a child, or you</h3></div>
+        <ul><li>Your phone does not silence the tag, because someone could take the phone along. It is quiet only in its places.</li><li>Parked quiet is off.</li><li>In normal mode it reports hourly. When someone is late or lost in the hills, switch to Track for a short interval.</li></ul>
+        <p class="limit">LibreTag is not a certified safety device, and we make no promise that it protects anyone from harm. Tell the person who carries it. A tracker on an adult needs their agreement.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+
+<section id="hardware">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="7" y="7" width="14" height="14" fill="#F2C200"/></svg><h2>Hardware</h2></div>
+    <p class="sec-intro">LibreTag firmware is a set of patches on top of ZephCore. Two Seeed boards matter.</p>
+    <div class="hw">
+      <article>
+        <span class="role">Planned, not yet run</span>
+        <h3>Seeed SenseCAP MeshTracker X1</h3>
+        <p>A card-sized tracker with dual-band GNSS, USB-C and an IP66 body. It is the board LibreTag is designed around. ZephCore supports it, but nobody has run LibreTag firmware on one yet. The Seeed listing mentions Meshtastic, because that is the firmware it ships with.</p>
+        <dl><dt>Chip</dt><dd>nRF52840 and a LR2021 radio</dd><dt>Battery</dt><dd>1100&nbsp;mAh (Seeed)</dd><dt>Wi-Fi</dt><dd>none</dd></dl>
+        <a class="btn" href="https://www.seeedstudio.com/sensecap-meshtracker-x1-meshtastic-gps-tracker-p-6935.html?sensecap_affiliate=sRobOdH&amp;referring_service=link" rel="sponsored noopener" target="_blank">See it at Seeed</a>
+      </article>
+      <article>
+        <span class="role ok">Tested</span>
+        <h3>Seeed Wio Tracker L1 Pro</h3>
+        <p>The board LibreTag is developed and tested on. LibreTag firmware runs on it today. It is larger than the X1 and has a display, so it suits a car or a bag better than a pocket. You flash the firmware by copying a .uf2 file onto a USB drive that appears.</p>
+        <dl><dt>Chip</dt><dd>nRF52840 and an SX1262 radio, L76K GPS</dd><dt>Battery</dt><dd>2000&nbsp;mAh (Seeed)</dd><dt>Wi-Fi</dt><dd>none</dd></dl>
+        <a class="btn" href="https://www.seeedstudio.com/Wio-Tracker-L1-Pro-for-Meshcore-p-6717.html?sensecap_affiliate=sRobOdH&amp;referring_service=link" rel="sponsored noopener" target="_blank">See it at Seeed</a>
+      </article>
+    </div>
+    <p class="disclose">Both Seeed links are affiliate links. If you buy through them, the project may earn a commission at no extra cost to you. Seeed coupon code: <span class="coupon">56BZ8WER</span> (check at checkout what it covers). The L1 Pro link goes to the MeshCore version of the board.</p>
+  </div>
+</section>
+
+<section id="get" class="tint">
+  <div class="wrap">
+    <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><rect x="3" y="11" width="22" height="6" fill="#D7262E"/></svg><h2>Get it</h2></div>
+    <ul class="get">
+      <li><h3>Android app</h3><p>A signed APK for now. Zapstore later. Works on phones without Google services, such as GrapheneOS. To use your own MeshCore node you need our modified MeshCore Open for now (<a href="#own-node">below</a>).</p><a class="btn" href="#get" aria-disabled="true" data-placeholder="apk">Download APK<span class="soon">soon</span></a></li>
+      <li><h3>Web app</h3><p>Runs in the browser over Nostr, for when you do not have your phone. It needs a bridge near the tag.</p><a class="btn" href="app/">Open the web app</a></li>
+      <li><h3>Source code</h3><p>Open source under the MIT licence. The repository is not public yet.</p><a class="btn ghost" href="#get" aria-disabled="true" data-placeholder="source">Source<span class="soon">soon</span></a></li>
+      <li><h3>Run a bridge</h3><p>A bridge is a MeshCore node on a USB cable and a small program, or the Nostr bridge app on a phone. Over Nostr the app only hears a tag where a bridge is within reach of it, so more bridges mean more places where a tag can be found.</p><a class="btn ghost" href="#get" aria-disabled="true" data-placeholder="bridge-docs">Bridge guide<span class="soon">soon</span></a></li>
+      <li><h3>Support the project</h3><p>LibreTag is free. If it is useful to you, you can support its development.</p><a class="btn" href="https://hackyourself.io/support/s/libre-tag?lang=en&amp;ref=web" rel="noopener" target="_blank">Support LibreTag</a></li>
+    </ul>
+    <div class="own" id="own-node">
+      <h3>Your own node: MeshCore Open with the Local API</h3>
+      <p>LibreTag can use your own MeshCore companion radio through MeshCore Open. The app then hears the tag's reports directly and can send commands from your node. That needs the Local API, which the official MeshCore Open does not have yet. Until it is merged upstream, use our modified build.</p>
+      <ol><li>Write down your channels in the official MeshCore Open. The modified build has the same package name but a different signature, so Android installs it only after you uninstall the official app, and uninstalling deletes the app's data.</li><li>Uninstall the official MeshCore Open, then install <span class="mono">meshcore-open-local-api.apk</span> from the <a href="https://github.com/jooray/meshcore-open/releases/tag/localapi-test-9" rel="noopener" target="_blank">localapi-test-9 release</a>. Its signing certificate SHA-256 is <code class="fp">79750fb49349ec3729be5a3e825507a15e47c6d987e854ae91d5d50a20b3a24d</code></li><li>In MeshCore Open, connect to your companion node, turn on Local API, and in Settings turn on <i>Keep connected in the background</i>.</li><li>Open LibreTag and allow it when MeshCore Open asks.</li></ol>
+      <p class="note">You do not have to do this. Without it LibreTag still works: reports and commands go through Nostr bridges, and settings over the cable or Bluetooth.</p>
+    </div>
+  </div>
+</section>
+
+<section id="nostr">
+  <div class="wrap cols two">
+    <div>
+      <div class="h2"><svg class="blaze lg" viewBox="0 0 28 28" aria-hidden="true"><rect class="edge" x="1" y="1" width="26" height="26" rx="4" fill="#fff" stroke="#1E1E1E" stroke-width="2"/><path d="M14 5 L24 22 L4 22 Z" fill="#1F5FB4"/></svg><h2>Find it on Nostr</h2></div>
+      <p>Updates and questions go through the project's Nostr account.</p>
+    </div>
+    <div>
+      <dl class="nostr">
+        <dt>npub</dt><dd><div class="npub"><code id="npub">npub17a09su3mlphlf264ztkh9tc7esmexmqvuw3akttp3rr5735jhcmqucwudu</code><button class="btn small ghost" type="button" id="copynpub" data-copied="Copied">Copy</button></div></dd>
+        <dt>njump</dt><dd><a href="https://njump.me/npub17a09su3mlphlf264ztkh9tc7esmexmqvuw3akttp3rr5735jhcmqucwudu" rel="noopener" target="_blank">njump.me/npub17a09su3ml…ucwudu</a></dd>
+        <dt>NIP-05</dt><dd><span class="mono">libretag@cypherpunk.today</span></dd>
+      </dl>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>LibreTag is built by jooray. MIT licence.</p>
+    <p>This page has no trackers, no cookies and no analytics. Fonts and images are hosted on this site.</p>
+    <div class="row"><span>Open hardware, open firmware, open protocol.</span><a href="https://hackyourself.io/support/s/libre-tag?lang=en&amp;ref=web" rel="noopener" target="_blank">Support the project</a><a href="sk/" hreflang="sk">Slovenčina</a></div>
+  </div>
+</footer>
+<script src="main.js" defer></script>
+</body>
+</html>

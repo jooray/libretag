@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Diagnóstico del localizador (app 0.12, docs/design/tag-diagnosis.md): por qué un localizador se retrasa.
+     Las frases de fila (dg_row_*) caben en una fila de lista: 44 caracteres como máximo con los valores puestos. -->
+<resources>
+    <plurals name="st_missed">
+        <item quantity="one">%1$d informe perdido · próximo %2$s</item>
+        <item quantity="other">%1$d informes perdidos · próximo %2$s</item>
+    </plurals>
+
+    <!-- row sentences -->
+    <string name="dg_row_bootloader">En modo actualización · no informa</string>
+    <string name="dg_row_esp_download">En modo descarga · no informa</string>
+    <string name="dg_row_tx_floor">Batería muy baja para informar</string>
+    <plurals name="dg_row_reset_loop">
+        <item quantity="one">Se reinicia sin parar · %1$d vez seguida</item>
+        <item quantity="other">Se reinicia sin parar · %1$d veces seguidas</item>
+    </plurals>
+    <string name="dg_row_on_cable">Conectado por cable</string>
+    <string name="dg_row_counter_ahead">Informes fuera del alcance de la app</string>
+    <string name="dg_row_firmware_too_old">Firmware %1$s demasiado viejo para la app</string>
+    <string name="dg_row_phone_offline">Teléfono sin conexión · oído %1$s</string>
+    <string name="dg_row_relays_down">Sin acceso a los relays · oído %1$s</string>
+    <string name="dg_row_just_back">Buscando informes perdidos…</string>
+    <string name="dg_row_not_delivered">Informó %1$s · no está en tus relays</string>
+    <string name="dg_row_with_you">Contigo · en reposo a propósito</string>
+    <string name="dg_row_restarted_here">Reinicio cerca de ti %1$s · informe pronto</string>
+    <plurals name="dg_row_restarting">
+        <item quantity="one">Se reinicia · %1$d vez desde %2$s</item>
+        <item quantity="other">Se reinicia · %1$d veces desde %2$s</item>
+    </plurals>
+    <string name="dg_row_update_unfinished">Mudo desde la actualización (%1$s)</string>
+    <string name="dg_row_battery_empty">Batería casi vacía · %1$s (%2$s)</string>
+    <string name="dg_row_battery_empty_unknown">Batería casi vacía</string>
+    <string name="dg_row_schedule_pending">Nuevo ritmo en camino · antes de %1$s</string>
+    <string name="dg_row_schedule_mismatch">Informa %1$s, la app espera %2$s</string>
+    <string name="dg_row_schedule_unsent">El ritmo aún no está en el localizador</string>
+    <string name="dg_row_out_of_range">Mudo %1$s · sin repetidores cerca</string>
+    <string name="dg_row_node_down">Tu nodo está apagado · oído %1$s</string>
+    <string name="dg_row_maybe_with_you">Mudo %1$s · quizá en reposo contigo</string>
+    <string name="dg_row_maybe_quiet_place">Mudo %1$s · quizá en reposo en %2$s</string>
+    <string name="dg_row_after_cable">Mudo desde el cable · %1$s</string>
+    <string name="dg_row_phone_clock">El reloj del teléfono parece mal</string>
+
+    <!-- the Why card -->
+    <string name="dg_why">Por qué</string>
+    <string name="dg_card_missed">Un informe no llegó. En una malla compartida pasa. El próximo debería llegar hacia %1$s.</string>
+    <string name="dg_card_bootloader">El localizador conectado por cable espera firmware y no informa hasta que se reinicie. Si no querías actualizarlo, pulsa una vez su botón de reinicio.</string>
+    <string name="dg_card_esp_download">El localizador conectado por cable está en modo descarga, así que su firmware no se ejecuta.</string>
+    <string name="dg_card_tx_floor">La batería está por debajo de 3,25 V, así que el localizador calla para no reiniciarse. Vuelve a informar solo por encima de 3,35 V o con un cargador.</string>
+    <string name="dg_card_reset_loop">El localizador se reinició %1$d veces seguidas (%2$s). Tras cada reinicio espera más para el primer informe, ahora %3$s. Suele deberse a una batería débil o a un conector flojo.</string>
+    <string name="dg_card_on_cable">Conectado a este teléfono. Último informe %1$s, el próximo %2$s.</string>
+    <string name="dg_card_counter_ahead">El contador de informes del localizador va muy por delante del de la app, así que la app no encuentra sus informes.</string>
+    <string name="dg_card_firmware_too_old">Esta app lee informes del firmware %2$s y posteriores. El localizador tiene %1$s. Actualízalo por cable.</string>
+    <string name="dg_card_phone_offline">Este teléfono no tiene internet ni un nodo MeshCore, así que no puede recibir informes. Último aviso del localizador %1$s. La app vuelve a comprobarlo cuando haya conexión.</string>
+    <plurals name="dg_card_relays_down">
+        <item quantity="one">Tu relay no responde. Los informes que publicaron los puentes esperan ahí.</item>
+        <item quantity="other">Ninguno de tus %1$d relays responde. Los informes que publicaron los puentes esperan ahí.</item>
+    </plurals>
+    <string name="dg_card_just_back">El teléfono no pudo recibir de %1$s a %2$s. Pido a los relays los informes de ese tiempo.</string>
+    <string name="dg_card_not_delivered">Un puente oyó el localizador %1$s (%2$s), pero el informe no está en tus relays. El localizador funciona.</string>
+    <string name="dg_card_not_delivered_add">Un puente oyó el localizador %1$s (%2$s), pero el informe no está en tus relays. El localizador funciona. Añade uno de los relays del puente para recibir sus informes.</string>
+    <string name="dg_card_with_you">Este teléfono oyó el localizador por Bluetooth %1$s, y el localizador ve uno de tus dispositivos. Mientras estés cerca calla, y informa como muy tarde %2$s.</string>
+    <string name="dg_card_with_you_console">Por Bluetooth, el localizador dijo %1$s que ve uno de tus dispositivos. Mientras estés cerca calla, y informa como muy tarde %2$s.</string>
+    <string name="dg_card_restarted_here">Este teléfono oyó arrancar el localizador %1$s. El primer informe llega unos 30 s después de un reinicio.</string>
+    <string name="dg_card_restarting">El localizador se reinició %1$s. Suele deberse a una batería débil.</string>
+    <string name="dg_card_update_unfinished">Una actualización empezó %1$s y el localizador no ha informado desde entonces. Puede seguir en modo actualización, donde espera sin límite de tiempo. Conéctalo a este teléfono para comprobarlo.</string>
+    <string name="dg_card_battery_empty">El último informe (%1$s) decía %2$s. Por debajo de un 7 %% el localizador deja de informar. Cárgalo.</string>
+    <string name="dg_card_schedule_pending">Cambiaste el ritmo a %1$s. Hasta que el localizador lo confirme, el próximo informe puede llegar con cualquiera de los dos ritmos, como muy tarde %2$s.</string>
+    <string name="dg_card_schedule_mismatch">El localizador informa %1$s. La app tiene %2$s. Hasta que coincidan, los comandos pueden no alcanzarlo.</string>
+    <string name="dg_card_schedule_unsent">Los ajustes que cambiaste aún hay que escribirlos por cable. Hasta entonces el localizador mantiene su ritmo anterior.</string>
+    <string name="dg_card_out_of_range">Ningún repetidor oyó los dos últimos informes, así que el localizador puede estar fuera del alcance de la malla. Sigue intentándolo %1$s.</string>
+    <string name="dg_card_node_down">Los informes de este localizador llegaban por tu propio nodo MeshCore, que no está conectado desde %1$s.</string>
+    <string name="dg_card_maybe_with_you">El localizador calla cuando ve tus dispositivos, y el informe que lo dice puede haberse perdido. Este teléfono puede preguntarle por Bluetooth en su próximo despertar, hacia %1$s.</string>
+    <string name="dg_card_maybe_with_you_plain">El localizador calla cuando ve tus dispositivos, y el informe que lo dice puede haberse perdido.</string>
+    <string name="dg_card_maybe_quiet_place">La última posición estaba dentro de %1$s. Allí el localizador calla, y el informe que lo dice puede haberse perdido.</string>
+    <string name="dg_card_after_cable">No hay nada desde que el localizador estuvo conectado por cable (%1$s). Si se actualizó desde un ordenador, puede seguir en modo actualización. Conéctalo a este teléfono para comprobarlo.</string>
+    <plurals name="dg_card_phone_clock">
+        <item quantity="one">El reloj del teléfono va unos %1$d min desfasado. De él dependen las horas previstas y los comandos programados.</item>
+        <item quantity="other">El reloj del teléfono va unos %1$d min desfasado. De él dependen las horas previstas y los comandos programados.</item>
+    </plurals>
+    <string name="dg_card_unknown">Ningún informe desde %1$s y nada lo explica. La posición y la batería de abajo son de entonces.</string>
+    <string name="dg_card_asking">Preguntando en su próximo despertar, hacia %1$s. Mantén el teléfono cerca del localizador.</string>
+    <string name="dg_card_not_here">No está aquí: el localizador no respondió por Bluetooth %1$s.</string>
+
+    <!-- findings without a silence -->
+    <string name="dg_find_node_down">Tu nodo MeshCore no está conectado, y los informes de este localizador llegaban solo por él.</string>
+    <string name="dg_find_battery_cliff">La batería bajó %1$d puntos desde el informe anterior.</string>
+    <string name="dg_find_no_gps_run">Sin posición GPS desde %1$s.</string>
+    <string name="dg_find_counter_back">Llegó un informe (%1$s) con un contador más antiguo. ¿Usa otro localizador la misma clave?</string>
+    <string name="dg_find_counter_ahead">El contador de informes del localizador va muy por delante de lo que conoce la app.</string>
+    <string name="dg_find_firmware_behind">Firmware %1$s en el localizador, hay %2$s disponible.</string>
+    <string name="dg_find_flood_cap">El localizador alcanzó su límite diario de transmisiones y ahora informa solo %1$s para cuidar la malla.</string>
+    <string name="dg_find_restarting">El localizador se reinició varias veces desde %1$s.</string>
+
+    <!-- actions -->
+    <string name="dg_act_finish_update">Terminar la actualización</string>
+    <string name="dg_act_update_firmware">Actualizar firmware</string>
+    <string name="dg_act_how_to_restart">Cómo reiniciar</string>
+    <string name="dg_act_restart">Reiniciar el localizador</string>
+    <string name="dg_act_read_log">Leer el registro</string>
+    <string name="dg_act_open_ble">Abrir por Bluetooth</string>
+    <string name="dg_act_check_here">Comprobar si está aquí</string>
+    <string name="dg_act_send_report">Enviar un informe ahora</string>
+    <string name="dg_act_connections">Conexiones</string>
+    <string name="dg_act_try_again">Reintentar</string>
+    <string name="dg_act_add_relay">Añadir relay</string>
+    <string name="dg_act_use_tag_schedule">Usar el ritmo del localizador</string>
+    <string name="dg_act_send_mine">Enviar el mío otra vez</string>
+    <string name="dg_act_catch_up">Ponerse al día</string>
+    <string name="dg_act_date_settings">Ajustes de fecha y hora</string>
+    <string name="dg_act_open_map">Abrir en el mapa</string>
+    <string name="dg_act_service">Conectar y comprobar</string>
+    <string name="dg_all_checks">Todas las comprobaciones</string>
+    <string name="dg_hide_checks">Ocultar comprobaciones</string>
+    <string name="dg_how_to_restart_title">Reiniciar el localizador</string>
+    <string name="dg_how_to_restart_text">Pulsa una vez el botón de reinicio. Si el localizador sigue en modo actualización, su firmware está incompleto: conéctalo a este teléfono y elige Terminar la actualización.</string>
+    <string name="dg_add_relay_title">¿Añadir este relay?</string>
+    <string name="dg_add_relay_text">%1$s es un relay en el que publica un puente. Lo dice el propio puente, así que añádelo solo si confías en él. La app leerá también los informes de ese relay.</string>
+    <string name="dg_add_relay_ok">Añadir</string>
+    <string name="dg_relay_added">Relay añadido</string>
+    <string name="dg_restart_sent">Reiniciando el localizador…</string>
+    <string name="dg_report_sent">Se pidió al localizador que informe</string>
+    <string name="dg_schedule_adopted">La app ya usa el ritmo del localizador</string>
+    <string name="dg_caught_up">Buscando informes desde el contador del localizador</string>
+    <string name="dg_no_console">Conecta antes el localizador por cable o Bluetooth.</string>
+
+    <!-- the checklist: key, then value -->
+    <string name="dg_chk_online">Teléfono con conexión</string>
+    <string name="dg_chk_relays">Relays</string>
+    <string name="dg_chk_node">Nodo propio</string>
+    <string name="dg_chk_bridges">Puentes que lo oyeron</string>
+    <string name="dg_chk_last_report">Último informe</string>
+    <string name="dg_chk_lost">Informes perdidos (7 días)</string>
+    <string name="dg_chk_battery">Batería entonces</string>
+    <string name="dg_chk_bluetooth">Bluetooth</string>
+    <string name="dg_chk_cable">Cable</string>
+    <string name="dg_chk_restarts">Reinicios</string>
+    <string name="dg_chk_schedule">Ritmo</string>
+    <string name="dg_chk_firmware">Firmware</string>
+    <string name="dg_chk_clock">Reloj del teléfono</string>
+    <string name="dg_val_yes">sí</string>
+    <string name="dg_val_no">no</string>
+    <string name="dg_val_unknown">desconocido</string>
+    <string name="dg_val_relays">%1$d de %2$d conectados</string>
+    <string name="dg_val_node_up">conectado</string>
+    <string name="dg_val_node_down">sin conexión desde %1$s</string>
+    <string name="dg_val_node_down_never">sin conexión</string>
+    <string name="dg_val_node_never">sin configurar</string>
+    <string name="dg_val_bridges">último %1$s, %2$s</string>
+    <string name="dg_val_none_known">ninguno conocido</string>
+    <string name="dg_val_last_report">%1$s · %2$s · n.º %3$d</string>
+    <string name="dg_val_lost">%1$d de %2$d</string>
+    <string name="dg_val_battery">%1$s (%2$s)</string>
+    <string name="dg_val_ble_heard">oído %1$s</string>
+    <string name="dg_val_ble_not">este teléfono no lo oyó</string>
+    <string name="dg_val_cable_tag">conectado ahora</string>
+    <string name="dg_val_cable_boot">ahora en modo actualización</string>
+    <string name="dg_val_cable_esp">ahora en modo descarga</string>
+    <string name="dg_val_cable_last">última conexión %1$s</string>
+    <string name="dg_val_cable_never">nunca conectado</string>
+    <plurals name="dg_val_restarts">
+        <item quantity="one">%1$d conocido, último %2$s</item>
+        <item quantity="other">%1$d conocidos, último %2$s</item>
+    </plurals>
+    <string name="dg_val_schedule">informa %1$s, escucha %2$s</string>
+    <string name="dg_val_firmware_current">%1$s · al día</string>
+    <string name="dg_val_firmware_behind">%1$s · %2$s disponible</string>
+    <string name="dg_val_firmware_old">%1$s · demasiado viejo</string>
+    <string name="dg_val_clock_ok">bien</string>
+    <plurals name="dg_val_clock_off">
+        <item quantity="one">unos %1$d min de desfase</item>
+        <item quantity="other">unos %1$d min de desfase</item>
+    </plurals>
+    <string name="dg_hops">%1$s saltos</string>
+    <string name="dg_hops_direct">directo</string>
+
+    <!-- notifications -->
+    <string name="notif_silent_cause">%1$s. %2$s</string>
+    <string name="notif_restart_title">%1$s se reinicia sin parar</string>
+    <string name="notif_restart_text">Suele ser una batería débil o un conector flojo. Abre el localizador para ver cuándo se reinició.</string>
+    <string name="notif_update_title">%1$s puede seguir en modo actualización</string>
+    <string name="notif_update_text">No ha informado desde que empezó la actualización. Pulsa una vez su botón de reinicio o conéctalo a este teléfono.</string>
+    <string name="notif_blind_title">LibreTag no puede recibir informes</string>
+    <string name="notif_blind_text">Este teléfono lleva 2 horas sin conexión con los relays ni con tu nodo, y hay un localizador vigilado.</string>
+
+    <!-- home strip: a bootloader on the cable that fits no tag -->
+    <string name="dg_strip_bootloader">Un localizador conectado por cable está en modo actualización. No informa hasta que se reinicie.</string>
+
+    <!-- map pill suffixes -->
+    <string name="dg_pill_with_you">contigo</string>
+    <string name="dg_pill_cable">por cable</string>
+
+    <!-- Settings -->
+    <string name="set_ble_sightings">Detectar mis localizadores por Bluetooth</string>
+    <string name="set_ble_sightings_sub">El teléfono escucha en segundo plano la señal Bluetooth de tus localizadores para saber cuándo uno se reinició o está cerca de ti. No usa tu ubicación.</string>
+
+    <!-- Track: how often and how long (app 0.12) -->
+    <string name="cmd_track_for">Seguir %1$s, %2$s</string>
+    <string name="track_choose_title2">Seguir el localizador</string>
+    <string name="track_how_often">Cada cuánto</string>
+    <string name="track_how_long">Durante cuánto tiempo</string>
+    <plurals name="track_reports">
+        <item quantity="one">%1$d informe, hasta %2$s</item>
+        <item quantity="other">%1$d informes, hasta %2$s</item>
+    </plurals>
+    <string name="track_cap_warn">Es más de lo que el localizador puede enviar en un día. Pasadas unas %1$s baja a un informe por hora para cuidar la malla.</string>
+    <string name="track_choose_ok_for">Seguir %1$s</string>
+</resources>
