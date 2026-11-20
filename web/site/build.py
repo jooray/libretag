@@ -88,7 +88,7 @@ def build(lang):
     out.parent.mkdir(exist_ok=True)
     if os.environ.get("LT_VIDEO") == "0":  # LT_VIDEO=0 builds without the video section
         html = re.sub(r"<!--VIDEO-->.*?<!--/VIDEO-->", "", html, flags=re.S)
-    if os.environ.get("LT_RELEASED") == "1":  # LT_RELEASED=1 turns on the download, source and bridge links
+    if os.environ.get("LT_RELEASED", "1") == "1":  # on since the first release (LT_RELEASED=0 turns off) the download, source and bridge links
         repo = "https://github.com/jooray/libretag"
         links = {"apk": repo + "/releases/latest", "source": repo, "bridge-docs": repo + "#nostr--meshcore-bridge-nostrmesh"}
         for key, url in links.items():
