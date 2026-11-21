@@ -26,9 +26,9 @@ import app.libretag.keys.TagWindow
 import app.libretag.locate.AnchorResolver
 import app.libretag.locate.Estimator
 import app.libretag.locate.Geo
-import app.libretag.mesh.MeshApiState
-import app.libretag.mesh.MeshCoreApiClient
-import app.libretag.mesh.MeshDatagram
+import app.libretag.mesh.MeshLink
+import io.github.jooray.meshcore.localapi.MeshEvent
+import io.github.jooray.meshcore.localapi.SessionState
 import app.libretag.nostr.Bech32
 import app.libretag.nostr.Nip04
 import app.libretag.nostr.NostrEvent
@@ -101,7 +101,7 @@ class LibreTagApp : Application() {
         private set
     lateinit var prefs: AppPrefs
         private set
-    lateinit var mesh: MeshCoreApiClient
+    lateinit var mesh: MeshLink
         private set
     lateinit var relays: RelayPool
         private set
@@ -170,7 +170,7 @@ class LibreTagApp : Application() {
         prefs = AppPrefs(this)
         foldGlobalAlerts()
         applyTheme()
-        mesh = MeshCoreApiClient(store, scope)
+        mesh = MeshLink(store, scope)
         usb = UsbTagSession(this)
         // the tag left the cable: drop the session wherever the app is
         androidx.core.content.ContextCompat.registerReceiver(this, object : android.content.BroadcastReceiver() {
@@ -270,7 +270,7 @@ class LibreTagApp : Application() {
         val (up, all) = relays.connected.value
         val ms = mesh.state.value
         val link = when {
-            ms is MeshApiState.Connected -> app.libretag.data.MeshLink.UP
+            ms is SessionState.Connected -> app.libretag.data.MeshLink.UP
             store.meshIdentity == null -> app.libretag.data.MeshLink.NEVER
             else -> app.libretag.data.MeshLink.DOWN
         }
@@ -334,7 +334,7 @@ class LibreTagApp : Application() {
 
     private suspend fun watchReach() {
         while (true) {
-            val meshOk = mesh.state.value is MeshApiState.Connected
+            val meshOk = mesh.state.value is SessionState.Connected
             val nostrOk = relays.connected.value.first > 0
             _reach.value = when {
                 meshOk -> Reach.MESH
@@ -687,8 +687,7 @@ class LibreTagApp : Application() {
 
     // ---------------------------------------------------------------- mesh
 
-    private suspend fun onDatagram(d: MeshDatagram) {
-        d.receivedAt?.let { store.meshCursor = it }
+    private suspend fun onDatagram(d: MeshEvent.ChannelData) {
         lastMeshPacket.value = System.currentTimeMillis()
         val at = d.receivedAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
             ?: System.currentTimeMillis()
@@ -704,7 +703,7 @@ class LibreTagApp : Application() {
                 DiagLog.i(TAG, "${t.name}: not opened: another tracker, already seen, or outside the window (lastN=${t.lastN})"); null
             } ?: continue
             DiagLog.i(TAG, "${t.name}: report n=$n j=$j fix=${r.hasFix} batt=${r.batteryPct}")
-            handleReport(t, n, r, d.hops, d.snrDb, "mesh", at)
+            handleReport(t, n, r, d.hops, d.snrDb ?: 0.0, "mesh", at)
             return
         }
         rememberUnmatched(d.payload, at, "mesh")
@@ -1164,7 +1163,7 @@ class LibreTagApp : Application() {
                     if (sendAt < now - CHECK_LATE_MS) continue
                     if (p.sentForN == plan.n && p.sentForCheck == k) continue
                     if (sendAt <= now) {
-                        if (mesh.state.value is MeshApiState.Connected) sendCommand(t.id, plan.n, p, k)
+                        if (mesh.state.value is SessionState.Connected) sendCommand(t.id, plan.n, p, k)
                         else DiagLog.i(TAG, "${t.name}: check $k, MeshCore Open not connected, bridges only")
                     } else wakeAt = minOf(wakeAt, sendAt)
                     break

@@ -2,6 +2,17 @@
 
 LibreTag has four parts with their own version numbers. The first public release is a preview of all of them at once. The development history before it is not public; the main steps are summarised below. Details per version: `firmware/README.md` for the firmware, `docs/release-notes/` for each component.
 
+## 0.13.0: the shared MeshCore Local API client
+
+| Part | Version |
+|---|---|
+| Android app | 0.13.0 |
+| Android bridge ("Nostr bridge") | 0.5.0 |
+| Python bridge (`nostrmesh`) | 0.6.0 |
+| Tracker firmware | 0.9.4 (unchanged) |
+
+All three Local API clients now use the [MeshCore Local API](https://github.com/jooray/meshcore-local-api) libraries (protocol 1). Pairing signs only `meshcore-local-api-pair-v1:<nonce>`, so they need MeshCore Open test build `localapi-test-10` or later, or a `meshcored` that sends the new prefix. Features are used only when `hello.capabilities` lists them. Release notes: `docs/release-notes/app-0.13.0.md`, `bridge-android-0.5.0.md`, `bridge-python-0.6.0.md`.
+
 ## First public release (preview)
 
 | Part | Version |
@@ -29,6 +40,7 @@ Release notes: `docs/release-notes/firmware-0.9.4.md`, `app-0.12.0.md`, `bridge-
 
 ## Android app
 
+- **0.13.0**: MeshCore Local API through the shared `meshcore-local-api` library; needs MeshCore Open `localapi-test-10` or later. Pairing is kept.
 - **0.12.0**: when a tag is late the app says why (update mode on the cable, restarts, the phone offline, a report a bridge heard but your relays never got, an empty battery, a schedule mismatch) and offers the action that settles it; one missed report is no longer "silent"; the background Bluetooth scan notices a tag restarting nearby; Track takes a duration as well as an interval; command buttons no longer break words.
 - **0.11.x**: the signed mailbox, opening the tag's Bluetooth console remotely, command routing that prefers the phone's Bluetooth advert when the phone is near, map labels that never overlap.
 - **0.10.0**: connect to a tag over Bluetooth after a restart.
@@ -40,6 +52,7 @@ Release notes: `docs/release-notes/firmware-0.9.4.md`, `app-0.12.0.md`, `bridge-
 
 ## Bridges
 
+- **Android bridge 0.5.0, Python bridge 0.6.0**: the shared MeshCore Local API libraries, strict capabilities (LoRa preset only with `radio_stats`, region check only with `regions`); need MeshCore Open `localapi-test-10` or later. Pairing is kept.
 - **Android bridge 0.4.0, Python bridge 0.5.0**: the signed mailbox (only entries signed for the tag's report are sent), proof of work removed.
 - **Android bridge 0.3.x**: an outbox across restarts, a radio watchdog, a heartbeat file, a per-first-hop limit on `#libretag`.
 - **Bridge 0.2.x**: LibreTag commands zero-hop when the tag was heard directly, timed entries for checks, parity between the Android and Python bridges.

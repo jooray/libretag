@@ -8,7 +8,13 @@ import app.nostrmesh.bridge.Route
 import app.nostrmesh.bridge.RxMeta
 import app.nostrmesh.bridge.downlinkRoute
 import app.nostrmesh.bridge.lt2CommandRoute
-import app.nostrmesh.mesh.MeshApiSession
+import app.nostrmesh.mesh.meta
+import app.nostrmesh.mesh.toApi
+import app.nostrmesh.mesh.toPreset
+import io.github.jooray.meshcore.localapi.Hello
+import io.github.jooray.meshcore.localapi.MeshEvent
+import io.github.jooray.meshcore.localapi.RadioParams
+import io.github.jooray.meshcore.localapi.Route as ApiRoute
 import app.nostrmesh.nostr.hex
 import app.nostrmesh.nostr.unhex
 import kotlinx.serialization.json.Json
@@ -84,44 +90,52 @@ class RadioTest {
     @Test
     fun helloCapabilities() {
         assertEquals(setOf("tx_path_data", "rx_path", "airtime"),
-            MeshApiSession.capabilities(obj("""{"type":"hello","capabilities":["tx_path_data","rx_path","airtime",3]}""")))
-        assertEquals(emptySet<String>(), MeshApiSession.capabilities(obj("""{"type":"hello","device":{"capabilities":["rx_path"]}}""")))
-        assertEquals(emptySet<String>(), MeshApiSession.capabilities(obj("""{"type":"hello","capabilities":"rx_path"}""")))
+            Hello.parse(obj("""{"type":"hello","capabilities":["tx_path_data","rx_path","airtime",3]}""")).capabilities)
+        assertEquals(emptySet<String>(), Hello.parse(obj("""{"type":"hello","device":{"capabilities":["rx_path"]}}""")).capabilities)
+        assertEquals(emptySet<String>(), Hello.parse(obj("""{"type":"hello","capabilities":"rx_path"}""")).capabilities)
     }
 
     @Test
     fun channelDataMeta() {
         val ev = obj("""{"type":"channel.data","channel":"#libretag","dataType":65356,"payload":"AAEC","snrDb":7.25,
             "rssiDbm":-97,"hops":2,"path":"a1a2b1b2","pathHashSize":2,"routeType":"flood","receivedAt":"2026-11-16T10:00:00.000Z"}""")
-        val d = MeshApiSession.datagram(ev, "#libretag", listOf(0xFF4C))!!
-        assertEquals("a1a2b1b2", d.path!!.hex())
-        assertEquals(2, d.pathHashSize)
-        assertEquals("flood", d.routeType)
-        assertEquals(-97.0, d.rssiDbm!!, 0.0)
+        val d = MeshEvent.parse(ev) as MeshEvent.ChannelData
         val m = d.meta()
+        assertEquals("a1a2b1b2", m.path!!.hex())
+        assertEquals(2, m.pathHashSize)
+        assertEquals("flood", m.routeType)
+        assertEquals(-97.0, m.rssiDbm!!, 0.0)
+        assertEquals(7.25, m.snrDb!!, 0.0)
         assertEquals(1_794_823_200_000L, m.receivedAtMs)
         assertEquals(2, m.hopCount(setOf(Caps.RX_PATH)))
-        // an old server: no extension fields
-        val old = MeshApiSession.datagram(obj("""{"type":"channel.data","channel":"#nostr","dataType":65358,"payload":"AA==","hops":0}"""),
-            "#nostr", listOf(0xFF4E))!!
+        // a server without rx_path / rx_meta: no extension fields
+        val old = (MeshEvent.parse(obj("""{"type":"channel.data","channel":"#nostr","dataType":65358,"payload":"AA==","hops":0}""")) as MeshEvent.ChannelData).meta()
         assertNull(old.path); assertNull(old.routeType)
-        assertEquals(0, old.meta().hopCount(emptySet()))
+        assertEquals(0, old.hopCount(emptySet()))
     }
 
     @Test
-    fun sendParamsPath() {
-        fun s(r: Route): JsonObject = MeshApiSession.sendParams("#libretag", 0xFF4C, byteArrayOf(1), null, r)
-        assertFalse("flood: no path field", s(Route.Flood).containsKey("path"))
-        assertEquals("", s(Route.ZeroHop)["path"]!!.jsonPrimitive.content)
-        val d = s(Route.Direct("ccddaabb".unhex()!!, 2))
-        assertEquals("ccddaabb", d["path"]!!.jsonPrimitive.content)
-        assertEquals("2", d["pathHashSize"]!!.jsonPrimitive.content)
+    fun routeMapsToLibrary() {
+        assertEquals(ApiRoute.Flood, Route.Flood.toApi())
+        assertEquals(ApiRoute.ZeroHop, Route.ZeroHop.toApi())
+        val d = Route.Direct("ccddaabb".unhex()!!, 2).toApi() as ApiRoute.Direct
+        assertEquals("ccddaabb", d.path.hex())
+        assertEquals(2, d.hashSize)
+        assertEquals(2, d.hops)
+    }
+
+    @Test
+    fun capsAreTheSpecNames() {
+        assertEquals("tx_path_data", Caps.TX_PATH_DATA)
+        assertEquals("rx_path", Caps.RX_PATH)
+        assertEquals("radio_stats", Caps.RADIO_STATS)
     }
 
     @Test
     fun radioStatsPreset() {
-        val r = obj("""{"id":1,"ok":true,"result":{"preset":{"freqHz":869618000,"bwHz":62500,"sf":7,"cr":5,"txPowerDbm":22}}}""")
-        assertEquals(LoRaPreset(7, 62_500.0, 5), MeshApiSession.preset(r))
-        assertNull(MeshApiSession.preset(obj("""{"id":1,"ok":false,"error":{"code":"unknown_method"}}""")))
+        val r = obj("""{"preset":{"freqHz":869618000,"bwHz":62500,"sf":7,"cr":5,"txPowerDbm":22}}""")
+        assertEquals(LoRaPreset(7, 62_500.0, 5), RadioParams.parse(r["preset"]!!.jsonObject)!!.toPreset())
+        assertEquals(LoRaPreset(8, 62_500.0, 8), RadioParams.parse(obj("""{"bwHz":62500,"sf":8,"cr":4}"""))!!.toPreset())
+        assertNull(RadioParams.parse(obj("""{"bwHz":62500,"sf":13,"cr":5}""")))
     }
 }

@@ -1,5 +1,6 @@
 package app.nostrmesh.bridge
 
+import io.github.jooray.meshcore.localapi.Capabilities
 import kotlin.math.ceil
 import kotlin.math.max
 
@@ -16,18 +17,20 @@ sealed interface Route {
     }
 }
 
-/** Local API capability names agreed with meshcored (SPEC 6.2). */
+/** Local API capability names (SPEC section 13 of github.com/jooray/meshcore-local-api). */
 object Caps {
-    const val TX_PATH_DATA = "tx_path_data"
-    const val TX_PATH_TEXT = "tx_path_text"
-    const val RX_PATH = "rx_path"
-    const val RX_META = "rx_meta"
-    const val RAW_RX = "raw_rx"
-    const val RAW_TX = "raw_tx"
-    const val TX_RESULT = "tx_result"
-    const val AIRTIME = "airtime"
-    const val DUTY_CAP = "duty_cap"
-    const val NOISE_FLOOR = "noise_floor"
+    const val TX_PATH_DATA = Capabilities.TX_PATH_DATA
+    const val TX_PATH_TEXT = Capabilities.TX_PATH_TEXT
+    const val RX_PATH = Capabilities.RX_PATH
+    const val RX_META = Capabilities.RX_META
+    const val RAW_RX = Capabilities.RAW_RX
+    const val RAW_TX = Capabilities.RAW_TX
+    const val TX_RESULT = Capabilities.TX_RESULT
+    const val AIRTIME = Capabilities.AIRTIME
+    const val DUTY_CAP = Capabilities.DUTY_CAP
+    const val NOISE_FLOOR = Capabilities.NOISE_FLOOR
+    const val RADIO_STATS = Capabilities.RADIO_STATS
+    const val REGIONS = Capabilities.REGIONS
 }
 
 /**

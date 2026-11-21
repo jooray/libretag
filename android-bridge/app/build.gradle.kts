@@ -22,8 +22,8 @@ android {
         applicationId = "app.nostrmesh"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "0.4.0"
+        versionCode = 8
+        versionName = "0.5.0"
     }
 
     signingConfigs {
@@ -69,6 +69,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-service:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // MeshCore Local API client (github.com/jooray/meshcore-local-api)
+    implementation("com.github.jooray:meshcore-local-api:v0.1.0")
     implementation("fr.acinq.secp256k1:secp256k1-kmp:0.15.0")
     implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-android:0.15.0")
 

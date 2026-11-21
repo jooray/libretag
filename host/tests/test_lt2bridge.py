@@ -527,16 +527,19 @@ class FakeWs:
         reply = {"id": m["id"], "ok": self.error is None}
         if self.error:
             reply["error"] = {"code": self.error}
-        self.radio._handle(reply)
+        self.radio.client._handle(reply)
 
 
-def local_api(caps):
-    r = LocalApiRadio("ws://127.0.0.1:8787/api/v1", {"#libretag": [0xFF4C]}, identity=type("I", (), {
-        "cursor": lambda self, ch: None, "state": {}, "save": lambda self: None})())
+def local_api(caps, region=None):
+    import tempfile
+    from pathlib import Path
+    from nostrmesh.localapi import Identity
+    ident = Identity(Path(tempfile.mkdtemp()) / "id.json")
+    r = LocalApiRadio("ws://127.0.0.1:8787/api/v1", {"#libretag": [0xFF4C]}, identity=ident, region=region)
     got = []
     r._on_rx = got.append
-    r._handle({"type": "hello", "capabilities": caps, "device": {"connected": False}})
-    r._ws = FakeWs(r)
+    r.client._ws = FakeWs(r)
+    r.client._handle({"type": "hello", "capabilities": caps, "device": {"connected": False}})
     return r, got
 
 
@@ -549,7 +552,7 @@ def test_local_api_without_path_capability_falls_back():
               "hops": 2, "path": "a1b2", "pathHashSize": 1, "rssiDbm": -90, "routeType": "flood"})
     assert got[0].hops == 2 and got[0].path is None and got[0].rssi is None  # not advertised: ignored
     r.send("#libretag", 0xFF4C, b"x")
-    assert "path" not in r._ws.sent[-1]
+    assert "path" not in r.client._ws.sent[-1]
 
 
 def test_local_api_with_path_capabilities():
@@ -562,15 +565,27 @@ def test_local_api_with_path_capabilities():
     assert dg.path == [b"\xa1\xb2", b"\xc3\xd4"] and dg.path_hash_size == 2 and dg.hops == 2
     assert (dg.snr, dg.rssi, dg.route_type) == (6.5, -97, "flood") and dg.rx_time == 1794823200.0
     r.send_direct("#libretag", 0xFF4C, b"x", [])
-    assert r._ws.sent[-1]["path"] == "" and r._ws.sent[-1]["pathHashSize"] == 1  # zero-hop
+    assert r.client._ws.sent[-1]["path"] == "" and r.client._ws.sent[-1]["pathHashSize"] == 1  # zero-hop
     r.send_direct("#libretag", 0xFF4C, b"x", [b"\xc3\xd4", b"\xa1\xb2"], 2)
-    assert r._ws.sent[-1]["path"] == "c3d4a1b2" and r._ws.sent[-1]["pathHashSize"] == 2
+    assert r.client._ws.sent[-1]["path"] == "c3d4a1b2" and r.client._ws.sent[-1]["pathHashSize"] == 2
     r.send("#libretag", 0xFF4C, b"x")
-    assert "path" not in r._ws.sent[-1]  # flood
-    r._ws.error = "budget"
+    assert "path" not in r.client._ws.sent[-1]  # flood
+    r.client._ws.error = "budget"
     from nostrmesh.localapi import BudgetExceeded
     with pytest.raises(BudgetExceeded):
         r.send("#libretag", 0xFF4C, b"x")
+
+
+def test_local_api_region_only_with_the_regions_capability():
+    r, _ = local_api(["tx_path_data"], region="sk")
+    r.send("#libretag", 0xFF4C, b"x")
+    assert "region" not in r.client._ws.sent[-1]  # the server cannot scope: its default scope
+    r, _ = local_api(["regions"], region="sk")
+    r.send("#libretag", 0xFF4C, b"x")
+    assert [p for p in r.client._ws.sent if "payload" in p][-1]["region"] == "sk"
+    with pytest.raises(RadioError):
+        r.send_direct("#libretag", 0xFF4C, b"x", [])  # no tx_path_data: nothing goes out
+    assert len([p for p in r.client._ws.sent if "payload" in p]) == 1
 
 
 def test_bridge_over_local_api_without_tx_path_floods():
@@ -589,7 +604,7 @@ def test_bridge_over_local_api_without_tx_path_floods():
         return br
 
     br = run(go())
-    assert len(r._ws.sent) == 1 and "path" not in r._ws.sent[0] and br.stats.c["lt_cmd_sent_flood"] == 1
+    assert len(r.client._ws.sent) == 1 and "path" not in r.client._ws.sent[0] and br.stats.c["lt_cmd_sent_flood"] == 1
 
 
 # ---------------------------------------------------------------- timed entries (0.7 checks)

@@ -11,6 +11,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // MeshCore Local API client (github.com/jooray/meshcore-local-api)
+        maven("https://jitpack.io") { content { includeGroup("com.github.jooray") } }
     }
 }
 

@@ -17,8 +17,9 @@ import app.nostrmesh.data.loadOrCreateBridgeKey
 import java.io.File
 import kotlinx.coroutines.delay
 import app.nostrmesh.frames.Frames
-import app.nostrmesh.mesh.MeshApiState
-import app.nostrmesh.mesh.MeshCoreApiClient
+import app.nostrmesh.mesh.BridgeMesh
+import app.nostrmesh.mesh.meta
+import io.github.jooray.meshcore.localapi.SessionState
 import app.nostrmesh.relay.RelayPool
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +35,7 @@ import kotlinx.serialization.json.JsonObject
 class BridgeApp : Application() {
     lateinit var settings: Settings
         private set
-    lateinit var mesh: MeshCoreApiClient
+    lateinit var mesh: BridgeMesh
         private set
     lateinit var relays: RelayPool
         private set
@@ -51,7 +52,7 @@ class BridgeApp : Application() {
         instance = this
         settings = Settings(this)
         relays = RelayPool(scope) { ev, url -> bridge.onRelayEvent(ev, url) }
-        mesh = MeshCoreApiClient(settings, scope, Frames.CHANNEL_NOSTR, listOf(Frames.DATA_TYPE_NOSTR))
+        mesh = BridgeMesh(settings, scope, Frames.CHANNEL_NOSTR, listOf(Frames.DATA_TYPE_NOSTR))
         val link = object : MeshLink {
             override val maxPayload = Frames.MAX_BLE
             override val capabilities get() = mesh.capabilities
@@ -84,8 +85,8 @@ class BridgeApp : Application() {
         }
         createChannel()
         scope.launch {
+            // The library keeps the replay cursor (Settings.meshCursor) itself.
             mesh.datagrams.collect { d ->
-                d.receivedAt?.let { settings.meshCursor = it }
                 bridge.onDatagram(d.channel, d.dataType, d.payload, d.meta())
             }
         }
@@ -158,8 +159,8 @@ class BridgeApp : Application() {
                 put(Frames.CHANNEL_LIBRETAG, listOf(Frames.DATA_TYPE_LIBRETAG))
             }
         }
-        val channelsChanged = extras != mesh.extraChannels
-        mesh.extraChannels = extras
+        // A change of channels replaces the Local API session (restarted when it runs).
+        mesh.setExtraChannels(extras)
         if (settings.enabled) {
             relays.setRelays(settings.relays, settings.relays)
             subscribe()
@@ -170,8 +171,6 @@ class BridgeApp : Application() {
                 ContextCompat.startForegroundService(this, Intent(this, BridgeService::class.java))
                 // announcement (kind 38244) at start, then every 24 h from the minute tick
                 scope.launch { runCatching { bridge.announceIfDue() }.onFailure { Log.w(TAG, "announce", it) } }
-            } else if (channelsChanged) {
-                mesh.stop(); mesh.start()
             }
             running = true
         } else if (running) {
@@ -194,19 +193,19 @@ class BridgeApp : Application() {
         subIds.clear(); subIds.addAll(subs.keys)
     }
 
-    fun meshText(s: MeshApiState): String = when (s) {
-        is MeshApiState.Connected -> "MeshCore Open: pripojené" + (s.deviceName?.let { " ($it)" } ?: "") +
+    fun meshText(s: SessionState): String = when (s) {
+        is SessionState.Connected -> "MeshCore Open: pripojené" + (s.deviceName?.let { " ($it)" } ?: "") +
             (s.unknownRegion?.let { ", neznámy región $it" } ?: "")
-        MeshApiState.Connecting -> "MeshCore Open: pripájam…"
-        MeshApiState.Disconnected -> if (settings.enabled) "MeshCore Open: nepripojené (beží? je zapnuté Local API?)" else "MeshCore Open: most je vypnutý"
-        MeshApiState.WaitingForApproval -> "Povoľ Nostr most v MeshCore Open"
-        MeshApiState.NotApproved -> "MeshCore Open most nepovolil"
-        MeshApiState.NoRadio -> "MeshCore Open nie je pripojený k rádiu"
-        MeshApiState.WaitingForChannel -> "Pridaj kanál #nostr v MeshCore Open"
-        MeshApiState.ChannelDenied -> "Kanál #nostr nebol pridaný"
-        is MeshApiState.ChannelMissing -> "Rádio nemá kanál #nostr (${s.code ?: "?"})"
-        is MeshApiState.Refused -> "MeshCore Open odmietol odber (${s.code ?: "?"})"
-        is MeshApiState.Failed -> "Chyba spojenia: ${s.message}"
+        SessionState.Connecting -> "MeshCore Open: pripájam…"
+        SessionState.Disconnected -> if (settings.enabled) "MeshCore Open: nepripojené (beží? je zapnuté Local API?)" else "MeshCore Open: most je vypnutý"
+        SessionState.WaitingForApproval -> "Povoľ Nostr most v MeshCore Open"
+        SessionState.NotApproved -> "MeshCore Open most nepovolil"
+        SessionState.NoRadio -> "MeshCore Open nie je pripojený k rádiu"
+        SessionState.WaitingForChannel -> "Pridaj kanál #nostr v MeshCore Open"
+        SessionState.ChannelDenied -> "Kanál #nostr nebol pridaný"
+        is SessionState.ChannelMissing -> "Rádio nemá kanál #nostr (${s.code ?: "?"})"
+        is SessionState.Refused -> "MeshCore Open odmietol odber (${s.code ?: "?"})"
+        is SessionState.Failed -> "Chyba spojenia: ${s.message}"
     }
 
     private fun createChannel() {

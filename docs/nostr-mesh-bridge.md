@@ -492,7 +492,7 @@ retention_days = 30
 | `frames.py` | profiles `note`, `generic`, `road.*`, `dm4.full`, `dm4.ref`. After encoding, the encoder decodes the frame again and compares it with the event |
 | `frag.py` | fragments `0x3E`, n ≤ 4, XOR parity, max. 2 variants per index, timeout 60 s, 32 messages in progress |
 | `radio.py` | `CompanionSerial` (USB, flood only; reopens the port with backoff, marks the first queue drain after a connect as stale), `KissRadio` (direct and zero-hop; the receive thread survives a lost port), `MemoryRadio`; `supports_direct` says whether the adapter can send along a path |
-| `localapi.py` | `LocalApiRadio`: MeshCore Open / `meshcored` local API (P-256 pairing, subscribe/join, cursor, capabilities `tx_path_data`, `rx_path`, `rx_meta`, `duty_cap`, …) |
+| `localapi.py` | `LocalApiRadio`: MeshCore Open / `meshcored` local API, a thin wrapper over `meshcore_localapi.LocalApiClient` (P-256 pairing, subscribe/join, cursor, capabilities `tx_path_data`, `rx_path`, `rx_meta`, `duty_cap`, …) |
 | `relays.py` | relay pool, `OK`/`duplicate:` as success, retries 5 s / 30 s / 2 min / 10 min, final rejections (`invalid:`, `blocked:`, …) are not retried; optional NIP-42 AUTH (`[relays] auth_key`) |
 | `inbox.py` | inbox relays of a DM recipient (10050, 10002 read): only lists with a valid signature, only hosts that resolve to public addresses |
 | `market.py` | bridge identity, announcements, receipts, format 2 targeting, claim proofs; the vectors in `host/tests/vectors/mailbox-v2.json` (also the signed mailbox: which keys a report locks) |
@@ -537,7 +537,7 @@ With LT2, one 51 B report goes out on `#libretag` at wake-up (at the boundary po
 
 ### 8.7 Android app "Nostr bridge" (`android-bridge/`)
 
-A native app (Kotlin, Material 3) that runs through the MeshCore Open local API on the same phone:
+A native app (Kotlin, Material 3) that runs through the MeshCore Open local API on the same phone ([protocol](https://github.com/jooray/meshcore-local-api), through the library's `MeshApiSession` since 0.5.0):
 
 - **Channels:** `#nostr` and, depending on settings, `#roadstr` and `#libretag` (LT2, 8.9).
 - **Radio → Nostr:** all profiles including `dm4x.*`, with signature verification, dedupe and limits. A `dm4x` frame follows the switches and the maximum age of its `dm4` twin; with `unregisteredExpiringDm` (on by default) it goes up from any key. Every DM also goes to up to 6 inbox relays of the recipient (kind 10050 `relay` tags, then kind 10002 `r` tags marked read or unmarked; only public `wss://`, no local names or private addresses; the lookup is cached for 6 h, or 10 min when nothing was found).
@@ -594,7 +594,7 @@ Entries without `at` follow the rules above.
 - An entry already transmitted stays as it is; the bridge only logs it (`lt_mailbox_cancel_too_late`).
 - Every deletion is stored in table `cancelled` (event id, pubkey; capped at `mailbox_cap` rows, pruned after `retention_days`). A 4244 event that arrives after its deletion, from another relay or after a restart, is not added (`lt_mailbox_cancelled_before`).
 
-**Local API.** `hello.capabilities` is a top-level array. Without `rx_path` the bridge does not read the path from events, without `tx_path_data` it does not send `path` (an old server would ignore it and send flood), so it sends commands by flood only. With `tx_path_data`: `path` missing = flood, `""` = zero-hop, otherwise direct (`pathHashSize`). The error `budget` (`duty_cap`) counts as an exhausted radio budget.
+**Local API.** The protocol is defined in [MeshCore Local API](https://github.com/jooray/meshcore-local-api) (protocol 1); both bridges use its client libraries (Python `meshcore-localapi`, Kotlin `com.github.jooray:meshcore-local-api`) since bridge-python 0.6.0 and bridge-android 0.5.0. Pairing signs only `meshcore-local-api-pair-v1:<nonce>`, so the server must be MeshCore Open test build `localapi-test-10` or later, or a `meshcored` that sends that prefix. Capabilities are strict: a feature is used only when `hello.capabilities` lists it. The region check (`regions.list`) runs only with `regions`, the LoRa preset is read from `radio.stats` only with `radio_stats`. `hello.capabilities` is a top-level array. Without `rx_path` the bridge does not read the path from events, without `tx_path_data` it does not send `path` (an old server would ignore it and send flood), so it sends commands by flood only. With `tx_path_data`: `path` missing = flood, `""` = zero-hop, otherwise direct (`pathHashSize`). The error `budget` (`duty_cap`) counts as an exhausted radio budget.
 
 **Proof of work and limits** (PROTOCOL.md 4, "Proof of work", "Limits"). Counters with the prefix `lt_spam_` count what was refused as abuse; the heartbeat sums them as `spam_rejected`.
 

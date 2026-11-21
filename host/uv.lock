@@ -189,10 +189,11 @@ wheels = [
 
 [[package]]
 name = "libretag"
-version = "0.5.0"
+version = "0.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
+    { name = "meshcore-localapi" },
     { name = "pyserial" },
     { name = "websockets" },
 ]
@@ -206,6 +207,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=42" },
+    { name = "meshcore-localapi", git = "https://github.com/jooray/meshcore-local-api?subdirectory=python&rev=v0.1.0" },
     { name = "pyserial", specifier = ">=3.5" },
     { name = "websockets", specifier = ">=17.4" },
 ]
@@ -214,6 +216,15 @@ requires-dist = [
 dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
+]
+
+[[package]]
+name = "meshcore-localapi"
+version = "0.1.0"
+source = { git = "https://github.com/jooray/meshcore-local-api?subdirectory=python&rev=v0.1.0#5ca51ddff391c3c99ef18a9847014cbe3f987390" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "websockets" },
 ]
 
 [[package]]

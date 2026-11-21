@@ -11,7 +11,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import app.libretag.BuildConfig
 import app.libretag.R
-import app.libretag.mesh.MeshApiState
+import io.github.jooray.meshcore.localapi.SessionState
 import app.libretag.support.SupportAsk
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.LinearProgressIndicator
@@ -46,21 +46,21 @@ class ConnectionsActivity : ScreenActivity() {
         content.removeAllViews()
         h3(getString(R.string.conn_meshcore))
         val s = app.mesh.state.value
-        val ok = s is MeshApiState.Connected
+        val ok = s is SessionState.Connected
         val last = app.lastMeshPacket.value
         val sub = when (s) {
-            is MeshApiState.Connected -> listOfNotNull(s.deviceName?.let { getString(R.string.conn_node, it) }, getString(R.string.conn_local_api),
+            is SessionState.Connected -> listOfNotNull(s.deviceName?.let { getString(R.string.conn_node, it) }, getString(R.string.conn_local_api),
                 if (last > 0) getString(R.string.conn_last_packet, Format.at(this, last)) else null).joinToString(" · ")
-            MeshApiState.Connecting -> getString(R.string.mesh_connecting)
-            MeshApiState.Disconnected -> getString(R.string.mesh_disconnected)
-            MeshApiState.WaitingForApproval -> getString(R.string.mesh_approve)
-            MeshApiState.NotApproved -> getString(R.string.mesh_not_approved)
-            MeshApiState.NoRadio -> getString(R.string.mesh_no_radio)
-            MeshApiState.WaitingForChannel -> getString(R.string.mesh_add_channel)
-            MeshApiState.ChannelDenied -> getString(R.string.mesh_channel_denied)
-            is MeshApiState.ChannelMissing -> getString(R.string.mesh_channel_missing, s.code ?: "?")
-            is MeshApiState.Refused -> getString(R.string.mesh_refused, s.code ?: "?")
-            is MeshApiState.Failed -> getString(R.string.mesh_failed, s.message)
+            SessionState.Connecting -> getString(R.string.mesh_connecting)
+            SessionState.Disconnected -> getString(R.string.mesh_disconnected)
+            SessionState.WaitingForApproval -> getString(R.string.mesh_approve)
+            SessionState.NotApproved -> getString(R.string.mesh_not_approved)
+            SessionState.NoRadio -> getString(R.string.mesh_no_radio)
+            SessionState.WaitingForChannel -> getString(R.string.mesh_add_channel)
+            SessionState.ChannelDenied -> getString(R.string.mesh_channel_denied)
+            is SessionState.ChannelMissing -> getString(R.string.mesh_channel_missing, s.code ?: "?")
+            is SessionState.Refused -> getString(R.string.mesh_refused, s.code ?: "?")
+            is SessionState.Failed -> getString(R.string.mesh_failed, s.message)
         }
         pad(listItem(R.drawable.ic_mesh, getString(if (ok) R.string.conn_connected else R.string.conn_not_connected), sub,
             statusTag(getString(if (ok) R.string.conn_working else R.string.conn_off), ok)))
@@ -71,8 +71,10 @@ class ConnectionsActivity : ScreenActivity() {
         })
         row.addView(button(getString(R.string.conn_fingerprint), Btn.TEXT) {
             lifecycleScope.launch {
+                // the first call loads or creates the key: off the main thread
+                val fp = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { app.mesh.fingerprint() }
                 MaterialAlertDialogBuilder(this@ConnectionsActivity).setTitle(R.string.conn_fingerprint)
-                    .setMessage(getString(R.string.conn_fingerprint_text, app.mesh.fingerprint()))
+                    .setMessage(getString(R.string.conn_fingerprint_text, fp))
                     .setPositiveButton(R.string.ok, null).show()
             }
         })

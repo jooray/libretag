@@ -89,7 +89,7 @@ The Android bridge has the same rules (`android-bridge/.../bridge/Bridge.kt:76-9
   - KISS adapter: a plain unscoped flood (`radio.py:413-421`).
   - Companion serial: flood only, the node's default scope (`radio.py:129`).
 - The tag itself reports with region `sk` in Slovakia and unscoped elsewhere (`README.md:74`, SPEC 6.4).
-- The owner's own node: the app's `meshRegion` setting, empty means MeshCore Open's own scope (`android/.../mesh/MeshCoreApiClient.kt:372-373`). MeshCore Open accepts a region per message (`meshcore-open/documentation/LOCAL_API.md:133-147`), and meshcored does the same (`meshcored/DESIGN.md:124`).
+- The owner's own node: the app's `meshRegion` setting, empty means MeshCore Open's own scope (`android/.../mesh/LocalApi.kt`, `MeshLink.sendChannelData`). MeshCore Open accepts a region per message (`meshcore-open/documentation/LOCAL_API.md:133-147`), and meshcored does the same (`meshcored/DESIGN.md:124`).
 - A MeshCore flood has no radius. A scoped flood passes every repeater that carries that region. An unscoped flood passes every repeater that does not forbid it, up to `flood.max.unscoped` hops, default 64 (`docs/research/region-research.md:31-46`). In practice one flooded command crosses the whole connected mesh. The Slovak and Hungarian mesh had about 980 nodes on 2026-11-16 (`docs/research/flood-latency.md:52`).
 
 ### A.4 N bridges in different cities, today

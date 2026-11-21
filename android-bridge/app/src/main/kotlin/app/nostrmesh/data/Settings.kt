@@ -6,7 +6,6 @@ import app.nostrmesh.bridge.Bridge
 import app.nostrmesh.bridge.BridgeConfig
 import app.nostrmesh.bridge.Device
 import app.nostrmesh.bridge.LoRaPreset
-import app.nostrmesh.mesh.MeshSettings
 import app.nostrmesh.nostr.Bech32
 import app.nostrmesh.nostr.hex
 import app.nostrmesh.nostr.unhex
@@ -35,7 +34,7 @@ data class StoredDevice(
 }
 
 /** Everything the app keeps; observed by the service so changes apply at once. */
-class Settings(context: Context) : MeshSettings {
+class Settings(context: Context) {
     private val prefs = context.getSharedPreferences("bridge", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -85,19 +84,19 @@ class Settings(context: Context) : MeshSettings {
         appVersion = BuildConfig.VERSION_NAME,
     )
 
-    // MeshSettings (MeshCore Open local API)
-    override val meshUrl: String
+    // MeshCore Local API
+    val meshUrl: String
         get() = prefs.getString("mesh_url", null) ?: "ws://127.0.0.1:8787/api/v1"
-    override var meshIdentity: String?
+    var meshIdentity: String?
         get() = prefs.getString("mesh_identity", null)
         set(v) { prefs.edit().putString("mesh_identity", v).apply() }
-    override var meshRegion: String
+    var meshRegion: String
         get() = prefs.getString("mesh_region", "") ?: ""
         set(v) {
             if (v == meshRegion) return
             prefs.edit().putString("mesh_region", v).apply(); changed()
         }
-    override var meshCursor: String?
+    var meshCursor: String?
         get() = prefs.getString("mesh_cursor", null)
         set(v) { prefs.edit().putString("mesh_cursor", v).apply() }
 

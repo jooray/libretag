@@ -360,7 +360,7 @@ Every other claim is ignored. That includes claims from random keys (bridges bef
 
 **Airtime order.** Inside the `#libretag` budget (0.1 % of an hour), timed transmissions may use at most half (`timed_airtime_share`), so the rest stays for commands that answer a report. Floods of open entries are capped at 6 per rolling hour (`open_floods_per_hour`); zero-hop and entries that name this bridge do not count.
 
-**The owner's own node.** The app also sends a waiting command from the owner's own radio through MeshCore Open's Local API (section 3, "Route"). That path carries `Pc` straight to the radio, with no Nostr event, so it needs no signature check and no bridge.
+**The owner's own node.** The app also sends a waiting command from the owner's own radio through MeshCore Open's Local API (section 3, "Route"; the Local API protocol is defined in [MeshCore Local API](https://github.com/jooray/meshcore-local-api)). That path carries `Pc` straight to the radio, with no Nostr event, so it needs no signature check and no bridge.
 
 **Mailbox size.** A bridge keeps up to 200,000 tags (was 10,000). The owner's relay should rate-limit kind `4244` per connection: `host/deploy/strfry-mailbox-policy.py` is a strfry write policy that does (it can also demand NIP-13 work, off by default since 4.2).
 

@@ -12,7 +12,8 @@ Everything is on the project's GitHub releases page. Battery life has not been m
 
 - Download `libretag-<version>.apk` from the release, or add the repository to [Obtainium](https://github.com/ImranR98/Obtainium) (turn on pre-releases while releases are marked as such). Zapstore (`app.libretag`) is planned.
 - Check the signing certificate before you install: `apksigner verify --print-certs libretag-<version>.apk` must show SHA-256 `79750fb49349ec3729be5a3e825507a15e47c6d987e854ae91d5d50a20b3a24d`. The same value is in the app's menu. Updates only install over an APK signed with this certificate.
-- To use your own MeshCore node from the phone you need **MeshCore Open with the Local API**. Until the changes are merged upstream (zjs81/meshcore-open pull requests [#619](https://github.com/zjs81/meshcore-open/pull/619), [#628](https://github.com/zjs81/meshcore-open/pull/628), [#670](https://github.com/zjs81/meshcore-open/pull/670)), install the fork build from https://github.com/jooray/meshcore-open/releases/tag/localapi-test-9. Without it the app still works over Nostr, through bridges run by others.
+- To use your own MeshCore node from the phone you need **MeshCore Open with the Local API**. Until the changes are merged upstream (zjs81/meshcore-open pull requests [#619](https://github.com/zjs81/meshcore-open/pull/619), [#628](https://github.com/zjs81/meshcore-open/pull/628), [#670](https://github.com/zjs81/meshcore-open/pull/670)), install the fork build from https://github.com/jooray/meshcore-open/releases/tag/localapi-test-10 (or later; LibreTag 0.13 and the bridges no longer pair with test-9 and older). Without it the app still works over Nostr, through bridges run by others.
+- The Local API itself (the loopback WebSocket MeshCore Open and `meshcored` serve) is defined in [MeshCore Local API](https://github.com/jooray/meshcore-local-api). The app, the Android bridge and the Python bridge use its client libraries.
 
 ### Tracker firmware: Wio Tracker L1 / L1 Pro
 
@@ -122,7 +123,7 @@ The same role builds for the Heltec Wireless Stick Lite V3 (ESP32-S3, SX1262, no
 
 ## Android app
 
-Version 0.12.0, signed with the certificate SHA-256 `79750fb49349ec3729be5a3e825507a15e47c6d987e854ae91d5d50a20b3a24d` (see "Install"). Procedure:
+Version 0.13.0, signed with the certificate SHA-256 `79750fb49349ec3729be5a3e825507a15e47c6d987e854ae91d5d50a20b3a24d` (see "Install"). Procedure:
 
 1. In MeshCore Open (the jooray/meshcore-open fork with the Local API) turn on the Local API and connect to your companion node.
 2. Open LibreTag. MeshCore Open asks whether to allow it (the fingerprint is in the LibreTag menu), then whether to add the `#libretag` channel.
@@ -166,7 +167,7 @@ uv run nostrmesh decode <hex>    # / encode event.json / vectors
 
 ### Android app "Nostr bridge" (`android-bridge/`)
 
-Version 0.4.0. It does what the Python bridge does: LT2 reports and BLE packets go up as kind 4243, the command mailbox handles timed entries (0.7 checks) and cancelling, low-battery DMs (`dm4x`) go up from any tracker, and DMs also reach the recipient's inbox relays. Since 0.3.2 it also keeps unpublished events in an outbox across restarts, reconnects the radio after 30 min of silence, writes an hourly heartbeat (`status.json`) and limits `#libretag` uplink per first hop (10 per minute). The bridge runs directly on the phone through MeshCore Open (the radio stays in MeshCore Open, chat keeps working):
+Version 0.5.0. It does what the Python bridge does: LT2 reports and BLE packets go up as kind 4243, the command mailbox handles timed entries (0.7 checks) and cancelling, low-battery DMs (`dm4x`) go up from any tracker, and DMs also reach the recipient's inbox relays. Since 0.3.2 it also keeps unpublished events in an outbox across restarts, reconnects the radio after 30 min of silence, writes an hourly heartbeat (`status.json`) and limits `#libretag` uplink per first hop (10 per minute). The bridge runs directly on the phone through MeshCore Open (the radio stays in MeshCore Open, chat keeps working):
 
 1. In MeshCore Open turn on the Local API, open the Nostr bridge and turn on the switch. MeshCore Open asks whether to allow it and whether to add `#nostr` (and `#roadstr`).
 2. Radio → Nostr works right away: Roadstr reports, messages from registered devices, and LibreTag reports from `#libretag`, which the bridge publishes as kind 4243 (it decrypts nothing and does not know the tracker's key; it signs with a random key and does not publish what is already on the relays).

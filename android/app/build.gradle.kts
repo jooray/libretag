@@ -41,8 +41,8 @@ android {
         applicationId = "app.libretag"
         minSdk = 26
         targetSdk = 34
-        versionCode = 40
-        versionName = "0.12.0"
+        versionCode = 41
+        versionName = "0.13.0"
         // the newest tracker firmware this app knows about (Service: "up to date" / "x.y.z available")
         buildConfigField("String", "FIRMWARE_DFU_SHA256", "\"$dfuSha256\"")
         buildConfigField("String", "FIRMWARE_DFU_VERSION", "\"$dfuVersion\"")
@@ -98,6 +98,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-service:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.github.jooray:meshcore-local-api:v0.1.0")
     implementation("org.osmdroid:osmdroid-android:6.1.18")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("fr.acinq.secp256k1:secp256k1-kmp:0.15.0")

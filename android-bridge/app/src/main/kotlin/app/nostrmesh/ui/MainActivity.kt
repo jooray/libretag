@@ -25,7 +25,7 @@ import app.nostrmesh.bridge.Bridge
 import app.nostrmesh.databinding.ActivityMainBinding
 import app.nostrmesh.databinding.HeaderMainBinding
 import app.nostrmesh.databinding.ItemActivityBinding
-import app.nostrmesh.mesh.MeshApiState
+import io.github.jooray.meshcore.localapi.SessionState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -58,7 +58,10 @@ class MainActivity : AppCompatActivity() {
         header.openMeshCore.setOnClickListener {
             packageManager.getLaunchIntentForPackage("com.meshcore.meshcore_open")?.let { startActivity(it) }
         }
-        lifecycleScope.launch { header.fingerprint.text = "Odtlačok pre MeshCore Open: ${app.mesh.fingerprint()}" }
+        lifecycleScope.launch {
+            val fp = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { app.mesh.fingerprint }
+            header.fingerprint.text = "Odtlačok pre MeshCore Open: $fp"
+        }
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -109,15 +112,15 @@ class MainActivity : AppCompatActivity() {
         view.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, color))
     }
 
-    private fun renderMesh(s: MeshApiState) {
+    private fun renderMesh(s: SessionState) {
         header.meshState.text = app.meshText(s)
         dot(header.meshDot, when (s) {
-            is MeshApiState.Connected -> if (s.unknownRegion == null) R.color.ok else R.color.warn
-            MeshApiState.Connecting, MeshApiState.WaitingForApproval, MeshApiState.WaitingForChannel -> R.color.warn
-            MeshApiState.Disconnected -> if (app.settings.enabled) R.color.bad else R.color.idle
+            is SessionState.Connected -> if (s.unknownRegion == null) R.color.ok else R.color.warn
+            SessionState.Connecting, SessionState.WaitingForApproval, SessionState.WaitingForChannel -> R.color.warn
+            SessionState.Disconnected -> if (app.settings.enabled) R.color.bad else R.color.idle
             else -> R.color.bad
         })
-        header.fingerprint.visibility = if (s == MeshApiState.WaitingForApproval || s == MeshApiState.NotApproved) View.VISIBLE else View.GONE
+        header.fingerprint.visibility = if (s == SessionState.WaitingForApproval || s == SessionState.NotApproved) View.VISIBLE else View.GONE
     }
 
     private fun renderRelays(c: Int, n: Int) {

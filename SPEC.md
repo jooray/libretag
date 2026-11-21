@@ -256,7 +256,7 @@ Two exceptions, both short and both naming no tracker: `blepair` advertises only
 
 ### 6.1 Map straight from your own mesh node (idea from Roadbeacon)
 
-Roadbeacon reads MeshCore channel datagrams through the **MeshCore Open local API** (`ws://127.0.0.1:8787/api/v1`, fork jooray/meshcore-open, branch `feat/local-api`). The companion node stores channel messages, and the app can pick them up later (`since` cursor). For LibreTag:
+Roadbeacon reads MeshCore channel datagrams through the **MeshCore Open local API** (`ws://127.0.0.1:8787/api/v1`, fork jooray/meshcore-open, branch `feat/local-api`; protocol: [MeshCore Local API](https://github.com/jooray/meshcore-local-api)). The companion node stores channel messages, and the app can pick them up later (`since` cursor). For LibreTag:
 
 - Reports in "public mode" (6.2) go to the hashtag channel `#libretag` with their own `data_type`. During development from the dev range `0xFF00–0xFFFF`, then request an allocation like Roadbeacon (`0x0150`).
 - The app (web/Android, possibly as another layer in Roadbeacon) subscribes to `#libretag` through the local API, decrypts reports with the key `K` and shows them on a map. It works without internet, your own companion node is enough.

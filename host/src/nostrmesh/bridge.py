@@ -175,8 +175,8 @@ class Bridge:
         after its hello and radio.stats: wait for those, at most `wait_s`."""
         r = self.radio
         for _ in range(int(wait_s / 0.5)):
-            if not hasattr(r, "capabilities") or (r.capabilities and (r.preset or "airtime" not in r.capabilities)
-                                                  and (getattr(r, "freq_hz", None) or "airtime" not in r.capabilities)):
+            if not hasattr(r, "capabilities") or (r.capabilities and (r.preset or "radio_stats" not in r.capabilities)
+                                                  and (getattr(r, "freq_hz", None) or "radio_stats" not in r.capabilities)):
                 break
             await asyncio.sleep(0.5)
         self.lt2.announce(self.clock())

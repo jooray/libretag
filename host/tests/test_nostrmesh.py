@@ -772,6 +772,10 @@ def test_inbox_poll_flushes_queue_direct_and_is_not_published():
     assert br.stats.c["dn_sent_direct"] == 1
 
 
+CAPS = ["contacts", "advert_send", "regions", "channels_join", "replay", "radio_stats", "tx_path_data",
+        "tx_path_text", "rx_path", "rx_meta", "raw_rx", "raw_tx", "tx_result", "airtime", "duty_cap", "noise_floor"]
+
+
 def test_local_api_adapter_pairs_joins_receives_sends(tmp_path):
     import base64 as b64
     import threading
@@ -789,14 +793,17 @@ def test_local_api_adapter_pairs_joins_receives_sends(tmp_path):
     def handler(ws):
         hello = json.loads(ws.recv())
         pub = b64.b64decode(hello["client"]["publicKey"])
-        ws.send(json.dumps({"type": "pairing.challenge", "nonce": "abcdefghijklmnop1234"}))
+        ws.send(json.dumps({"type": "pairing.challenge", "nonce": "abcdefghijklmnop1234",
+                            "message": "meshcore-local-api-pair-v1:abcdefghijklmnop1234"}))
         pair = json.loads(ws.recv())
         key_ = ec.EllipticCurvePublicNumbers(int.from_bytes(pub[:32], "big"), int.from_bytes(pub[32:], "big"),
                                              ec.SECP256R1()).public_key()
-        key_.verify(b64.b64decode(pair["signature"]), b"meshcore-open-pair-v1:abcdefghijklmnop1234",
+        key_.verify(b64.b64decode(pair["signature"]), b"meshcore-local-api-pair-v1:abcdefghijklmnop1234",
                     ec.ECDSA(hashes.SHA256()))
         log["verified"] = True
-        ws.send(json.dumps({"type": "hello", "device": {"connected": True, "name": "node"}}))
+        # as meshcored: no radio in hello.device, the frequency only from device.info
+        ws.send(json.dumps({"type": "hello", "protocol": 1, "capabilities": CAPS, "device": {
+            "connected": True, "name": "node"}}))
         for raw in ws:
             m = json.loads(raw)
             meth, p, rid = m.get("method"), m.get("params", {}), m.get("id")
@@ -804,9 +811,9 @@ def test_local_api_adapter_pairs_joins_receives_sends(tmp_path):
                 if p["channel"] not in channels:
                     ws.send(json.dumps({"id": rid, "ok": False, "error": {"code": "unknown_channel"}}))
                 else:
-                    ws.send(json.dumps({"id": rid, "ok": True, "result": {"subscriptionId": "s1"}}))
+                    ws.send(json.dumps({"id": rid, "ok": True, "result": {"subscriptionId": "s" + p["channel"]}}))
                     if p["channel"] == "#nostr":
-                        ws.send(json.dumps({"type": "event", "event": {
+                        ws.send(json.dumps({"type": "event", "subscriptionId": "s#nostr", "event": {
                             "type": "channel.data", "channel": "#nostr", "dataType": 0xFF4E,
                             "payload": b64.b64encode(b"frame").decode(), "hops": 1,
                             "receivedAt": "2026-11-13T10:00:00.000Z"}}))
@@ -817,6 +824,13 @@ def test_local_api_adapter_pairs_joins_receives_sends(tmp_path):
             elif meth == "channel.sendData":
                 log["sent"].append(p)
                 ws.send(json.dumps({"id": rid, "ok": True, "result": {}}))
+            elif meth == "device.info":
+                ws.send(json.dumps({"id": rid, "ok": True, "result": {
+                    "connected": True, "name": "node", "radio": {"freqHz": 869618000, "sf": 7, "bwHz": 62500, "cr": 5}}}))
+            elif meth == "radio.stats":
+                ws.send(json.dumps({"id": rid, "ok": True, "result": {"preset": {"sf": 7, "bwHz": 62500, "cr": 5}}}))
+            else:
+                ws.send(json.dumps({"id": rid, "ok": False, "error": {"code": "unknown_method"}}))
 
     with serve(handler, "127.0.0.1", 0) as server:
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -826,7 +840,7 @@ def test_local_api_adapter_pairs_joins_receives_sends(tmp_path):
         got = []
         radio.start(got.append)
         for _ in range(300):
-            if got and radio.subscribed == {"#nostr", "#roadstr"}:
+            if got and radio.subscribed == {"#nostr", "#roadstr"} and radio.preset:
                 break
             time.sleep(0.01)
         radio.send("#nostr", 0xFF4E, b"out")
@@ -834,6 +848,7 @@ def test_local_api_adapter_pairs_joins_receives_sends(tmp_path):
         server.shutdown()
 
     assert log["verified"] and log["joined"] == ["#nostr"]
+    assert radio.preset == (7, 62500.0, 5) and radio.freq_hz == 869618000 and radio.supports_direct
     assert got == [Datagram("#nostr", 0xFF4E, b"frame", 1, None, rx_time=1794564000.0)]  # 2026-11-13T10:00Z
     assert log["sent"] == [{"channel": "#nostr", "dataType": 0xFF4E, "payload": b64.b64encode(b"out").decode()}]
     assert Identity(tmp_path / "id.json").cursor("#nostr") == "2026-11-13T10:00:00.000Z"
@@ -1092,13 +1107,9 @@ def test_node_preset_overrides_config_with_one_warning(caplog):
 
 
 def test_local_api_preset_parsing():
-    from nostrmesh.localapi import LocalApiRadio
+    from nostrmesh.localapi import parse_preset
 
-    ok = {"ok": True, "result": {"preset": {"sf": 7, "bwHz": 62500, "cr": 5}}}
-    assert LocalApiRadio.parse_preset(ok) == (7, 62500.0, 5)
-    assert LocalApiRadio.parse_preset({"ok": True, "result": {"preset": {"sf": 7, "bwHz": 62500, "cr": 1}}}) == \
-        (7, 62500.0, 5)
-    for bad in (None, {"ok": False}, {"ok": True, "result": {}}, {"ok": True, "result": {"preset": {"sf": 13,
-                                                                                                    "bwHz": 1, "cr": 5}}},
-                {"ok": True, "result": {"preset": {"sf": 7, "bwHz": "x", "cr": 5}}}):
-        assert LocalApiRadio.parse_preset(bad) is None
+    assert parse_preset({"preset": {"sf": 7, "bwHz": 62500, "cr": 5}}) == (7, 62500.0, 5)
+    assert parse_preset({"preset": {"sf": 7, "bwHz": 62500, "cr": 1}}) == (7, 62500.0, 5)
+    for bad in (None, {}, {"preset": {"sf": 13, "bwHz": 1, "cr": 5}}, {"preset": {"sf": 7, "bwHz": "x", "cr": 5}}):
+        assert parse_preset(bad) is None

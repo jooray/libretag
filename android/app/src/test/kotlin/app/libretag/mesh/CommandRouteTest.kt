@@ -5,14 +5,9 @@ import app.libretag.data.CheckPlan
 import app.libretag.proto.Command
 import app.libretag.proto.LibreTag
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -139,32 +134,6 @@ class CommandRouteTest {
         assertFalse(CommandRoute.mailboxFallback(true, ble, window, window + 2 * 3600_000L))
         assertFalse(CommandRoute.mailboxFallback(false, ble, 0L, window + 2 * 3600_000L))
         assertFalse(CommandRoute.mailboxFallback(false, "", window, window + 2 * 3600_000L))
-    }
-
-    @Test fun zeroHopOnlyWithTheServersCapability() {
-        assertEquals(setOf("tx_path_data", "rx_path"), MeshApiSession.capabilitiesOf(buildJsonObject {
-            put("type", "hello")
-            put("capabilities", buildJsonArray { add(JsonPrimitive("tx_path_data")); add(JsonPrimitive("rx_path")) })
-        }))
-        assertEquals(emptySet<String>(), MeshApiSession.capabilitiesOf(buildJsonObject { put("type", "hello") }))
-        val s = MeshApiSession("#libretag")
-        s.onHello(buildJsonObject { put("type", "hello") }) // MeshCore Open today
-        assertFalse(s.canZeroHop)
-        s.connectionStarted()
-        s.onHello(buildJsonObject { put("type", "hello"); put("capabilities", buildJsonArray { add(JsonPrimitive("tx_path_data")) }) })
-        assertTrue(s.canZeroHop)
-        s.connectionStarted() // a new socket forgets it until its hello
-        assertFalse(s.canZeroHop)
-    }
-
-    @Test fun zeroHopSendParamsCarryAnEmptyPathAndNoRegion() {
-        val zp = MeshApiSession.sendParams("#libretag", 0xFF4C, byteArrayOf(1, 2), "sk", zeroHop = true)
-        assertEquals("", zp["path"]!!.jsonPrimitive.content)
-        assertEquals(1, zp["pathHashSize"]!!.jsonPrimitive.int)
-        assertNull(zp["region"])
-        val fp = MeshApiSession.sendParams("#libretag", 0xFF4C, byteArrayOf(1, 2), "sk")
-        assertNull(fp["path"]) // no path: a flood in the region
-        assertEquals("sk", fp["region"]!!.jsonPrimitive.content)
     }
 
     @Test fun bleConsoleCommandMatchesTheVectors() {

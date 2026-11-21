@@ -423,14 +423,20 @@ def test_bridge_key_from_file(tmp_path):
     assert lt2svc.read_bridge_key("") is None
 
 
-def test_local_api_region_checked_against_the_node_catalogue():
-    from nostrmesh.localapi import LocalApiRadio
+def test_local_api_region_checked_against_the_node_catalogue(tmp_path):
+    from nostrmesh.localapi import Identity, LocalApiRadio
 
-    cat = {"ok": True, "result": {"regions": [{"name": "sk"}, {"name": "sk-ke"}, {"name": "cz"}]}}
+    cat = {"regions": [{"name": "sk"}, {"name": "sk-ke"}, {"name": "cz"}]}
 
     def radio(region, answer):
-        r = LocalApiRadio("ws://127.0.0.1:8787/api/v1", {}, identity=object(), region=region)
-        r.request = lambda m, p, timeout=15.0: answer
+        r = LocalApiRadio("ws://127.0.0.1:8787/api/v1", {}, identity=Identity(tmp_path / "id.json"), region=region)
+
+        def request(m, p=None, timeout=None):
+            if answer is None:
+                from meshcore_localapi import RequestTimeout
+                raise RequestTimeout(m, 15)
+            return answer
+        r.client.request = request
         r._check_region()
         return r
 
