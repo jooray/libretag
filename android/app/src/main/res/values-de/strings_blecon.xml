@@ -10,7 +10,6 @@
     <string name="blecon_not_seen">%1$s nicht gefunden. Starte ihn neu und halte das Handy nah daran.</string>
     <string name="blecon_listening">%1$s hört über Bluetooth zu. Noch %2$d s.</string>
     <string name="blecon_connect_short">Verbinden</string>
-    <string name="blecon_needs_fw">Bluetooth braucht Firmware %1$s. Die App hat auf diesem Tracker zuletzt %2$s gesehen. Hat der Tracker neuere Firmware, verbindet er sich trotzdem.</string>
     <string name="blecon_connected">Über Bluetooth verbunden</string>
     <string name="blecon_disconnect">Trennen</string>
     <string name="blecon_lost">Bluetooth-Verbindung verloren. Starte den Tracker neu, um dich wieder zu verbinden, oder nimm das Kabel.</string>
@@ -38,4 +37,13 @@
     <string name="blecon_console">Konsole</string>
     <string name="blecon_console_hint">Befehl</string>
     <string name="blecon_console_send">Senden</string>
+
+    <!-- 0.13.1: the wake advert (firmware 0.9.5) -->
+    <string name="blecon_wake_at">Das Telefon wartet, bis %1$s aufwacht, etwa um %2$s. Halte es nah an den Tracker.</string>
+    <string name="blecon_wake_next">Das Telefon wartet, bis %1$s aufwacht. Halte es nah an den Tracker.</string>
+    <string name="blecon_wake_auto">Sobald der Tracker antwortet, verbindet sich die App. Wenn du diesen Bildschirm verlässt, erhältst du eine Benachrichtigung. Um %1$s hört das Telefon auf zu warten.</string>
+    <string name="blecon_wake_stop">Nicht mehr warten</string>
+    <string name="blecon_wake_missed">%1$s hat bis %2$s nicht geantwortet. Geh mit dem Telefon näher heran und versuche es erneut.</string>
+    <string name="blecon_wake_notif_title">%1$s hört über Bluetooth zu</string>
+    <string name="blecon_wake_notif_text">Zum Verbinden tippen. Der Tracker hört 3 Minuten lang zu.</string>
 </resources>

@@ -293,6 +293,34 @@ def test_080_ble_console_handshake_and_frames():
     assert sum(w[4] for w in v["window_ok"]) == 2  # locked, on, allowed, resets 1 or 3
 
 
+def test_095_bcon_wake_advert():
+    v = VEC["bcon_wake"]
+    uk = KEYS.usb_key
+    assert v["company"] == lt2.BLE_CMD_COMPANY and v["type"] == lt2.BCON_WAKE_TYPE == 0x26
+    assert len(v["valid"]) >= 2
+    for c in v["valid"]:
+        salt = bytes.fromhex(c["salt"])
+        p = lt2.bcon_wake(uk, salt)
+        assert p.hex() == c["payload"] and len(p) == lt2.BCON_WAKE_LEN == 13
+        assert lt2.hmac_sha256(uk, b"LT2-bcon-wake" + salt)[:6].hex() == c["tag"]
+        assert lt2.bcon_wake_match(uk, p)
+        assert not lt2.bcon_wake_match(KEYS.view(0), p)
+        assert not lt2.bcon_adv_match(uk, p)
+        ad = bytes.fromhex(c["ad"])
+        assert lt2.bcon_wake_ad(p) == ad and len(ad) == 17 and ad[:4] == bytes.fromhex("10ffffff")
+        assert lt2.bcon_wake_find(ad) == p
+        assert lt2.ble_command_find(ad) is None
+        for i in range(1, 13):  # any flipped bit of salt or tag fails
+            bad = bytearray(p)
+            bad[i] ^= 0x80
+            assert not lt2.bcon_wake_match(uk, bytes(bad))
+    for c in v["invalid"]:
+        assert not lt2.bcon_wake_match(uk, bytes.fromhex(c["payload"])), c["why"]
+    for f in v["find"]:
+        got = lt2.bcon_wake_find(bytes.fromhex(f["ad"]))
+        assert (got.hex() if got is not None else None) == f["payload"], f["ad"]
+
+
 def test_092_ble_console_command():
     c = lt2.Command.ble_console(14)
     assert c.encode()[:4].hex() == "220e0600" and not any(c.encode()[4:])

@@ -203,6 +203,17 @@ out.append("static const struct vbconframe V_BCON_FRAMES[] = {")
 for f in bc["frames"]:
     out.append(f"\t{{{f['dir']}, {f['c']}u, {len(bytes.fromhex(f['pt']))}, {arr(f['pt'])}, {arr(f['frame'])}}},")
 out.append("};")
+bw = v["bcon_wake"]
+out.append("struct vbconwake { uint8_t salt[6]; uint8_t payload[13]; uint8_t ad[17]; };")
+out.append("static const struct vbconwake V_BCON_WAKE[] = {" + ", ".join(
+    f"{{{arr(c['salt'])}, {arr(c['payload'])}, {arr(c['ad'])}}}" for c in bw["valid"]) + "};")
+out.append("struct vbconwakebad { uint8_t len; uint8_t payload[16]; };")
+out.append("static const struct vbconwakebad V_BCON_WAKE_BAD[] = {" + ", ".join(
+    f"{{{len(bytes.fromhex(c['payload']))}, {arr(c['payload'])}}}" for c in bw["invalid"]) + "};")
+out.append("struct vbconwakefind { uint8_t len; uint8_t ad[40]; uint8_t found; uint8_t payload[13]; };")
+out.append("static const struct vbconwakefind V_BCON_WAKE_FIND[] = {" + ", ".join(
+    f"{{{len(bytes.fromhex(f['ad']))}, {arr(f['ad'])}, {int(f['payload'] is not None)}, "
+    f"{arr(f['payload'] or '00')}}}" for f in bw["find"]) + "};")
 out.append("static const uint8_t V_BCON_WINDOW_OK[][5] = {" + ", ".join(
     "{" + ", ".join(map(str, w)) + "}" for w in bc["window_ok"]) + "};")
 out.append("static const uint16_t V_BCON_CMD_WINDOW[][2] = {" + ", ".join(

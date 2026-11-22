@@ -2,6 +2,15 @@
 
 LibreTag has four parts with their own version numbers. The first public release is a preview of all of them at once. The development history before it is not public; the main steps are summarised below. Details per version: `firmware/README.md` for the firmware, `docs/release-notes/` for each component.
 
+## 0.13.1: wake a nearby tag over Bluetooth
+
+| Part | Version |
+|---|---|
+| Android app | 0.13.1 |
+| Tracker firmware | 0.9.5 or newer (required) |
+
+**Open Bluetooth remotely** now also sends a wake advert from the phone (manufacturer data 0xFFFF, type 0x26, salt and a tag from the usb_key). It doesn't depend on the report counter, so it reaches a tag whose reports the app missed. Firmware 0.9.5 looks for it in every wake-up scan and opens the console window for 180 s on a match; a salt already taken in this boot is refused (`firmware/README.md` 0.9.5, PROTOCOL.md 3.2). The phone waits for up to two report periods (at least 2 hours), then connects by itself when the tag's console advert shows up. Fixes: "Checking for missed reports…" shows only while the backfill runs, and a failed sync retries; the console scan no longer leaks after `SCAN_FAILED_ALREADY_STARTED`. The app needs tracker firmware 0.9.5 or newer and no longer has code for older firmware; an older tag shows "Update firmware". Release notes: `docs/release-notes/app-0.13.1.md`.
+
 ## 0.13.0: the shared MeshCore Local API client
 
 | Part | Version |

@@ -19,7 +19,6 @@
     <string name="ts_still_off">Meldet auch, wenn er stillsteht</string>
     <string name="ts_still_sheet_after">Wird ruhig nach</string>
     <string name="ts_still_sheet_life">Lebenszeichen in der Ruhe</string>
-    <string name="ts_needs_07">Braucht Firmware 0.7 oder neuer</string>
     <string name="ts_tell">Benachrichtige mich</string>
     <string name="ts_not_heard">Nicht gehört, wenn erwartet</string>
     <string name="ts_not_heard_sub">%1$s nach fälliger Meldung (%2$s)</string>

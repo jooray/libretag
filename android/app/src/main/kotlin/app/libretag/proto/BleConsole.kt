@@ -35,8 +35,6 @@ object BleConsole {
     const val T2A = 1
     /** the window after a boot, seconds */
     const val WINDOW_S = 180
-    /** the firmware that has the console */
-    const val FIRMWARE = "0.8.0"
 
     private fun advTag(usbKey: ByteArray, salt: ByteArray): ByteArray =
         LibreTag.hmac(usbKey, "LT2-bcon-adv".toByteArray(), salt).copyOf(6)
@@ -58,6 +56,39 @@ object BleConsole {
 
     /** seconds until the window closes, from the advert's `left` byte (255: more than 508 s) */
     fun leftSeconds(payload: ByteArray): Int = (payload[1].toInt() and 0xFF) * 2
+
+    // ------------------------------------------------------------ the wake advert
+
+    /** the phone's wake advert: type byte, then salt[6] and t[6] */
+    const val WAKE_TYPE = 0x26
+    const val WAKE_LEN = 13
+
+    /**
+     * The 13 B after company id 0xFFFF that the phone advertises to open the console of the tag
+     * with this usb_key at its next wake-up that scans: `0x26 || salt || t`,
+     * t = HMAC-SHA256(usb_key, "LT2-bcon-wake" || salt)[0:6]. Not bound to a report counter, so it
+     * works when the app has missed the tag's reports. [salt]: 6 random bytes, new per advertising
+     * session.
+     */
+    fun wakePayload(usbKey: ByteArray, salt: ByteArray): ByteArray {
+        require(salt.size == 6)
+        return byteArrayOf(WAKE_TYPE.toByte()) + salt + LibreTag.hmac(usbKey, "LT2-bcon-wake".toByteArray(), salt).copyOf(6)
+    }
+
+    /** a wake advert for the tag with this usb_key (what the tag checks; for the tests) */
+    fun wakeMatch(usbKey: ByteArray, payload: ByteArray): Boolean =
+        payload.size == WAKE_LEN && payload[0] == WAKE_TYPE.toByte() &&
+            MessageDigest.isEqual(wakePayload(usbKey, payload.copyOfRange(1, 7)), payload)
+
+    /**
+     * The whole AD structure on air: length, 0xFF (manufacturer specific data), company id 0xFFFF
+     * little-endian, then [wakePayload]. 17 B of the 31 B legacy advert. Android builds it from
+     * AdvertiseData.addManufacturerData(COMPANY, payload); this is the reference for tests.
+     */
+    fun wakeAd(usbKey: ByteArray, salt: ByteArray): ByteArray {
+        val body = byteArrayOf(0xFF.toByte(), (COMPANY and 0xFF).toByte(), (COMPANY shr 8).toByte()) + wakePayload(usbKey, salt)
+        return byteArrayOf(body.size.toByte()) + body
+    }
 
     /** who = 'a' (AUTH) or 't' (READY) */
     fun proof(usbKey: ByteArray, who: Char, tagNonce: ByteArray, appNonce: ByteArray): ByteArray {

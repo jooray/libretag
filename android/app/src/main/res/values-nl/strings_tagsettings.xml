@@ -19,7 +19,6 @@
     <string name="ts_still_off">Meldt ook als hij stilligt</string>
     <string name="ts_still_sheet_after">Wordt stil na</string>
     <string name="ts_still_sheet_life">Teken van leven in stilte</string>
-    <string name="ts_needs_07">Vereist firmware 0.7 of nieuwer</string>
     <string name="ts_tell">Laat het me weten</string>
     <string name="ts_not_heard">Niet gehoord wanneer verwacht</string>
     <string name="ts_not_heard_sub">%1$s na een verwachte melding (%2$s)</string>

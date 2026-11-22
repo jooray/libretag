@@ -1223,6 +1223,46 @@ bool lt_bcon_adv_match(const uint8_t usb_key[32], const uint8_t *payload, size_t
 	return ct_eq(t, payload + 8, 6);
 }
 
+static void bcon_wake_tag(const uint8_t usb_key[32], const uint8_t salt[6], uint8_t out[6])
+{
+	uint8_t msg[13 + 6], h[32];
+	memcpy(msg, "LT2-bcon-wake", 13);
+	memcpy(msg + 13, salt, 6);
+	lt_hmac_sha256(usb_key, 32, msg, sizeof(msg), h);
+	memcpy(out, h, 6);
+}
+
+void lt_bcon_wake(const uint8_t usb_key[32], const uint8_t salt[6], uint8_t out[LT_BCON_WAKE_LEN])
+{
+	out[0] = LT_BCON_WAKE_TYPE;
+	memcpy(out + 1, salt, 6);
+	bcon_wake_tag(usb_key, salt, out + 7);
+}
+
+bool lt_bcon_wake_match(const uint8_t usb_key[32], const uint8_t *payload, size_t len)
+{
+	uint8_t t[6];
+	if (len != LT_BCON_WAKE_LEN || payload[0] != LT_BCON_WAKE_TYPE) return false;
+	bcon_wake_tag(usb_key, payload + 1, t);
+	return ct_eq(t, payload + 7, 6);
+}
+
+const uint8_t *lt_bcon_wake_find(const uint8_t *ad, size_t len)
+{
+	size_t i = 0;
+	while (i < len) {
+		size_t l = ad[i];
+		if (!l || i + 1 + l > len) return NULL;
+		const uint8_t *d = ad + i + 2;
+		if (ad[i + 1] == 0xFF && l - 1 == 2 + LT_BCON_WAKE_LEN && (d[0] | d[1] << 8) == LT_BLE_CMD_COMPANY &&
+		    d[2] == LT_BCON_WAKE_TYPE) {
+			return d + 2;
+		}
+		i += 1 + l;
+	}
+	return NULL;
+}
+
 /* HMAC(key, label || tag_nonce || app_nonce) */
 static void bcon_h(const uint8_t key[32], const char *label, const uint8_t tn[16], const uint8_t an[16],
                    uint8_t out[32])

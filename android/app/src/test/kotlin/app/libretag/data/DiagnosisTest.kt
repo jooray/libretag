@@ -22,7 +22,7 @@ class DiagnosisTest {
 
     /** hourly, heard 3 h ago: SILENT */
     private fun silent(vararg extra: Position) = Tracker(name = "Car", keyHex = "00".repeat(32), intervalMin = 60, lastN = 100,
-        positions = extra.toList().ifEmpty { listOf(pos(99, n = 99), pos(180)) }, firmware = "0.9.4")
+        positions = extra.toList().ifEmpty { listOf(pos(99, n = 99), pos(180)) }, firmware = "0.9.5")
 
     private val ok = DiagContext()
 
@@ -58,7 +58,7 @@ class DiagnosisTest {
     }
 
     @Test fun firmwareTooOld() {
-        assertEquals(Cause.FIRMWARE_TOO_OLD, cause(silent().copy(firmware = "0.8.2")))
+        assertEquals(Cause.FIRMWARE_TOO_OLD, cause(silent().copy(firmware = "0.9.4")))
     }
 
     @Test fun blindness() {
@@ -70,7 +70,13 @@ class DiagnosisTest {
         assertEquals(Cause.JUST_BACK, cause(silent(), ok.copy(pathUpSince = null, blindFrom = now - 2 * h)))
         // fetched a while ago and still nothing: not the phone's fault any more
         assertEquals(Cause.UNKNOWN, cause(silent(), ok.copy(pathUpSince = now - 10 * min, backfillAt = now - 10 * min)))
-        assertEquals(Cause.JUST_BACK, cause(silent(), ok.copy(pathUpSince = now - min, backfillAt = now - min)))
+        // the backfill came back a minute ago: nothing is being looked for any more
+        assertEquals(Cause.UNKNOWN, cause(silent(), ok.copy(pathUpSince = now - min, backfillAt = now - min)))
+        // blind with no link: the backfill can't run, so no "checking"
+        assertFalse(Diagnosis.justBack(ok.copy(linkUp = false, pathUpSince = null), now - h))
+        // the link is back, the backfill not done: checking, whatever the last backfill was
+        assertTrue(Diagnosis.justBack(ok.copy(pathUpSince = null, backfillAt = now - 3 * h), now - h))
+        assertEquals(Cause.JUST_BACK, cause(silent(), ok.copy(pathUpSince = null, backfillAt = now - 3 * h, blindFrom = now - 2 * h)))
     }
 
     @Test fun notDelivered() {
@@ -191,8 +197,8 @@ class DiagnosisTest {
         assertTrue(Diagnosis.findings(cliff, ok, now).any { it.finding == Diagnosis.Finding.BATTERY_CLIFF })
         val nofix = silent(pos(240, n = 96), pos(180, n = 97, fix = false), pos(120, n = 98, fix = false), pos(60, n = 99, fix = false))
         assertTrue(Diagnosis.findings(nofix, ok, now).any { it.finding == Diagnosis.Finding.NO_GPS_RUN })
-        val old = silent().copy(firmware = "0.9.3")
-        assertTrue(Diagnosis.findings(old, ok, now, "0.9.4").any { it.finding == Diagnosis.Finding.FIRMWARE_BEHIND })
+        val old = silent().copy(firmware = "0.9.5")
+        assertTrue(Diagnosis.findings(old, ok, now, "0.9.6").any { it.finding == Diagnosis.Finding.FIRMWARE_BEHIND })
         val cap = silent(pos(5, mode = "TRACK", nextInS = 3600)).copy(modeIntervalS = 300)
         assertTrue(Diagnosis.findings(cap, ok, now).any { it.finding == Diagnosis.Finding.FLOOD_CAP })
     }

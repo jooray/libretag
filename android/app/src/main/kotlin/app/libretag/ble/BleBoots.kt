@@ -23,13 +23,13 @@ object BleBoots {
         return l.kind == "BLE_CONSOLE" && now - l.confirmedAt in 0..OWN_WINDOW_MS
     }
 
-    /** [kind] "console" or "here"; [saltHex] the advert's salt. The same tracker when nothing changes. */
-    fun onAdvert(t: Tracker, kind: String, saltHex: String, rssi: Int, now: Long): Tracker {
+    /** [kind] "console" or "here"; [saltHex] the advert's salt; [asked]: the phone's wake advert asked for this window. The same tracker when nothing changes. */
+    fun onAdvert(t: Tracker, kind: String, saltHex: String, rssi: Int, now: Long, asked: Boolean = false): Tracker {
         val prev = t.bleSight
         val newWindow = prev == null || prev.salt != saltHex || prev.kind != kind
         if (!newWindow && now - prev!!.at < REFRESH_MS) return t
         val sight = BleSightRec(now, kind, rssi, salt = saltHex)
-        val boots = if (newWindow && kind == "console" && !ownWindow(t, now)) (t.bleBoots + now).takeLast(KEEP) else t.bleBoots
+        val boots = if (newWindow && kind == "console" && !asked && !ownWindow(t, now)) (t.bleBoots + now).takeLast(KEEP) else t.bleBoots
         return t.copy(bleSight = sight, bleBoots = boots,
             // the tag answered "Check if it's here"
             hereAskAt = if (newWindow) null else t.hereAskAt, notHereAt = if (newWindow) null else t.notHereAt)

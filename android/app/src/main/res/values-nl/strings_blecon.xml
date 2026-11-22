@@ -10,7 +10,6 @@
     <string name="blecon_not_seen">%1$s niet gezien. Start hem opnieuw op en houd de telefoon dichtbij.</string>
     <string name="blecon_listening">%1$s luistert via Bluetooth. Nog %2$d s.</string>
     <string name="blecon_connect_short">Verbinden</string>
-    <string name="blecon_needs_fw">Bluetooth vraagt firmware %1$s. De app zag op deze tracker voor het laatst %2$s. Heeft de tracker nieuwere firmware, dan verbindt hij toch.</string>
     <string name="blecon_connected">Verbonden via Bluetooth</string>
     <string name="blecon_disconnect">Verbinding verbreken</string>
     <string name="blecon_lost">Bluetooth-verbinding verbroken. Start de tracker opnieuw op om weer te verbinden, of gebruik de kabel.</string>
@@ -38,4 +37,13 @@
     <string name="blecon_console">Console</string>
     <string name="blecon_console_hint">Commando</string>
     <string name="blecon_console_send">Verstuur</string>
+
+    <!-- 0.13.1: the wake advert (firmware 0.9.5) -->
+    <string name="blecon_wake_at">De telefoon wacht tot %1$s wakker wordt, rond %2$s. Houd hem dicht bij de tracker.</string>
+    <string name="blecon_wake_next">De telefoon wacht tot %1$s wakker wordt. Houd hem dicht bij de tracker.</string>
+    <string name="blecon_wake_auto">Zodra de tracker antwoordt, maakt de app verbinding. Verlaat je dit scherm, dan krijg je een melding. Om %1$s stopt de telefoon met wachten.</string>
+    <string name="blecon_wake_stop">Stop met wachten</string>
+    <string name="blecon_wake_missed">%1$s heeft niet geantwoord voor %2$s. Breng de telefoon dichterbij en probeer het opnieuw.</string>
+    <string name="blecon_wake_notif_title">%1$s luistert via Bluetooth</string>
+    <string name="blecon_wake_notif_text">Tik om verbinding te maken. De tracker luistert 3 minuten.</string>
 </resources>

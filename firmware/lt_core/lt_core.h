@@ -579,6 +579,17 @@ typedef struct {
 
 void lt_bcon_adv(const uint8_t usb_key[32], const uint8_t salt[6], uint32_t left_s, uint8_t out[LT_BCON_ADV_LEN]);
 bool lt_bcon_adv_match(const uint8_t usb_key[32], const uint8_t *payload, size_t len);
+/* 0.9.5: console wake advert (PROTOCOL.md 3.2). The owner's phone advertises manufacturer data
+ * (company 0xFFFF) type 0x26, salt 6 B, HMAC(usb_key, "LT2-bcon-wake" || salt)[0:6]. A tag that
+ * sees it in a wake-up scan opens its console window. It needs no report counter n, so it still
+ * works after the phone lost track of the tag's n or epoch. */
+#define LT_BCON_WAKE_TYPE 0x26
+#define LT_BCON_WAKE_LEN 13
+void lt_bcon_wake(const uint8_t usb_key[32], const uint8_t salt[6], uint8_t out[LT_BCON_WAKE_LEN]);
+/* constant-time tag compare */
+bool lt_bcon_wake_match(const uint8_t usb_key[32], const uint8_t *payload, size_t len);
+/* the 13 B payload in an advert's AD bytes, or NULL; no keys needed (the scan callback's filter) */
+const uint8_t *lt_bcon_wake_find(const uint8_t *ad, size_t len);
 /* who = 'a' (AUTH) or 't' (READY) */
 void lt_bcon_proof(const uint8_t usb_key[32], char who, const uint8_t tag_nonce[16], const uint8_t app_nonce[16],
                    uint8_t out[LT_BCON_PROOF_LEN]);

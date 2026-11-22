@@ -20,7 +20,6 @@
     <string name="ts_still_off">Reports even when it stays put</string>
     <string name="ts_still_sheet_after">Goes quiet after</string>
     <string name="ts_still_sheet_life">Sign of life while quiet</string>
-    <string name="ts_needs_07">Needs firmware 0.7 or newer</string>
     <string name="ts_tell">Tell me</string>
     <string name="ts_not_heard">Not heard when expected</string>
     <string name="ts_not_heard_sub">%1$s after a report was due (%2$s)</string>

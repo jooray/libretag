@@ -10,7 +10,6 @@
     <string name="blecon_not_seen">No se ha visto %1$s. Reinícialo y mantén el teléfono cerca.</string>
     <string name="blecon_listening">%1$s está escuchando por Bluetooth. Quedan %2$d s.</string>
     <string name="blecon_connect_short">Conectar</string>
-    <string name="blecon_needs_fw">Bluetooth necesita el firmware %1$s. La app vio %2$s por última vez en este localizador. Si el localizador tiene un firmware más reciente, se conecta igualmente.</string>
     <string name="blecon_connected">Conectado por Bluetooth</string>
     <string name="blecon_disconnect">Desconectar</string>
     <string name="blecon_lost">Se perdió la conexión Bluetooth. Reinicia el localizador para conectar de nuevo, o usa el cable.</string>
@@ -38,4 +37,13 @@
     <string name="blecon_console">Consola</string>
     <string name="blecon_console_hint">Comando</string>
     <string name="blecon_console_send">Enviar</string>
+
+    <!-- 0.13.1: the wake advert (firmware 0.9.5) -->
+    <string name="blecon_wake_at">El teléfono espera a que %1$s se despierte, alrededor de las %2$s. Mantenlo cerca del localizador.</string>
+    <string name="blecon_wake_next">El teléfono espera a que %1$s se despierte. Mantenlo cerca del localizador.</string>
+    <string name="blecon_wake_auto">Cuando el localizador responda, la app se conecta. Si sales de esta pantalla, te avisa una notificación. El teléfono deja de esperar a las %1$s.</string>
+    <string name="blecon_wake_stop">Dejar de esperar</string>
+    <string name="blecon_wake_missed">%1$s no respondió antes de las %2$s. Acerca el teléfono e inténtalo de nuevo.</string>
+    <string name="blecon_wake_notif_title">%1$s está escuchando por Bluetooth</string>
+    <string name="blecon_wake_notif_text">Toca para conectar. El localizador escucha durante 3 minutos.</string>
 </resources>

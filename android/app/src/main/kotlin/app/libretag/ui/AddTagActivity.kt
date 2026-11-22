@@ -420,15 +420,12 @@ class AddTagActivity : AppCompatActivity() {
         val people = Tracker.defaultUse(type) == Tracker.USE_PEOPLE
         lifecycleScope.launch {
             val failed = mutableListOf<String>()
-            val fw07 = tag.version?.let { !ConsoleParsers.isOlder(it, "0.7.0") } ?: false
             val stillAfter = if (people) 0 else Tracker.DEFAULT_STILL_AFTER
             app.usb.session { c ->
                 if (!c.set("transport channel")) failed += "channel"
                 if (!c.set(ConsoleCommands.interval(INTERVAL_MIN))) failed += "interval"
-                if (fw07) {
-                    if (!c.set(ConsoleCommands.check(Tracker.DEFAULT_CHECK_S))) failed += "check"
-                    if (!c.set(ConsoleCommands.still(stillAfter, Tracker.DEFAULT_STILL_HB_H))) failed += "still"
-                }
+                if (!c.set(ConsoleCommands.check(Tracker.DEFAULT_CHECK_S))) failed += "check"
+                if (!c.set(ConsoleCommands.still(stillAfter, Tracker.DEFAULT_STILL_HB_H))) failed += "still"
                 if (!c.set("network auto")) failed += "network"
                 if (npub != null && npub != tag.status.owner && c.command("owner $npub").none { it.startsWith("owner npub1") }) failed += "owner"
             }

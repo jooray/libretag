@@ -317,6 +317,36 @@ static void test_07(const lt_keys_t *k, const uint8_t chan[16])
 }
 
 /* 0.7.7: commands over Bluetooth advertising (PROTOCOL.md 3.1) */
+/* 0.9.5: console wake advert from the phone (PROTOCOL.md 3.2) */
+static void test_095_bcon_wake(const lt_keys_t *k)
+{
+	uint8_t p[LT_BCON_WAKE_LEN];
+	for (size_t i = 0; i < sizeof(V_BCON_WAKE) / sizeof(V_BCON_WAKE[0]); i++) {
+		const struct vbconwake *v = &V_BCON_WAKE[i];
+		lt_bcon_wake(k->usb_key, v->salt, p);
+		CHECK(memcmp(p, v->payload, 13) == 0, "bcon wake %zu", i);
+		CHECK(lt_bcon_wake_match(k->usb_key, p, 13), "bcon wake %zu match", i);
+		CHECK(!lt_bcon_wake_match(k->view, p, 13), "bcon wake %zu other key", i);
+		CHECK(!lt_bcon_adv_match(k->usb_key, p, 13), "bcon wake %zu not a console advert", i);
+		CHECK(lt_bcon_wake_find(v->ad, 17) == v->ad + 4, "bcon wake %zu find", i);
+		CHECK(!lt_ble_command_find(v->ad, 17), "bcon wake %zu not a command", i);
+		for (size_t b = 1; b < 13; b++) {
+			p[b] ^= 0x80;
+			CHECK(!lt_bcon_wake_match(k->usb_key, p, 13), "bcon wake %zu bit %zu", i, b);
+			p[b] ^= 0x80;
+		}
+	}
+	for (size_t i = 0; i < sizeof(V_BCON_WAKE_BAD) / sizeof(V_BCON_WAKE_BAD[0]); i++) {
+		CHECK(!lt_bcon_wake_match(k->usb_key, V_BCON_WAKE_BAD[i].payload, V_BCON_WAKE_BAD[i].len),
+		      "bcon wake bad %zu", i);
+	}
+	for (size_t i = 0; i < sizeof(V_BCON_WAKE_FIND) / sizeof(V_BCON_WAKE_FIND[0]); i++) {
+		const struct vbconwakefind *f = &V_BCON_WAKE_FIND[i];
+		const uint8_t *m = lt_bcon_wake_find(f->ad, f->len);
+		CHECK(f->found ? (m && memcmp(m, f->payload, 13) == 0) : !m, "bcon wake find %zu", i);
+	}
+}
+
 /* 0.8.0: console over Bluetooth */
 static void test_080_bcon(const lt_keys_t *k)
 {
@@ -775,6 +805,7 @@ int main(void)
 	test_076();
 	test_077_ble(&k);
 	test_080_bcon(&k);
+	test_095_bcon_wake(&k);
 	test_wifi_zone();
 	printf("%s (%zu report vectors, %zu command vectors)\n", fails ? "FAILED" : "OK", nr, nc);
 	return fails ? 1 : 0;

@@ -932,6 +932,81 @@ def bcon_adv_ad(payload: bytes) -> bytes:
     return ad(0xFF, struct.pack("<H", BLE_CMD_COMPANY) + payload)
 
 
+# 0.9.5: console wake advert (PROTOCOL.md 3.2). The phone advertises it; the tag opens its console
+# window. Keyed with usb_key only, so it works whatever report counter n the tag has reached.
+BCON_WAKE_TYPE = 0x26
+BCON_WAKE_LEN = 13        # type, salt 6, tag 6
+BCON_WAKE_SALT_LEN = 6
+
+
+def bcon_wake_tag(usb_key: bytes, salt: bytes) -> bytes:
+    return hmac_sha256(usb_key, b"LT2-bcon-wake" + salt)[:6]
+
+
+def bcon_wake(usb_key: bytes, salt: bytes) -> bytes:
+    """The 13 B after company id 0xFFFF in the phone's console wake advert: 0x26 || salt || tag."""
+    assert len(salt) == BCON_WAKE_SALT_LEN
+    return bytes([BCON_WAKE_TYPE]) + salt + bcon_wake_tag(usb_key, salt)
+
+
+def bcon_wake_match(usb_key: bytes, payload: bytes) -> bool:
+    return (len(payload) == BCON_WAKE_LEN and payload[0] == BCON_WAKE_TYPE
+            and hmac.compare_digest(payload[7:13], bcon_wake_tag(usb_key, payload[1:7])))
+
+
+def bcon_wake_ad(payload: bytes) -> bytes:
+    """The AD structure on air: manufacturer specific data, company 0xFFFF, then the payload (17 B)."""
+    return ad(0xFF, struct.pack("<H", BLE_CMD_COMPANY) + payload)
+
+
+def bcon_wake_find(ad_bytes: bytes) -> bytes | None:
+    """The wake payload in an advert's AD bytes, or None (lt_bcon_wake_find)."""
+    i = 0
+    while i < len(ad_bytes):
+        ln = ad_bytes[i]
+        if ln == 0 or i + 1 + ln > len(ad_bytes):
+            return None
+        t, d = ad_bytes[i + 1], ad_bytes[i + 2:i + 1 + ln]
+        if (t == 0xFF and len(d) == 2 + BCON_WAKE_LEN and struct.unpack_from("<H", d)[0] == BLE_CMD_COMPANY
+                and d[2] == BCON_WAKE_TYPE):
+            return d[2:]
+        i += 1 + ln
+    return None
+
+
+def vector_bcon_wake(usb_key: bytes, other_key: bytes) -> dict:
+    salts = [bytes.fromhex(x) for x in ("a1b2c3d4e5f6", "000000000000", "ffffffffffff", "5a0f3c96e1d2")]
+    valid = [{"salt": s.hex(), "tag": bcon_wake_tag(usb_key, s).hex(), "payload": bcon_wake(usb_key, s).hex(),
+              "ad": bcon_wake_ad(bcon_wake(usb_key, s)).hex()} for s in salts]
+    p = bcon_wake(usb_key, salts[0])
+    flip = lambda b, i: b[:i] + bytes([b[i] ^ 1]) + b[i + 1:]  # noqa: E731
+    invalid = [
+        {"why": "other key", "payload": bcon_wake(other_key, salts[0]).hex()},
+        {"why": "salt changed", "payload": flip(p, 1).hex()},
+        {"why": "tag changed", "payload": flip(p, 12).hex()},
+        {"why": "type 0x25", "payload": (bytes([BCON_ADV_TYPE]) + p[1:]).hex()},
+        {"why": "short", "payload": p[:12].hex()},
+        {"why": "long", "payload": (p + b"\x00").hex()},
+        {"why": "console advert tag", "payload": (p[:7] + bcon_adv_tag(usb_key, salts[0])).hex()},
+    ]
+    w = bcon_wake_ad(p)
+    find = [
+        {"ad": w.hex(), "payload": p.hex()},
+        {"ad": "020106" + w.hex(), "payload": p.hex()},
+        {"ad": w.hex() + "020a00", "payload": p.hex()},
+        {"ad": "020106" + w[:-1].hex(), "payload": None},                         # truncated
+        {"ad": "10ff4c00" + p.hex(), "payload": None},                           # Apple company id
+        {"ad": "11ffffff" + p.hex() + "00", "payload": None},                     # 14 B payload
+        {"ad": "10ffffff22" + p[1:].hex(), "payload": None},                      # type 0x22
+        {"ad": "00" + w.hex(), "payload": None},                                  # zero length stops the walk
+    ]
+    for f in find:
+        got = bcon_wake_find(bytes.fromhex(f["ad"]))
+        assert (got.hex() if got else None) == f["payload"], f
+    return {"label": "LT2-bcon-wake", "company": BLE_CMD_COMPANY, "type": BCON_WAKE_TYPE,
+            "valid": valid, "invalid": invalid, "find": find}
+
+
 def bcon_proof(usb_key: bytes, who: str, tag_nonce: bytes, app_nonce: bytes) -> bytes:
     """who = "a" (the app's proof in AUTH) or "t" (the tag's proof in READY)."""
     assert who in ("a", "t")
@@ -1365,6 +1440,8 @@ def vectors() -> dict:
     out["report_time"] = vector_report_time()
     # 0.8.0: console over Bluetooth (PROTOCOL.md 6.2)
     out["ble_console"] = vector_ble_console(keys.usb_key)
+    # 0.9.5: console wake advert from the phone, keyed with usb_key (PROTOCOL.md 3.2)
+    out["bcon_wake"] = vector_bcon_wake(keys.usb_key, keys.view(0))
     # 0.9.2: BLE_CONSOLE (opcode 0x06), the window from the argument
     out["ble_console_cmd"] = [[a, bcon_cmd_window_s(a)] for a in (0, 1, 2, 3, 4, 18, 30, 60, 61, 255)]
     # 0.9.1: deliberate resets (button, power, cable) are not a reset loop

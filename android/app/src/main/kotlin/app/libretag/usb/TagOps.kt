@@ -95,35 +95,25 @@ object TagOps {
         return ConsoleParsers.parseBleScan(lines)
     }
 
-    /** Interval and, on 0.7.3 firmware, report_every (older firmware reports at every wake-up). */
+    /** Interval and report_every. */
     suspend fun setInterval(min: Int, reportEvery: Int = 1): Boolean = app.usb.session { c ->
         if (!c.set(ConsoleCommands.interval(min))) return@session false
-        val v = app.usb.connected?.version
-        if (v == null || ConsoleParsers.isOlder(v, "0.7.3")) return@session reportEvery <= 1
         c.set(ConsoleCommands.reportEvery(reportEvery))
     } ?: false
 
     /**
-     * The tag's reporting settings as the app keeps them (Reporting screen): interval, and on 0.7
-     * firmware listening at checks and parked quiet; anchors by use (People: none, so a phone
+     * The tag's reporting settings as the app keeps them (Reporting screen): interval, report_every,
+     * listening at checks and parked quiet; anchors by use (People: none, so a phone
      * nearby never silences it). Clears [Tracker.cableDirty] when everything went through.
      */
     suspend fun writeSettings(t: Tracker): WriteResult {
         if (!app.usb.tagFor(t)) return WriteResult.NOT_CONNECTED
         val v = app.usb.connected?.version
-        val fw07 = v != null && !ConsoleParsers.isOlder(v, "0.7.0")
         val r = app.usb.session { c ->
             if (!c.set(ConsoleCommands.interval(t.intervalMin))) return@session WriteResult.FAILED
-            if (!ConsoleParsers.isOlder(v ?: "0.0.0", "0.7.3") && !c.set(ConsoleCommands.reportEvery(t.reportEvery)))
-                return@session WriteResult.FAILED
-            if (fw07) {
-                // 0.7.0/0.7.1 take 0..60 s
-                val cs = if (ConsoleParsers.isOlder(v!!, "0.7.2")) t.checkS.coerceAtMost(60) else t.checkS
-                val ck = c.command(ConsoleCommands.check(cs))
-                if (unknown(ck)) return@session WriteResult.UNSUPPORTED
-                if (!ConsoleParsers.isOk(ck)) return@session WriteResult.FAILED
-                if (!c.set(ConsoleCommands.still(t.stillAfterEff, t.stillHbH))) return@session WriteResult.FAILED
-            }
+            if (!c.set(ConsoleCommands.reportEvery(t.reportEvery))) return@session WriteResult.FAILED
+            if (!c.set(ConsoleCommands.check(t.checkS))) return@session WriteResult.FAILED
+            if (!c.set(ConsoleCommands.still(t.stillAfterEff, t.stillHbH))) return@session WriteResult.FAILED
             if (t.people && !c.command(ConsoleCommands.ANCHOR_CLEAR).any { it.startsWith("OK") || it.startsWith("ERR unknown") }) return@session WriteResult.FAILED
             WriteResult.OK
         } ?: WriteResult.FAILED

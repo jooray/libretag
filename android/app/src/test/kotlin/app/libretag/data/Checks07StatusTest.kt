@@ -77,13 +77,12 @@ class Checks07StatusTest {
     }
 
     @Test fun splitForPeriodListensHourly() {
-        assertEquals(60 to 3, Status.splitForPeriod(180, 180, 1, true))   // was "with each report": hourly
-        assertEquals(60 to 6, Status.splitForPeriod(360, 60, 3, true))
-        assertEquals(30 to 12, Status.splitForPeriod(360, 30, 6, true))   // a finer choice that fits stays
-        assertEquals(60 to 2, Status.splitForPeriod(120, 45, 4, true))    // does not fit: hourly
-        assertEquals(60 to 1, Status.splitForPeriod(60, 60, 1, true))
-        assertEquals(15 to 2, Status.splitForPeriod(30, 15, 4, true))
-        assertEquals(180 to 1, Status.splitForPeriod(180, 60, 3, false))  // old firmware: no split
+        assertEquals(60 to 3, Status.splitForPeriod(180, 180, 1))   // was "with each report": hourly
+        assertEquals(60 to 6, Status.splitForPeriod(360, 60, 3))
+        assertEquals(30 to 12, Status.splitForPeriod(360, 30, 6))   // a finer choice that fits stays
+        assertEquals(60 to 2, Status.splitForPeriod(120, 45, 4))    // does not fit: hourly
+        assertEquals(60 to 1, Status.splitForPeriod(60, 60, 1))
+        assertEquals(15 to 2, Status.splitForPeriod(30, 15, 4))
     }
 
     @Test fun wakeSplit() {

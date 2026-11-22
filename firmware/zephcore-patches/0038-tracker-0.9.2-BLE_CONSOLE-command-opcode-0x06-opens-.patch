@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Wed, 18 Nov 2026 22:49:16 +0100
-Subject: [PATCH 38/40] tracker 0.9.2: BLE_CONSOLE command (opcode 0x06) opens
+Subject: [PATCH 38/41] tracker 0.9.2: BLE_CONSOLE command (opcode 0x06) opens
  the Bluetooth console window at the wake-up that takes it (mesh window, check
  or command advert), as after a boot: paired, above the transmit floor; the
  boot switch and the reset count do not apply; argument in 10 s (0 = 180 s,

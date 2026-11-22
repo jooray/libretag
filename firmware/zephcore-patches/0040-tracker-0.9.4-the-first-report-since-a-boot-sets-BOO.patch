@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Fri, 20 Nov 2026 07:45:05 +0100
-Subject: [PATCH 40/40] tracker 0.9.4: the first report since a boot sets BOOT
+Subject: [PATCH 40/41] tracker 0.9.4: the first report since a boot sets BOOT
  (byte 2 bit 2), also in its history record; without a fix byte 14 carries the
  reset cause (last_reset= word) and the resets in a row at boot (lt_boot_info)
  instead of the accuracy

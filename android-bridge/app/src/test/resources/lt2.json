@@ -3919,6 +3919,101 @@
    ]
   ]
  },
+ "bcon_wake": {
+  "label": "LT2-bcon-wake",
+  "company": 65535,
+  "type": 38,
+  "valid": [
+   {
+    "salt": "a1b2c3d4e5f6",
+    "tag": "0da9b5ccce77",
+    "payload": "26a1b2c3d4e5f60da9b5ccce77",
+    "ad": "10ffffff26a1b2c3d4e5f60da9b5ccce77"
+   },
+   {
+    "salt": "000000000000",
+    "tag": "fec2b5632f34",
+    "payload": "26000000000000fec2b5632f34",
+    "ad": "10ffffff26000000000000fec2b5632f34"
+   },
+   {
+    "salt": "ffffffffffff",
+    "tag": "291a6159fd47",
+    "payload": "26ffffffffffff291a6159fd47",
+    "ad": "10ffffff26ffffffffffff291a6159fd47"
+   },
+   {
+    "salt": "5a0f3c96e1d2",
+    "tag": "1bcc9c38d0e6",
+    "payload": "265a0f3c96e1d21bcc9c38d0e6",
+    "ad": "10ffffff265a0f3c96e1d21bcc9c38d0e6"
+   }
+  ],
+  "invalid": [
+   {
+    "why": "other key",
+    "payload": "26a1b2c3d4e5f6f424f9a289b0"
+   },
+   {
+    "why": "salt changed",
+    "payload": "26a0b2c3d4e5f60da9b5ccce77"
+   },
+   {
+    "why": "tag changed",
+    "payload": "26a1b2c3d4e5f60da9b5ccce76"
+   },
+   {
+    "why": "type 0x25",
+    "payload": "25a1b2c3d4e5f60da9b5ccce77"
+   },
+   {
+    "why": "short",
+    "payload": "26a1b2c3d4e5f60da9b5ccce"
+   },
+   {
+    "why": "long",
+    "payload": "26a1b2c3d4e5f60da9b5ccce7700"
+   },
+   {
+    "why": "console advert tag",
+    "payload": "26a1b2c3d4e5f6dad5d549cab3"
+   }
+  ],
+  "find": [
+   {
+    "ad": "10ffffff26a1b2c3d4e5f60da9b5ccce77",
+    "payload": "26a1b2c3d4e5f60da9b5ccce77"
+   },
+   {
+    "ad": "02010610ffffff26a1b2c3d4e5f60da9b5ccce77",
+    "payload": "26a1b2c3d4e5f60da9b5ccce77"
+   },
+   {
+    "ad": "10ffffff26a1b2c3d4e5f60da9b5ccce77020a00",
+    "payload": "26a1b2c3d4e5f60da9b5ccce77"
+   },
+   {
+    "ad": "02010610ffffff26a1b2c3d4e5f60da9b5ccce",
+    "payload": null
+   },
+   {
+    "ad": "10ff4c0026a1b2c3d4e5f60da9b5ccce77",
+    "payload": null
+   },
+   {
+    "ad": "11ffffff26a1b2c3d4e5f60da9b5ccce7700",
+    "payload": null
+   },
+   {
+    "ad": "10ffffff22a1b2c3d4e5f60da9b5ccce77",
+    "payload": null
+   },
+   {
+    "ad": "0010ffffff26a1b2c3d4e5f60da9b5ccce77",
+    "payload": null
+   }
+  ]
+ },
  "ble_console_cmd": [
   [
    0,

@@ -513,6 +513,28 @@ has not delivered it by the wake-up it was meant for (no `CMD_ACK` in a report r
 more after that time), the app hands the command to the mailbox at that report
 (`CommandRoute.mailboxFallback`).
 
+**Firmware 0.9.5, app 0.13.1: the console wake advert (PROTOCOL 3.2).** A field failure on
+2026-11-22 showed the gap. The tag had been out of mesh range for about 42 hours, and no report
+was heard. The owner stood next to it and asked the app to open Bluetooth. The command advert
+was sealed for the last `n` the phone knew. The tag had sent many reports since, probably into a
+new epoch whose `C_e` it had erased, so its `xc` filter never matched. A window of old `n` on the
+tag would not help across epochs.
+
+The phone now advertises `0x26 || salt[6] || HMAC(usb_key, "LT2-bcon-wake" || salt)[0:6]`
+(company `0xFFFF`, legacy, non-connectable), with a new random salt for every advertising session.
+`usb_key` already keys the tag's own console advert and stays on the tag as long as it is paired.
+Every wake-up scan that looks for command adverts also looks for this one. The scan callback only
+compares company, length and type; the main loop skips a salt taken before in this boot (a ring of
+8), computes one HMAC (at most 16 a scan) and, on a match, opens the window for 180 s as a
+`BLE_CONSOLE` command with argument 0 would: paired, above the transmit floor, the 5-failure lock
+applies, the boot switch and the reset count do not. An open window ignores it. The tag sends no report and
+needs no `n`; the app connects when the console advert appears.
+
+Replay: inside one boot the salt ring refuses a copy. After a reboot a copy opens a window, which
+still needs the handshake with `usb_key`, so it gives an attacker nothing beyond 180 s of the tag
+advertising. Console: `blecmd` shows `wake_seen=` and `wake_taken=`, and `blecmd adv <26 hex>`
+feeds a wake payload to the next scan.
+
 ## 6. App
 
 ### Permissions
@@ -655,6 +677,7 @@ devices scan, a Wi-Fi place snapped on the Heltec, link loss and reconnect, the 
 |---|---|
 | `lt_bcon_adv(usb_key, salt, left_s, out[14])` | builds the advert payload |
 | `lt_bcon_adv_match(usb_key, payload, len)` | true when the payload is this key's (used by the tests and the reference) |
+| `lt_bcon_wake(usb_key, salt, out[13])`, `lt_bcon_wake_match(usb_key, payload, len)`, `lt_bcon_wake_find(ad, len)` | 0.9.5: the phone's console wake advert (PROTOCOL 3.2): build, constant-time check, find in AD bytes |
 | `lt_bcon_proof(usb_key, who, tag_nonce, app_nonce, out[16])` | `who` = `'a'` or `'t'` |
 | `lt_bcon_session(usb_key, tag_nonce, app_nonce, lt_bcon_t *s)` | derives `kd_a`, `kd_t`, zeroes both counters |
 | `lt_bcon_seal(s, dir, pt, len, out)` | DATA frame, returns its length, advances the counter |

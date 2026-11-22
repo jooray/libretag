@@ -10,7 +10,6 @@
     <string name="blecon_not_seen">Didn\'t see %1$s. Restart it and keep the phone close.</string>
     <string name="blecon_listening">%1$s is listening on Bluetooth. %2$d s left.</string>
     <string name="blecon_connect_short">Connect</string>
-    <string name="blecon_needs_fw">Bluetooth needs firmware %1$s. The app last saw %2$s on this tag. If the tag has newer firmware, it connects anyway.</string>
     <string name="blecon_connected">Connected over Bluetooth</string>
     <string name="blecon_disconnect">Disconnect</string>
     <string name="blecon_lost">Bluetooth connection lost. Restart the tag to connect again, or use the cable.</string>
@@ -38,4 +37,12 @@
     <string name="blecon_console">Console</string>
     <string name="blecon_console_hint">Command</string>
     <string name="blecon_console_send">Send</string>
+    <!-- 0.13.1: the wake advert (firmware 0.9.5) -->
+    <string name="blecon_wake_at">Waiting for %1$s to wake up, at about %2$s. Keep the phone near the tag.</string>
+    <string name="blecon_wake_next">Waiting for %1$s to wake up. Keep the phone near the tag.</string>
+    <string name="blecon_wake_auto">When the tag answers, the app connects. If you leave this screen, a notification lets you know. The phone stops waiting at %1$s.</string>
+    <string name="blecon_wake_stop">Stop waiting</string>
+    <string name="blecon_wake_missed">%1$s didn\'t answer by %2$s. Bring the phone closer and try again.</string>
+    <string name="blecon_wake_notif_title">%1$s is listening on Bluetooth</string>
+    <string name="blecon_wake_notif_text">Tap to connect. The tag listens for 3 minutes.</string>
 </resources>

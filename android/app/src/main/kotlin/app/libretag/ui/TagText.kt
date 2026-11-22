@@ -46,13 +46,6 @@ object TagText {
         } ?: cmdName(ctx, k)
     }
 
-    /** The tag runs firmware 0.7 or newer: it said so over USB, or a report carried CHECKS. */
-    fun fw07(t: Tracker): Boolean = t.firmware?.let { !app.libretag.usb.ConsoleParsers.isOlder(it, "0.7.0") }
-        ?: t.positions.any { it.checks }
-
-    /** 0.7.3: reports every n-th wake-up and listens for commands at the others */
-    fun fw073(t: Tracker): Boolean = t.firmware?.let { !app.libretag.usb.ConsoleParsers.isOlder(it, "0.7.3") } ?: false
-
     fun zoneOrHome(ctx: Context, name: String?) = zoneLabel(ctx, name)
 
     /** A zone's name for a sentence: Home when unknown, "a Wi-Fi zone" for one the app can't name. */

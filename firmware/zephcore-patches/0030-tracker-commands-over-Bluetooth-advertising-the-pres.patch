@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Tue, 17 Nov 2026 22:01:49 +0100
-Subject: [PATCH 30/40] tracker: commands over Bluetooth advertising (the
+Subject: [PATCH 30/41] tracker: commands over Bluetooth advertising (the
  presence and LOST scans take a command advert with the 4 B tag of this
  wake-up's check or k = 0xFFFF, opened like a mesh command and taken like one
  at a check; 2 s more scanning after an anchor answers; boards without GPS

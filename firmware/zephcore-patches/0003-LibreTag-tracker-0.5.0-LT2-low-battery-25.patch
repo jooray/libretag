@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Mon, 16 Nov 2026 02:12:07 +0100
-Subject: [PATCH 03/40] LibreTag tracker 0.5.0: LT2, low battery 25 %
+Subject: [PATCH 03/41] LibreTag tracker 0.5.0: LT2, low battery 25 %
 
 ---
  zephcore/Kconfig              | 2 +-

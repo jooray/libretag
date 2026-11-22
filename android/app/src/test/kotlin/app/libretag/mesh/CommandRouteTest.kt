@@ -76,31 +76,20 @@ class CommandRouteTest {
         assertEquals(CommandRoute.Local.NONE, q.local)
     }
 
-    @Test fun nextScanSkipsListenOnlyWakeUps() {
+    @Test fun everyWakeUpScansSoTheNextCheckTakesTheAdvert() {
         val t0 = now - 10 * 60_000L
         val plan = CheckPlan(100, t0, 60, listOf(3600L, 7200L, 10800L, 14400L))
-        // report_every 3: checks 1 and 2 only listen, 3 looks (and reports)
-        assertEquals(t0 + 10_800_000L, CommandRoute.nextScanAt(plan, 3, null, now))
-        // every wake-up looks
-        assertEquals(t0 + 3_600_000L, CommandRoute.nextScanAt(plan, 1, null, now))
-        // past the plan's scanning checks: the next report
-        assertEquals(now + 5000, CommandRoute.nextScanAt(CheckPlan(100, t0, 60, listOf(60L)), 3, now + 5000, now))
-        assertNull(CommandRoute.nextScanAt(null, 1, null, now))
-    }
-
-    @Test fun since093EveryWakeUpScansSoTheNextCheckTakesTheAdvert() {
-        val t0 = now - 10 * 60_000L
-        val plan = CheckPlan(100, t0, 60, listOf(3600L, 7200L, 10800L, 14400L))
-        // report_every 3, firmware 0.9.3: the listen-only check 1 scans too
-        assertEquals(t0 + 3_600_000L, CommandRoute.nextScanAt(plan, 3, null, now, everyWake = true))
+        // the listen-only check 1 scans too
+        assertEquals(t0 + 3_600_000L, CommandRoute.nextScanAt(plan, null, now))
         // check 1 is over: check 2, also listen-only
-        assertEquals(t0 + 7_200_000L, CommandRoute.nextScanAt(plan, 3, null, t0 + 3_700_000L, everyWake = true))
+        assertEquals(t0 + 7_200_000L, CommandRoute.nextScanAt(plan, null, t0 + 3_700_000L))
         // after the plan: the next report
-        assertEquals(now + 5000, CommandRoute.nextScanAt(CheckPlan(100, t0, 60, listOf(60L)), 3, now + 5000, now, everyWake = true))
+        assertEquals(now + 5000, CommandRoute.nextScanAt(CheckPlan(100, t0, 60, listOf(60L)), now + 5000, now))
+        assertNull(CommandRoute.nextScanAt(null, null, now))
         // so the phone's advert wins over zero-hop and Nostr at the very next listening wake-up
         val next = t0 + 3_600_000L
         val p = CommandRoute.plan(CommandKind.BLE_CONSOLE, beaconOk = true, zeroHopOk = true, nextWindowAt = next,
-            nextScanAt = CommandRoute.nextScanAt(plan, 3, null, now, everyWake = true))
+            nextScanAt = CommandRoute.nextScanAt(plan, null, now))
         assertEquals(CommandRoute.Via.BLE, p.via)
         assertFalse(p.mailbox)
         assertEquals(next, p.at)

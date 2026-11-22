@@ -113,4 +113,39 @@ class BleConsoleTest {
             assertArrayEquals(text, back)
         }
     }
+
+    /** The wake advert (firmware 0.9.5) from fixed bytes, checked against HMAC-SHA256 computed here. */
+    @Test fun wakeAdvert() {
+        val key = ByteArray(32) { (it * 7 + 1).toByte() }
+        val wakeSalt = byteArrayOf(0x10, 0x21, 0x32, 0x43, 0x54, 0x65)
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256").apply { init(javax.crypto.spec.SecretKeySpec(key, "HmacSHA256")) }
+            .doFinal("LT2-bcon-wake".toByteArray() + wakeSalt)
+        val p = BleConsole.wakePayload(key, wakeSalt)
+        assertEquals(13, p.size)
+        assertEquals(0x26, p[0].toInt())
+        assertArrayEquals(wakeSalt, p.copyOfRange(1, 7))
+        assertArrayEquals(mac.copyOf(6), p.copyOfRange(7, 13))
+        assertTrue(BleConsole.wakeMatch(key, p))
+        assertFalse(BleConsole.wakeMatch(usbKey, p))
+        assertFalse(BleConsole.wakeMatch(key, p.copyOf().also { it[2] = (it[2].toInt() xor 1).toByte() }))
+        // not a console advert: the phone's own scan ignores it
+        assertFalse(BleConsole.isConsoleAdvert(p))
+        val ad = BleConsole.wakeAd(key, wakeSalt)
+        assertEquals("10ffffff", LibreTag.bytesToHex(ad.copyOf(4)))
+        assertArrayEquals(p, ad.copyOfRange(4, ad.size))
+        assertEquals(17, ad.size)
+    }
+
+    /** The wake advert against the shared `bcon_wake` vectors (Python reference, C core), usb_key of k0. */
+    @Test fun wakeVectors() {
+        val w = all["bcon_wake"]!!.jsonObject
+        for (e in w["valid"]!!.jsonArray) {
+            val o = e.jsonObject
+            val s = h(o, "salt")
+            assertArrayEquals(h(o, "payload"), BleConsole.wakePayload(usbKey, s))
+            assertArrayEquals(h(o, "ad"), BleConsole.wakeAd(usbKey, s))
+            assertTrue(BleConsole.wakeMatch(usbKey, h(o, "payload")))
+        }
+        for (e in w["invalid"]!!.jsonArray) assertFalse(BleConsole.wakeMatch(usbKey, h(e.jsonObject, "payload")))
+    }
 }

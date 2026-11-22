@@ -822,7 +822,7 @@ class MainActivity : AppCompatActivity(), DetailHost {
                 root.snack(getString(R.string.dg_schedule_adopted))
             }
             A.SEND_MINE -> {
-                app.queueCommand(t.id, CommandKind.INTERVAL, t.intervalMin, t.checkS, if (TagText.fw073(t)) t.reportEvery else 0)
+                app.queueCommand(t.id, CommandKind.INTERVAL, t.intervalMin, t.checkS, t.reportEvery)
                 render()
             }
             A.CATCH_UP -> t.health?.n?.let { n ->

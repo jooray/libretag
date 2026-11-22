@@ -117,7 +117,7 @@ Changes:
   confirmed for that tag in the last 15 min (then the window is ours, not a boot).
 - **Background.** One filtered scan with a `PendingIntent` (`BluetoothLeScanner.startScan(filters,
   settings, pendingIntent)`, `SCAN_MODE_LOW_POWER`, filter on manufacturer data `0xFFFF` with first
-  byte `0x25` or `0x26`), delivered to a new `BleSightReceiver`. It runs while the owner has at
+  byte `0x25` or `0x27`), delivered to a new `BleSightReceiver`. It runs while the owner has at
   least one tag with keys, Bluetooth is on and Nearby devices is granted (`BLUETOOTH_SCAN` is
   already declared `neverForLocation`). No location permission. A switch in Settings turns it off
   ("Notice my tags over Bluetooth"). The filter is matched in the controller, so the phone does not
@@ -137,7 +137,7 @@ Changes:
   current one and its two neighbours). That is up to four more advertising sets; phones with fewer
   sets rotate every 2 s instead of 8 s for an overdue tag. The tag's 1.5 s scan holds 5 or 6
   advertising events per set, so rotation still gets through within a few wake-ups.
-- **Passive confirmation needs firmware** (§8.2, optional): a 3 s "here" advert (type `0x26`) at
+- **Passive confirmation needs firmware** (§8.2, optional): a 3 s "here" advert (type `0x27`; `0x26` is the phone's console wake advert, PROTOCOL.md 3.2) at
   every wake-up at which the tag saw one of the owner's devices. Then "the tag sees the phone and
   the phone sees the tag" is recorded without the owner doing anything.
 
@@ -522,7 +522,7 @@ fresh private address: manufacturer data, company `0xFFFF`, 14 B:
 
 | Offset | Size | Field |
 |---|---|---|
-| 0 | 1 | `0x26` |
+| 0 | 1 | `0x27` |
 | 1 | 1 | `info`: bits 0–1 quiet reason now (0 none, 1 zone, 2 owner, 3 parked), bit 2 this wake-up reports, bits 4–7 resets in a row (capped at 15) |
 | 2 | 6 | `salt`, random per wake-up |
 | 8 | 6 | `HMAC(usb_key, "LT2-here" ‖ salt ‖ info)[0:6]` |

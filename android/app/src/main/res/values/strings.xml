@@ -660,7 +660,6 @@
     <string name="cmd_interval_to">Reports %1$s</string>
     <string name="track_choose_ok">Track</string>
     <string name="set_cable_writing">Writing to the tag…</string>
-    <string name="set_needs_07">Checks and parked quiet need firmware 0.7 or newer.</string>
     <string name="set_written">Saved on the tag.</string>
     <plurals name="reports_n">
         <item quantity="one">%1$d report</item>

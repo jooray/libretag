@@ -47,7 +47,7 @@ data class DiagContext(
     val receipt: ReceiptSeen? = null,
     /** the phone's clock against a trusted time source (ms), null = unknown */
     val clockSkewMs: Long? = null,
-    val minFirmware: String = "0.9.0",
+    val minFirmware: String = "0.9.5",
     /** Bluetooth is on and allowed: "Check if it's here" can be offered */
     val bluetooth: Boolean = true,
 ) {
@@ -109,7 +109,6 @@ object Diagnosis {
     const val RESTART_WINDOW_MS = 3600_000L
     const val BOOTS_WINDOW_MS = 6 * 3600_000L
     const val RESTARTED_HERE_MS = 30 * 60_000L
-    const val JUST_BACK_MS = 2 * 60_000L
     const val CLOCK_SKEW_MS = 2 * 60_000L
     const val COUNTER_WINDOW = 2048L
     const val EMPTY_PCT = 5
@@ -165,7 +164,8 @@ object Diagnosis {
         if (c.online && c.relaysUp == 0 && c.relaysAll > 0 && c.mesh != MeshLink.UP)
             return Result(Cause.RELAYS_DOWN, Confidence.HIGH, Facts(at = p?.receivedAt, count = c.relaysAll), listOf(Action.CONNECTIONS, Action.TRY_AGAIN))
         val expected = Status.nextAt(t, now) ?: after
-        if (c.linkUp && c.wasBlind(expected) && (c.backfillAt == null || c.blind || now - c.backfillAt < JUST_BACK_MS))
+        // only while the backfill runs: a link is up and its query for the missed reports has not come back
+        if (justBack(c, expected))
             return Result(Cause.JUST_BACK, Confidence.HIGH, Facts(at = c.blindFrom, at2 = c.pathUpSince ?: now))
         // never heard: nothing below applies to a tag without a report
         if (p == null) return Result(Cause.UNKNOWN, Confidence.NONE)
@@ -318,6 +318,13 @@ object Diagnosis {
         val r = t.positions.filter { it.via != "usb-quiet" && it.via != "usb" }.takeLast(5)
         return r.size == 5 && r.all { it.via == "mesh" }
     }
+
+    /**
+     * "Checking for missed reports": a receive link is up and the backfill it started has not
+     * answered yet. Once it answers, the phone sees again and the other causes apply, even if the
+     * tag was expected while the phone was blind (the backfill would have brought that report).
+     */
+    fun justBack(c: DiagContext, expected: Long): Boolean = c.linkUp && c.blind && c.wasBlind(expected)
 
     /** "Check if it's here" can be offered: a tag of ours with keys, Bluetooth on, nothing asked right now */
     fun checkHereOffered(t: Tracker, c: DiagContext, now: Long): Boolean =

@@ -14,10 +14,10 @@ import app.libretag.LibreTagApp
 import app.libretag.R
 import app.libretag.ble.BleCommandBeacon
 import app.libretag.ble.BleConsoleScanner
+import app.libretag.ble.BleWakePlan
+import app.libretag.data.Diagnosis
 import app.libretag.data.Tracker
 import app.libretag.mesh.CommandRoute
-import app.libretag.proto.BleConsole
-import app.libretag.usb.ConsoleParsers
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import app.libretag.usb.UsbState
 import app.libretag.usb.UsbTagSession
@@ -61,15 +61,21 @@ class BleConsoleHelper(private val a: AppCompatActivity, private val tagId: () -
 
     override fun onStart(owner: LifecycleOwner) {
         scan()
+        app.bleWake.screens++
         jobs += a.lifecycleScope.launch {
             // the strip appears and counts down; a lost link says so
             while (isActive) {
                 val id = tagId()
                 val seen = id != null && app.ble.current(id) != null
+                if (seen && id != null && app.bleWake.answered(id)) autoConnect(id)
                 if (seen || seen != lastSeen) onChange()
                 lastSeen = seen
                 delay(if (seen) 5_000 else 1_000)
             }
+        }
+        jobs += a.lifecycleScope.launch {
+            // the wake advert's state: waiting, answered, gave up
+            app.bleWake.requests.collect { onChange() }
         }
         jobs += a.lifecycleScope.launch {
             app.usb.bleNote.collect { n ->
@@ -91,6 +97,7 @@ class BleConsoleHelper(private val a: AppCompatActivity, private val tagId: () -
     }
 
     override fun onStop(owner: LifecycleOwner) {
+        app.bleWake.screens = (app.bleWake.screens - 1).coerceAtLeast(0)
         jobs.forEach { it.cancel() }
         jobs.clear()
         if (acquired) { app.ble.release(); acquired = false }
@@ -135,33 +142,49 @@ class BleConsoleHelper(private val a: AppCompatActivity, private val tagId: () -
                     addView(ctx.button(ctx.getString(R.string.blecon_connect_short), Btn.TONAL) { connect(t) }, lp(WRAP, WRAP).margins(l = dp(8)))
                 }, lp().margins(t = dp(12)))
                 else -> {
-                    // always offered: the button asks for the Nearby devices permission, and the app's
-                    // record of the firmware may be old (a tag flashed elsewhere); the advert or a
-                    // session corrects it
+                    // always offered: the button asks for the Nearby devices permission
                     addView(ctx.button(ctx.getString(R.string.blecon_connect), Btn.OUTLINED, R.drawable.ic_bt) { connect(t) },
                         lp(WRAP, WRAP).margins(t = dp(12)))
-                    if (!BleConsoleScanner.firmwareHas(t) && t.firmware != null)
-                        addNote(ctx.getString(R.string.blecon_needs_fw, BleConsole.FIRMWARE, t.firmware))
                     remoteBlock(t)
                 }
             }
         }.takeIf { it.childCount > 0 }
     }
 
-    /** 0.9.2: open the tag's Bluetooth without a restart, by the BLE_CONSOLE command (CommandRoute). */
-    fun remoteOffered(t: Tracker): Boolean = t.canCommand && t.lastN >= 0 &&
-        t.firmware?.let { !ConsoleParsers.isOlder(it, REMOTE_FW) } ?: true
+    /** Open the tag's Bluetooth without a restart, also by the BLE_CONSOLE command over the mesh (CommandRoute). */
+    fun remoteOffered(t: Tracker): Boolean = t.canCommand && t.lastN >= 0
+
+    /** The wake advert needs only the tag's usb_key, not its report counter. */
+    fun wakeOffered(t: Tracker): Boolean = BleConsoleScanner.supported && !t.isShared && app.keysFor(t) != null
 
     private fun LinearLayout.remoteBlock(t: Tracker) {
-        if (!remoteOffered(t)) return
+        if (!remoteOffered(t) && !wakeOffered(t)) return
         val ctx = a
+        val now = System.currentTimeMillis()
         val p = t.pending?.takeIf { it.kind == CommandKind.BLE_CONSOLE.name }
+        val wake = app.bleWake.waiting(t.id)
+        val via = p?.let { runCatching { CommandRoute.Via.valueOf(it.via) }.getOrNull() }
+        if (wake != null) {
+            // this phone wakes the tag over Bluetooth: say when it should answer and that it connects by itself
+            val at = BleWakePlan.nextWakeAt(now, app.expectedAt(t, CommandRoute.Via.BLE, now), Diagnosis.nextWake(t, now))
+            addNote(if (at != null) ctx.getString(R.string.blecon_wake_at, t.name, Format.clock(ctx, at))
+                else ctx.getString(R.string.blecon_wake_next, t.name))
+            addNote(ctx.getString(R.string.blecon_wake_auto, Format.clock(ctx, wake.untilMs)))
+            if (via == CommandRoute.Via.ZERO_HOP) addNote(ctx.getString(R.string.blecon_remote_via_node))
+            if (via == CommandRoute.Via.NOSTR) addNote(ctx.getString(R.string.blecon_remote_via_nostr))
+            addView(ctx.button(ctx.getString(R.string.blecon_wake_stop), Btn.TEXT) {
+                app.bleWake.cancel(t.id)
+                if (app.store.get(t.id)?.pending?.let { it.kind == CommandKind.BLE_CONSOLE.name && it.sentAt == null } == true) app.cancelCommand(t.id)
+                onChange()
+            }, lp(WRAP, WRAP).margins(t = dp(4)))
+            return
+        }
         if (p == null) {
             addView(ctx.button(ctx.getString(R.string.blecon_remote), Btn.TEXT, R.drawable.ic_send) { openRemote(t) },
                 lp(WRAP, WRAP).margins(t = dp(4)))
+            app.bleWake.missed.value[t.id]?.let { gaveUp -> addNote(ctx.getString(R.string.blecon_wake_missed, t.name, Format.clock(ctx, gaveUp))) }
             return
         }
-        val via = runCatching { CommandRoute.Via.valueOf(p.via) }.getOrNull()
         val at = app.expectedAt(t, via)
         addNote(if (at != null) ctx.getString(R.string.blecon_remote_at, t.name, Format.clock(ctx, at))
             else ctx.getString(R.string.blecon_remote_next, t.name))
@@ -175,16 +198,22 @@ class BleConsoleHelper(private val a: AppCompatActivity, private val tagId: () -
             lp(WRAP, WRAP).margins(t = dp(4)))
     }
 
-    /** Queue BLE_CONSOLE: the Nearby devices permission first (the phone's advert is the first way). */
+    /**
+     * Ask the tag to open its Bluetooth: the wake advert from this phone and, for a tag that takes
+     * commands, the BLE_CONSOLE command by its usual routes. The Nearby devices
+     * permission first (advertising needs it).
+     */
     fun openRemote(t: Tracker) {
         if (!BleConsoleScanner.permitted(a) || !BleCommandBeacon.granted(a)) {
             pendingRemote = t
             perms.launch(REMOTE_PERMS)
             return
         }
-        val other = app.store.get(t.id)?.pending?.takeIf { it.kind != CommandKind.BLE_CONSOLE.name }
+        val command = remoteOffered(t)
+        val other = app.store.get(t.id)?.pending?.takeIf { command && it.kind != CommandKind.BLE_CONSOLE.name }
         val go = {
-            app.queueCommand(t.id, CommandKind.BLE_CONSOLE)
+            if (command) app.queueCommand(t.id, CommandKind.BLE_CONSOLE)
+            if (wakeOffered(t)) app.bleWake.start(t)
             scan()
             onChange()
         }
@@ -194,6 +223,14 @@ class BleConsoleHelper(private val a: AppCompatActivity, private val tagId: () -
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.blecon_remote_replace_ok) { _, _ -> go() }
             .show()
+    }
+
+    /** The tag answered the wake advert and this screen shows it: connect, once. */
+    private fun autoConnect(id: String) {
+        val t = app.store.get(id) ?: return
+        if (!offered(t) || app.usb.state.value is UsbState.Connecting) return
+        app.bleWake.consume(id)
+        connect(t)
     }
 
     private fun LinearLayout.addNote(s: String) =
@@ -252,8 +289,6 @@ class BleConsoleHelper(private val a: AppCompatActivity, private val tagId: () -
     }
 
     companion object {
-        /** firmware that takes BLE_CONSOLE (opcode 0x06) */
-        const val REMOTE_FW = "0.9.2"
         private val REMOTE_PERMS = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S)
             arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE)
         else emptyArray()

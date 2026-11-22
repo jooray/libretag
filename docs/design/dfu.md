@@ -10,8 +10,8 @@ device yet. The test plan is at the end.
   the SoftDevice (it has its own BLE controller), but the bootloader needs it for BLE DFU.
 - Seeed's MeshCore guide flashes `wio_tracker_l1_bootloader-0.10.0_s140_7.3.0.zip` with
   `adafruit-nrfutil ... --singlebank --touch 1200`. So the bootloader on current boards is probably
-  0.10.0 (or the 0.9.x it shipped with), built single-bank. **Not verified on our boards**: read
-  `INFO_UF2.TXT` from the UF2 drive (double-tap reset on a computer) and write the version here.
+  0.10.0 (or the 0.9.x it shipped with), built single-bank. Seen on the bench tag (2026-11-22,
+  `INFO_UF2.TXT`): "UF2 Bootloader 0.9.2-dirty", Board-ID TRACKER L1, date May 15 2025, S140 7.3.0.
 - USB IDs: the firmware is Zephyr's `2fe3:0007`. The bootloader re-enumerates with Seeed's VID
   `0x2886` and its own PID. PlatformIO/Meshtastic list `2886:1667` and `2886:1668` for this board,
   and the bootloader's USB product string is the board name ("TRACKER L1"). Which PID belongs to

@@ -619,7 +619,6 @@
     <string name="cmd_interval_to">Meldet %1$s</string>
     <string name="track_choose_ok">Verfolgen</string>
     <string name="set_cable_writing">Schreibe auf den Tracker…</string>
-    <string name="set_needs_07">Prüfungen und ruhiges Parken brauchen Firmware 0.7 oder neuer.</string>
     <string name="set_written">Auf dem Tracker gespeichert.</string>
     <plurals name="reports_n">
         <item quantity="one">%1$d Meldung</item>

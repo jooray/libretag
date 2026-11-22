@@ -115,6 +115,8 @@ class LibreTagApp : Application() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     /** commands over Bluetooth advertising while one waits (PROTOCOL.md 3.1) */
     val bleBeacon by lazy { app.libretag.ble.BleCommandBeacon(this) }
+    /** 0.13.1: the wake advert that opens a nearby tag's console without the report counter (firmware 0.9.5) */
+    val bleWake by lazy { app.libretag.ble.BleWakeBeacon(this) }
     private val windows = mutableMapOf<String, TagWindow>()
     private val keyCache = mutableMapOf<String, Keys>()
     private val random = SecureRandom()
@@ -189,6 +191,7 @@ class LibreTagApp : Application() {
         scope.launch { watchSilence() }
         scope.launch { watchChecks() }
         scope.launch { bleBeacon.run() } // 0.7.7: pending commands in this phone's Bluetooth advertising
+        scope.launch { bleWake.run() }
         scope.launch { watchReach() }
         scope.launch { watchReports() }
         backup.start()
@@ -281,7 +284,7 @@ class LibreTagApp : Application() {
             meshUpAt = prefs.meshUpAt.takeIf { it > 0 }, linkUp = pathLog.linkUp, pathUpSince = pathLog.upSince,
             blindFrom = pathLog.blindFrom, backfillAt = pathLog.backfillAt,
             cable = app.libretag.usb.CableClassify.cableFor(t, cs.raw, cs.espDownload, session, cableTagId(now)),
-            receipt = receipts.value[t.id], clockSkewMs = clockSkewMs.value, minFirmware = REPORT_V2_FIRMWARE,
+            receipt = receipts.value[t.id], clockSkewMs = clockSkewMs.value, minFirmware = MIN_FIRMWARE,
             bluetooth = bluetoothReady(),
         )
     }
@@ -503,26 +506,32 @@ class LibreTagApp : Application() {
         var lastRun = 0L
         while (true) {
             delay(10_000)
-            val online = relays.connected.value.first > 0
-            val now = System.currentTimeMillis()
-            if (!online) { wasOnline = false; continue }
-            // the window subscriptions replay 14 days: connected is caught up
-            if (windowMode()) { if (!wasOnline) markBackfilled(); wasOnline = true; continue }
-            if (store.reportWindowUntil != 0L) {
-                // the window period ended: back to fetching everything
-                store.reportWindowUntil = 0
-                store.trackers.value.forEach { relays.unsubscribe("lt-" + it.id.take(8)) }
-                subscribedAt.clear()
-                resubscribe(store.trackers.value)
+            // a failed sync (a relay dropped mid-query, a bad event) must not end the loop: the
+            // diagnosis would say "checking for missed reports" for good
+            val ok = guarded({ DiagLog.w(TAG, "report sync failed, retrying: ${it.javaClass.simpleName}: ${it.message}") }) {
+                val online = relays.connected.value.first > 0
+                val now = System.currentTimeMillis()
+                if (!online) { wasOnline = false; return@guarded }
+                // the window subscriptions replay 14 days: connected is caught up
+                if (windowMode()) { if (!wasOnline) markBackfilled(); wasOnline = true; return@guarded }
+                if (store.reportWindowUntil != 0L) {
+                    // the window period ended: back to fetching everything
+                    store.reportWindowUntil = 0
+                    store.trackers.value.forEach { relays.unsubscribe("lt-" + it.id.take(8)) }
+                    subscribedAt.clear()
+                    resubscribe(store.trackers.value)
+                }
+                if (!wasOnline || now - lastRun > SYNC_EVERY_MS) {
+                    wasOnline = true
+                    lastRun = now
+                    if (store.trackers.value.isEmpty()) return@guarded
+                    ensureLiveAll(force = true)
+                    val last = store.reportSyncAt
+                    syncBacklog(if (last > 0) last - app.libretag.nostr.ReportSync.OVERLAP_S else now / 1000 - FIRST_SYNC_S)
+                }
             }
-            if (!wasOnline || now - lastRun > SYNC_EVERY_MS) {
-                wasOnline = true
-                lastRun = now
-                if (store.trackers.value.isEmpty()) continue
-                ensureLiveAll(force = true)
-                val last = store.reportSyncAt
-                syncBacklog(if (last > 0) last - app.libretag.nostr.ReportSync.OVERLAP_S else now / 1000 - FIRST_SYNC_S)
-            }
+            // try again at the next pass
+            if (ok == null) wasOnline = false
         }
     }
 
@@ -823,8 +832,9 @@ class LibreTagApp : Application() {
         /** 0.8.1: a bridge drained the report late (tag `approx`), the time lies in [receivedAtMs, approxUntilMs] */
         approxUntilMs: Long? = null,
     ) {
-        // a report on air is sealed v2, which only firmware 0.9.0 and newer sends
-        noteFirmwareAtLeast(t.id, REPORT_V2_FIRMWARE)
+        // a report on air is sealed v2, which only firmware 0.9.0 and newer sends; an unknown version
+        // stays unknown (0.9.0 is below MIN_FIRMWARE and would read as too old)
+        if (t.firmware != null) noteFirmwareAtLeast(t.id, REPORT_V2_FIRMWARE)
         val pos = positionOf(n, r, hops, snrDb, via, receivedAtMs, approxUntilMs)
         // an approximate copy of a report we already have exactly adds nothing
         if (app.libretag.data.ReportMerge.redundant((store.get(t.id) ?: t).positions, pos)) return
@@ -1124,8 +1134,7 @@ class LibreTagApp : Application() {
     fun expectedAt(t: Tracker, via: app.libretag.mesh.CommandRoute.Via?, now: Long = System.currentTimeMillis()): Long? {
         val nextReport = Status.nextAt(t, now)
         return if (via == app.libretag.mesh.CommandRoute.Via.BLE)
-            app.libretag.mesh.CommandRoute.nextScanAt(Status.checkPlan(t), t.reportEvery, nextReport, now,
-                app.libretag.ble.BleBeaconPlan.scansEveryWake(t))
+            app.libretag.mesh.CommandRoute.nextScanAt(Status.checkPlan(t), nextReport, now)
         else Status.of(t, now).nextCheckAt ?: nextReport
     }
 
@@ -1134,8 +1143,7 @@ class LibreTagApp : Application() {
         val s = Status.of(t, now)
         val nextReport = Status.nextAt(t, now)
         val window = s.nextCheckAt ?: nextReport
-        val scan = app.libretag.mesh.CommandRoute.nextScanAt(Status.checkPlan(t), t.reportEvery, nextReport, now,
-            app.libretag.ble.BleBeaconPlan.scansEveryWake(t))
+        val scan = app.libretag.mesh.CommandRoute.nextScanAt(Status.checkPlan(t), nextReport, now)
         val near = app.libretag.mesh.CommandRoute.isNear(t.knownDevices.size, t.last?.quietReason)
         return app.libretag.mesh.CommandRoute.plan(kind, beaconOk, mesh.canZeroHop, window, scan, near)
     }
@@ -1802,6 +1810,14 @@ class LibreTagApp : Application() {
         }
     }
 
+    /** The tag answered the wake advert while no screen that connects is open. */
+    fun notifyBleListening(t: Tracker) {
+        notify(t.id, KIND_BLE_WAKE, getString(R.string.blecon_wake_notif_title, t.name), getString(R.string.blecon_wake_notif_text),
+            onlyOnce = true, alarm = false)
+    }
+
+    fun cancelBleListening(id: String) = runCatching { cancel(id, KIND_BLE_WAKE) }
+
     private fun cancel(id: String, kind: Int) = NotificationManagerCompat.from(this).cancel((id + kind).hashCode())
 
     /** Notification preview from Settings (sample text, no real tag). */
@@ -1848,10 +1864,14 @@ class LibreTagApp : Application() {
         /** 0.12: "keeps restarting" (once per episode) and "can't receive reports" (blind with a guarded tag) */
         const val KIND_RESTART = 6
         const val KIND_BLIND = 7
+        /** 0.13.1: the tag answered the wake advert, tap to connect */
+        const val KIND_BLE_WAKE = 8
         /** the tracker raises LOW_BATT itself; this is the app's own threshold for older reports */
         const val LOW_BATT_PCT = 20
         /** the first firmware that seals reports v2 (PROTOCOL.md 2) */
         const val REPORT_V2_FIRMWARE = "0.9.0"
+        /** the oldest tracker firmware the app works with; older shows "update the firmware" */
+        const val MIN_FIRMWARE = "0.9.5"
         const val LOW_BATT_RESET_PCT = 40
         /** the tracker listens 60 s after a report; leave margin for the flood back */
         const val CMD_FRESH_MS = 40_000L

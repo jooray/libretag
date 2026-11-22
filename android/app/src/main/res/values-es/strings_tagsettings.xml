@@ -19,7 +19,6 @@
     <string name="ts_still_off">Informa aunque no se mueva</string>
     <string name="ts_still_sheet_after">Pasa a reposo tras</string>
     <string name="ts_still_sheet_life">Señal de vida en reposo</string>
-    <string name="ts_needs_07">Requiere firmware 0.7 o superior</string>
     <string name="ts_tell">Avísame</string>
     <string name="ts_not_heard">Sin noticias cuando toca</string>
     <string name="ts_not_heard_sub">%1$s tras un informe pendiente (%2$s)</string>

@@ -14,8 +14,7 @@ import app.libretag.data.CheckPlan
  * not flood the mesh. In this order:
  *  1. [Via.BLE]: this phone's command advert, no mesh at all, when the tag takes adverts, the phone
  *     is near it (it is one of the tag's known devices, or the last report was quiet because of one)
- *     and its next listening wake-up also scans Bluetooth (since firmware 0.9.3 every wake-up does,
- *     a listen-only one too);
+ *     (every wake-up scans Bluetooth, a listen-only one too);
  *  2. [Via.ZERO_HOP]: the owner's node, zero-hop, when the Local API server can send one
  *     (`tx_path_data`; MeshCore Open cannot yet, meshcored can). Never a flood from our radio;
  *  3. [Via.NOSTR]: the signed mailbox, where bridges flood or zero-hop as usual.
@@ -53,8 +52,7 @@ object CommandRoute {
     }
 
     /**
-     * [beaconOk]: the tag takes command adverts (firmware, and before 0.9.3 known devices) and this
-     * phone can advertise.
+     * [beaconOk]: the tag takes command adverts (it has a report counter) and this phone can advertise.
      * [zeroHopOk]: MeshCore Open (or another Local API server) is connected and sends zero-hop.
      * [nextWindowAt]: the tag's next listening wake-up (a check, or the next report).
      * [nextScanAt]: its next wake-up that also scans Bluetooth (see [nextScanAt]).
@@ -75,17 +73,14 @@ object CommandRoute {
     }
 
     /**
-     * The next wake-up that scans Bluetooth for the command advert. Firmware 0.9.3 and newer
-     * ([everyWake]): every wake-up, a listen-only one between reports too (a 1.5 s scan alongside
-     * the LoRa window), so the next check of the plan, else the next report. Older firmware scans
-     * only at a wake-up that reports or looks (`lt_wake_reports(k, report_every)`), so check k with
-     * k % [reportEvery] == 0, else the next report ([nextReportAt]).
+     * The next wake-up that scans Bluetooth for the command advert: every wake-up does, a
+     * listen-only one between reports too (a 1.5 s scan alongside the LoRa window), so the next
+     * check of the plan, else the next report ([nextReportAt]).
      */
-    fun nextScanAt(plan: CheckPlan?, reportEvery: Int, nextReportAt: Long?, now: Long, everyWake: Boolean = false): Long? {
-        val every = if (everyWake) 1 else maxOf(1, reportEvery)
-        plan?.offsetsS?.forEachIndexed { i, off ->
+    fun nextScanAt(plan: CheckPlan?, nextReportAt: Long?, now: Long): Long? {
+        plan?.offsetsS?.forEach { off ->
             val at = plan.t0 + off * 1000
-            if (at > now && (i + 1) % every == 0) return at
+            if (at > now) return at
         }
         return nextReportAt?.takeIf { it > now } ?: nextReportAt
     }

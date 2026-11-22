@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Mon, 16 Nov 2026 22:24:08 +0100
-Subject: [PATCH 20/40] tracker: report every n-th IDLE wake-up (report every
+Subject: [PATCH 20/41] tracker: report every n-th IDLE wake-up (report every
  <n>, SET_IDLE offset 8), listen-only wake-ups between reports (no GPS, no
  Bluetooth scan, no TX unless a command comes); check window scaled to the
  preset (lt_check_window_s), shown in status and quiet

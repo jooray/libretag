@@ -112,22 +112,20 @@ class TagSettingsActivity : ScreenActivity() {
         label(getString(R.string.ts_away_reports), goesOut)
         pad(chips(Status.IDLE_CHOICES_MIN, periodMin, { Format.every(this, it * 60) }) { m ->
             // keep the listen interval when it still fits, else listen every hour (also away from a place)
-            val (w, e) = Status.splitForPeriod(m, wakeMin, every, TagText.fw073(t))
+            val (w, e) = Status.splitForPeriod(m, wakeMin, every)
             setInterval(t, w, e)
         })
         if (pending == null) perCharge(t)?.let { small(getString(R.string.ts_per_charge, it)) }
 
-        // 0.7.3: listen for commands more often than it reports
+        // listen for commands more often than it reports
         val listensAt = t.checkS > 0 && every > 1
-        if (TagText.fw073(t)) {
-            label(getString(R.string.ts_listens), null)
-            val opts = Status.CHECK_EVERY_CHOICES_MIN.filter { it < periodMin && periodMin % it == 0 } + periodMin
-            pad(chips(opts, if (listensAt) wakeMin else periodMin,
-                { if (it == periodMin) getString(R.string.ts_listens_with_report) else Format.every(this, it * 60) }) { c ->
-                val (w, e) = Status.wakeSplit(periodMin, c)
-                setInterval(t, w, e)
-            })
-        }
+        label(getString(R.string.ts_listens), null)
+        val opts = Status.CHECK_EVERY_CHOICES_MIN.filter { it < periodMin && periodMin % it == 0 } + periodMin
+        pad(chips(opts, if (listensAt) wakeMin else periodMin,
+            { if (it == periodMin) getString(R.string.ts_listens_with_report) else Format.every(this, it * 60) }) { c ->
+            val (w, e) = Status.wakeSplit(periodMin, c)
+            setInterval(t, w, e)
+        })
         small(getString(R.string.ts_cmd_waits, Format.duration(this, (if (listensAt) wakeMin else periodMin) * 60_000L)))
     }
 
@@ -169,16 +167,14 @@ class TagSettingsActivity : ScreenActivity() {
             change(t) { it.copy(use = if (on) Tracker.USE_THINGS else Tracker.USE_PEOPLE) }
         })
 
-        // not moving (0.7, cable)
-        val fw07 = TagText.fw07(t)
+        // not moving (cable)
         val after = t.stillAfterEff
         val stillSub = when {
-            !fw07 -> getString(R.string.ts_needs_07)
             after > 0 -> withState(getString(R.string.ts_still_after, Format.duration(this, after.toLong() * t.reportPeriodMin * 60_000L)), if (t.cableDirty) waits else null)
             else -> withState(getString(R.string.ts_still_off), if (t.cableDirty) waits else null)
         }
-        pad(switchItem(R.drawable.ic_clock, getString(R.string.ts_still), stillSub, after > 0, enabled = fw07,
-            onOpen = if (fw07 && after > 0) ({ stillSheet(t) }) else null) { on ->
+        pad(switchItem(R.drawable.ic_clock, getString(R.string.ts_still), stillSub, after > 0,
+            onOpen = if (after > 0) ({ stillSheet(t) }) else null) { on ->
             change(t) { it.copy(stillAfter = if (on) Tracker.DEFAULT_STILL_AFTER else 0) }
         })
     }
@@ -317,13 +313,13 @@ class TagSettingsActivity : ScreenActivity() {
             val r = TagOps.writeSettings(t)
             content.snack(getString(when (r) {
                 WriteResult.OK -> R.string.set_written
-                WriteResult.UNSUPPORTED -> R.string.set_needs_07
+                WriteResult.UNSUPPORTED -> R.string.kd_fw_old
                 else -> R.string.svc_write_failed
             }))
         }
     }
 
-    /** [min]: wake-up interval; [every]: report at every n-th wake-up (0.7.3). Cable now, else by radio. */
+    /** [min]: wake-up interval; [every]: report at every n-th wake-up. Cable now, else by radio. */
     private fun setInterval(t: Tracker, min: Int, every: Int = 1) {
         // listening between reports needs a listen window; the tag's default when it had none
         if (every > 1 && t.checkS <= 0) app.store.updateTracker(t.id) { it.copy(checkS = Tracker.DEFAULT_CHECK_S, cableDirty = true) }
@@ -345,11 +341,10 @@ class TagSettingsActivity : ScreenActivity() {
         if (!t.canCommand) return
         val cur = app.store.get(t.id) ?: t
         val checkS = when {
-            !TagText.fw07(cur) -> 0
             cur.checkS > 0 -> cur.checkS
             else -> Command.CHECK_OFF
         }
         // the row itself shows "goes out ~14:31" from now on
-        app.queueCommand(t.id, CommandKind.INTERVAL, min, checkS, if (TagText.fw073(cur)) every else 0)
+        app.queueCommand(t.id, CommandKind.INTERVAL, min, checkS, every)
     }
 }

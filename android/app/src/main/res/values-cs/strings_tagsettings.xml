@@ -19,7 +19,6 @@
     <string name="ts_still_off">Hlásí, i když stojí na místě</string>
     <string name="ts_still_sheet_after">Ztichne po</string>
     <string name="ts_still_sheet_life">Známka života v tichu</string>
-    <string name="ts_needs_07">Vyžaduje firmware 0.7 nebo novější</string>
     <string name="ts_tell">Upozorni mě</string>
     <string name="ts_not_heard">Neozval se, když měl</string>
     <string name="ts_not_heard_sub">%1$s po termínu hlášení (%2$s)</string>

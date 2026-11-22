@@ -633,7 +633,6 @@
     <string name="cmd_interval_to">Informa %1$s</string>
     <string name="track_choose_ok">Seguir</string>
     <string name="set_cable_writing">Escribiendo en el localizador…</string>
-    <string name="set_needs_07">Las comprobaciones y el reposo al aparcar necesitan firmware 0.7 o posterior.</string>
     <string name="set_written">Guardado en el localizador.</string>
     <plurals name="reports_n">
         <item quantity="one">%1$d informe</item>

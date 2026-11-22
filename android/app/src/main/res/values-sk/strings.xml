@@ -649,7 +649,6 @@
     <string name="cmd_interval_to">Hlási %1$s</string>
     <string name="track_choose_ok">Sledovať</string>
     <string name="set_cable_writing">Zapisuje sa do lokátora…</string>
-    <string name="set_needs_07">Kontroly a tiché parkovanie potrebujú firmvér 0.7 alebo novší.</string>
     <string name="set_written">Uložené v lokátore.</string>
     <plurals name="reports_n">
         <item quantity="one">%1$d hlásenie</item>

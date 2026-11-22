@@ -91,10 +91,9 @@ object Status {
     /**
      * (wake-up interval, report_every) after the owner picks a new report period [periodMin]: keep a
      * finer listen interval that still fits, else listen every [DEFAULT_LISTEN_MIN] (or with each
-     * report when the period is that short). [canSplit] false (firmware before 0.7.3): no split.
+     * report when the period is that short).
      */
-    fun splitForPeriod(periodMin: Int, curWakeMin: Int, curEvery: Int, canSplit: Boolean): Pair<Int, Int> {
-        if (!canSplit) return periodMin to 1
+    fun splitForPeriod(periodMin: Int, curWakeMin: Int, curEvery: Int): Pair<Int, Int> {
         val keep = curEvery > 1 && curWakeMin in 1 until periodMin && periodMin % curWakeMin == 0
         return wakeSplit(periodMin, if (keep) curWakeMin else DEFAULT_LISTEN_MIN)
     }

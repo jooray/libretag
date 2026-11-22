@@ -10,7 +10,6 @@
     <string name="blecon_not_seen">%1$s som nenašiel. Reštartuj ho a drž telefón blízko.</string>
     <string name="blecon_listening">%1$s počúva cez Bluetooth. Zostáva %2$d s.</string>
     <string name="blecon_connect_short">Pripojiť</string>
-    <string name="blecon_needs_fw">Bluetooth vyžaduje firmvér %1$s. Aplikácia na tomto lokátore naposledy videla %2$s. Ak má lokátor novší firmvér, pripojí sa aj tak.</string>
     <string name="blecon_connected">Pripojené cez Bluetooth</string>
     <string name="blecon_disconnect">Odpojiť</string>
     <string name="blecon_lost">Spojenie cez Bluetooth sa prerušilo. Reštartuj lokátor a pripoj sa znova, alebo použi kábel.</string>
@@ -38,4 +37,13 @@
     <string name="blecon_console">Konzola</string>
     <string name="blecon_console_hint">Príkaz</string>
     <string name="blecon_console_send">Odoslať</string>
+
+    <!-- 0.13.1: the wake advert (firmware 0.9.5) -->
+    <string name="blecon_wake_at">Telefón čaká, kým sa %1$s zobudí, zhruba o %2$s. Drž ho blízko lokátora.</string>
+    <string name="blecon_wake_next">Telefón čaká, kým sa %1$s zobudí. Drž ho blízko lokátora.</string>
+    <string name="blecon_wake_auto">Keď lokátor odpovie, aplikácia sa pripojí. Ak túto obrazovku opustíš, upozorní ťa notifikácia. Telefón prestane čakať o %1$s.</string>
+    <string name="blecon_wake_stop">Prestať čakať</string>
+    <string name="blecon_wake_missed">%1$s sa do %2$s neozval. Priblíž telefón a skús to znova.</string>
+    <string name="blecon_wake_notif_title">%1$s počúva cez Bluetooth</string>
+    <string name="blecon_wake_notif_text">Klepnutím sa pripojíš. Lokátor počúva 3 minúty.</string>
 </resources>

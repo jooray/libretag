@@ -53,7 +53,7 @@ class BleBeaconTest {
         mode = "IDLE", hops = 0, snrDb = 0.0, n = n, quiet = quiet, quietReason = if (quiet) "owner" else null,
         nextInS = 8 * 3600L, checks = true)
 
-    private fun tag(p: Position, fw: String? = "0.7.7", known: Boolean = true, queuedAgoS: Long = 60, kind: String = "INTERVAL") = Tracker(
+    private fun tag(p: Position, fw: String? = "0.9.5", known: Boolean = true, queuedAgoS: Long = 60, kind: String = "INTERVAL") = Tracker(
         name = "Car", keyHex = "00", positions = listOf(p), lastN = p.n, firmware = fw,
         knownDevices = if (known) listOf(KnownDevice("phone", kind = "irk")) else emptyList(),
         pending = PendingCommand(5, kind.lowercase(), "22", kind = kind, queuedAt = now - queuedAgoS * 1000))
@@ -86,22 +86,19 @@ class BleBeaconTest {
         assertEquals(BleCommand.K_NEXT, BleBeaconPlan.target(tag(p), CheckPlan(41, 0, 60, listOf(1L)), now)!!.k)
     }
 
-    @Test fun since093ATagWithoutKnownDevicesScansToo() {
+    @Test fun aTagWithoutKnownDevicesScansToo() {
         val p = pos(43, false, 100)
         val plan = CheckPlan(43, p.receivedAt, 60, listOf(3500L, 7300L))
-        val t = tag(p, fw = "0.9.3", known = false)
+        val t = tag(p, known = false)
         assertTrue(BleBeaconPlan.eligible(t))
-        assertTrue(BleBeaconPlan.scansEveryWake(t))
-        assertFalse(BleBeaconPlan.scansEveryWake(tag(p, fw = "0.9.2")))
+        assertTrue(BleBeaconPlan.eligible(tag(p, fw = null)))
         // the listen-only check 1 between reports gets its own sealing
         assertEquals(1, BleBeaconPlan.target(t, plan, p.receivedAt + 1000)!!.k)
     }
 
         @Test fun notAdvertised() {
         val p = pos(42, false, 100)
-        assertNull(BleBeaconPlan.target(tag(p, fw = "0.7.6"), null, now))
-        assertNull(BleBeaconPlan.target(tag(p, fw = null), null, now))
-        assertNull(BleBeaconPlan.target(tag(p, known = false), null, now)) // before 0.9.3 the tag does not scan
+        assertNull(BleBeaconPlan.target(tag(p).copy(lastN = -1), null, now))
         assertNull(BleBeaconPlan.target(tag(p, queuedAgoS = 3700, kind = "BEEP"), null, now)) // a Beep lives 1 h in the mailbox
         assertNull(BleBeaconPlan.target(tag(p).copy(pending = null), null, now))
     }

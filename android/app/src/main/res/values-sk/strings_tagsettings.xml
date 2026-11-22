@@ -19,7 +19,6 @@
     <string name="ts_still_off">Hlási, aj keď stojí na mieste</string>
     <string name="ts_still_sheet_after">Stíchne po</string>
     <string name="ts_still_sheet_life">Znamenie života v tichu</string>
-    <string name="ts_needs_07">Vyžaduje firmvér 0.7 alebo novší</string>
     <string name="ts_tell">Upozorni ma</string>
     <string name="ts_not_heard">Neozval sa, keď mal</string>
     <string name="ts_not_heard_sub">%1$s po termíne hlásenia (%2$s)</string>

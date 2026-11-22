@@ -18,7 +18,7 @@ import app.libretag.proto.BleConsole
 /**
  * "Notice my tags over Bluetooth" (docs/design/tag-diagnosis.md 4.1): one filtered scan with a
  * PendingIntent, in the controller, low power, for manufacturer data 0xFFFF starting 0x25 (a
- * console window) or 0x26 (a "here" advert, for later firmware). The phone does not wake for other
+ * console window) or 0x27 (a "here" advert, for later firmware; 0x26 is the phone's console wake advert). The phone does not wake for other
  * adverts. Runs while the owner has a tag with keys, Bluetooth is on and Nearby devices is
  * granted (Android 12+, neverForLocation); the switch in Settings turns it off. No location.
  */
@@ -26,7 +26,7 @@ import app.libretag.proto.BleConsole
 object BleSightScan {
     private const val TAG = "BleSight"
     private const val REQ = 4246
-    const val HERE_TYPE = 0x26
+    const val HERE_TYPE = 0x27
     @Volatile private var running = false
 
     private fun intent(c: Context, flags: Int): PendingIntent? = PendingIntent.getBroadcast(c, REQ,
