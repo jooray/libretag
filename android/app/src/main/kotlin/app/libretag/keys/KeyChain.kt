@@ -179,3 +179,23 @@ class TagWindow(private val chain: KeyChain, var lastN: Long, seen: Collection<L
         const val HISTORY_J = 2
     }
 }
+
+/**
+ * What opens a tag's console (PROTOCOL.md 6 and 6.2): its `id` and `usb_key`. The owner derives them
+ * from K0; a full-access share carries them in the link (`uk`, `id`), without K0.
+ */
+class ConsoleKey(val id: ByteArray, val usbKey: ByteArray) {
+    val idHex: String get() = LibreTag.bytesToHex(id)
+
+    companion object {
+        fun of(k: Keys) = ConsoleKey(k.id, k.usbKey)
+
+        /** the console key a full-access share brought, null for any other tag */
+        fun shared(t: Tracker): ConsoleKey? {
+            if (!t.sharedAdmin) return null
+            val u = LibreTag.hexToBytes(t.sharedUsbHex)?.takeIf { it.size == 32 } ?: return null
+            val i = LibreTag.hexToBytes(t.sharedIdHex)?.takeIf { it.size == 8 } ?: return null
+            return ConsoleKey(i, u)
+        }
+    }
+}

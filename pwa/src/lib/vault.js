@@ -35,12 +35,13 @@ export async function openCache(keyBytes, blob) {
 
 /** What goes into the cache for one tag: keys, local settings and the reports read so far. */
 export const serializeTag = (t) => ({
-  id: t.id, name: t.name, type: t.type, mark: t.mark, k0: t.k0, share: t.share,
+  id: t.id, name: t.name, type: t.type, mark: t.mark, k0: t.k0, share: t.share, sharedBy: t.sharedBy ?? null, shares: t.shares ?? [],
   intervalMin: t.intervalMin ?? null, lastN: t.lastN, cmdSeq: t.cmdSeq ?? null,
   pending: t.pending ?? null, lastCommand: t.lastCommand ?? null,
   modeUntil: t.modeUntil ?? null, modeIntervalS: t.modeIntervalS ?? null,
   updated: t.updated ?? 0, imported: !!t.imported, extra: t.extra ?? {}, zones: t.zones ?? [],
-  alarm: t.alarm ?? null, inZone: t.inZone ?? null, syncedTo: t.syncedTo ?? null, mbAnchors: t.mbAnchors ?? {},
+  alarm: t.alarm ?? null, inZone: t.inZone ?? null, leftPlace: t.leftPlace ?? null, leftAt: t.leftAt ?? null,
+  guardAlerted: !!t.guardAlerted, counterBackAt: t.counterBackAt ?? null, syncedTo: t.syncedTo ?? null, mbAnchors: t.mbAnchors ?? {},
   positions: t.positions.slice(-400),
 });
 

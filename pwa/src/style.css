@@ -277,3 +277,16 @@ textarea{resize:vertical;min-height:84px;font:500 14px/20px ui-monospace,Menlo,m
 .copyrow input{flex:1;min-width:0;font:500 12px/16px ui-monospace,monospace}
 .sheet .qr{width:min(220px,100%)}
 .sheet p.warn{color:var(--warn)}
+
+/* why a tag is late, the guard, the support ask (0.4.0) */
+.why{margin:10px 0 0;padding:12px 12px 12px 16px;background:var(--plate-bg);border:1.5px solid var(--plate);border-left:5px solid var(--ink3);border-radius:4px}
+.why.warnedge{border-left-color:var(--warn)}
+.why h3{font:800 13px/1 var(--narrow);letter-spacing:.04em;text-transform:uppercase;color:var(--ink2);margin:0 0 6px}
+.why p{font:500 15px/21px var(--font);margin:6px 0 0}
+.checks{margin-top:8px;border-top:1px solid var(--line)}
+.chk{display:flex;gap:10px;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);font:500 14px/19px var(--narrow)}
+.chk b{font-weight:700;text-align:right}
+.chk.warn b{color:var(--crit)}.chk.unknown b{color:var(--ink3)}
+.guardbox{margin:10px 0 0}
+.supportbox{display:flex;gap:12px;align-items:flex-start;margin:16px 0 0;padding:12px;background:var(--plate-bg);border:1.5px solid var(--plate);border-radius:4px}
+.supportbox p{font:600 15px/21px var(--font);margin:0}

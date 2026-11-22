@@ -44,6 +44,7 @@
       <a href="#privacy">[[nav_privacy]]</a>
       <a href="#features">[[nav_features]]</a>
       <a href="#hardware">[[nav_hw]]</a>
+      <a href="#news">[[nav_news]]</a>
       <a href="#get">[[nav_get]]</a>
     </nav>
     <div class="top-r">
@@ -222,6 +223,14 @@
   </div>
 </section>
 
+<section id="news">
+  <div class="wrap">
+    <div class="h2">[[bz_h2_green]]<h2>[[news_h]]</h2></div>
+    <p class="sec-intro">[[news_p]]</p>
+    <div class="news" data-nostr-live data-nprofile="[[nprofile]]" data-relays="wss://nostr.cypherpunk.today,wss://relay.primal.net" data-layout="cards" data-limit="3" data-lang="[[lang]]"></div>
+  </div>
+</section>
+
 <section id="get" class="tint">
   <div class="wrap">
     <div class="h2">[[bz_h2_red]]<h2>[[get_h]]</h2></div>
@@ -265,6 +274,7 @@
     <div class="row"><span>[[foot_license]]</span><a href="[[support_url]]" rel="noopener" target="_blank">[[foot_support]]</a><a href="[[other_url]]" hreflang="[[other_lang]]">[[other_name]]</a></div>
   </div>
 </footer>
+<script src="[[root]]vendor/nostr-live.js?v=1.0.1" defer></script>
 <script src="[[root]]main.js" defer></script>
 </body>
 </html>

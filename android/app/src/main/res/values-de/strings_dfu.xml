@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Firmware-Update über USB (docs/design/dfu.md). -->
+<resources>
+    <string name="fw_title">Firmware aktualisieren</string>
+    <string name="fw_sub">Über das USB-Kabel</string>
+    <string name="fw_on_tag">Auf dem Tracker: %1$s</string>
+    <string name="fw_in_app">In dieser App: %1$s</string>
+    <string name="fw_unknown">unbekannt</string>
+    <string name="fw_none_bundled">In dieser App-Version steckt keine Tracker-Firmware. Aktualisiere stattdessen von einem Computer aus.</string>
+    <string name="fw_same">Der Tracker hat diese Version schon. Du kannst sie erneut installieren, falls etwas nicht stimmt.</string>
+    <string name="fw_newer_on_tag">Der Tracker hat eine neuere Version als die in dieser App. Die Installation würde auf eine ältere zurückgehen.</string>
+    <string name="fw_explain">Das dauert etwa eine Minute. Lass das Kabel angesteckt und den Bildschirm an. Android fragt zweimal nach USB-Zugriff: einmal für den Tracker im Update-Modus, den es als anderes Gerät zählt, und einmal nach seinem Neustart. Kopplung, Schlüssel, Zonen und Einstellungen bleiben auf dem Tracker.</string>
+    <string name="fw_install">%1$s installieren</string>
+    <string name="fw_plug">Verbinde den Tracker mit einem USB-C-Kabel mit diesem Handy.</string>
+    <string name="fw_not_mine">Dieser Tracker ist mit einem anderen Handy gekoppelt. Nur dieses Handy kann ihn aktualisieren.</string>
+    <string name="fw_boot_found">Ein Tracker im Update-Modus hängt am Kabel</string>
+    <string name="fw_boot_text">Entweder ist ein Update auf halbem Weg stehen geblieben, oder jemand hat die Reset-Taste zweimal gedrückt. Die App erkennt nicht, welcher Tracker es ist. Mach also nur weiter, wenn es ein LibreTag-Tracker ist.</string>
+    <string name="fw_continue">Update fortsetzen</string>
+    <string name="fw_service_sub">%1$s aus dieser App per Kabel installieren</string>
+
+    <string name="fw_step_rebooting">Tracker wird im Update-Modus neu gestartet…</string>
+    <string name="fw_step_waiting">Warte auf den Tracker im Update-Modus…</string>
+    <string name="fw_step_perm_boot">Tippe auf Zulassen. Android fragt erneut, weil der Tracker im Update-Modus ein anderes USB-Gerät ist.</string>
+    <string name="fw_step_perm_tag">Tippe auf Zulassen für den neu gestarteten Tracker.</string>
+    <string name="fw_step_erasing">Alte Firmware wird gelöscht…</string>
+    <string name="fw_step_sending">Firmware wird gesendet: %1$d %%</string>
+    <string name="fw_step_finishing">Firmware wird geprüft…</string>
+    <string name="fw_step_restarting">Der Tracker startet neu…</string>
+    <string name="fw_step_reading">Version wird gelesen…</string>
+    <string name="fw_keep">Zieh das Kabel nicht ab.</string>
+
+    <string name="fw_done">Firmware %1$s ist installiert</string>
+    <string name="fw_done_paired">Der Tracker ist weiterhin mit diesem Handy gekoppelt.</string>
+    <string name="fw_done_unpaired">Der Tracker antwortet nicht mehr auf den Schlüssel dieses Handys. Koppel ihn unter Tracker hinzufügen neu.</string>
+
+    <string name="fw_fail_title">Das Update wurde abgebrochen</string>
+    <string name="fw_fail_no_firmware">Die Firmware in dieser App hat die Prüfung nicht bestanden (%1$s). Es wurde nichts an den Tracker gesendet.</string>
+    <string name="fw_fail_not_connected">Der Tracker hängt nicht mehr am Kabel. Steck ihn an und versuche es erneut.</string>
+    <string name="fw_fail_locked">Der Tracker hat den Update-Befehl abgelehnt (%1$s). Zieh ihn ab, steck ihn wieder an und versuche es erneut.</string>
+    <string name="fw_fail_no_bootloader">Der Tracker ist nicht im Update-Modus erschienen. Läuft er noch normal, versuche es erneut. Du kannst auch seine Reset-Taste zweimal drücken, dann bietet die App das Fortsetzen an.</string>
+    <string name="fw_fail_permission">Ohne USB-Zugriff kann die App die Firmware nicht senden. Versuche es erneut und tippe auf Zulassen.</string>
+    <string name="fw_fail_transfer">Die Übertragung ist abgebrochen (%1$s). Der Tracker bleibt im Update-Modus, seine Schlüssel sind sicher. Prüfe das Kabel und tippe auf Update fortsetzen.</string>
+    <string name="fw_fail_no_return">Die Firmware wurde übertragen, aber der Tracker ist am Kabel nicht zurückgekommen. Zieh ihn ab und steck ihn wieder an. Startet er nicht, drücke zweimal Reset und setze das Update fort.</string>
+    <string name="fw_fail_wrong_version">Der Tracker ist mit Version %1$s statt %2$s zurückgekommen. Versuche das Update erneut.</string>
+    <string name="fw_try_again">Erneut versuchen</string>
+</resources>

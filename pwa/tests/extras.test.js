@@ -6,7 +6,7 @@ import { setLang } from '../src/lib/i18n.js';
 import { makeTag, parseKeyInput, tagsFromBackup } from '../src/lib/keys.js';
 import { mergePayloads, parsePlaintext, plaintextOf } from '../src/lib/merge.js';
 import { checkMnemonic, normalizeMnemonic } from '../src/lib/mnemonic.js';
-import { statusOf, statusText } from '../src/lib/status.js';
+import { levelOf, statusOf, statusSub, statusText } from '../src/lib/status.js';
 
 setLang('en');
 const K0 = (c) => c.repeat(32);
@@ -63,20 +63,49 @@ function tagWithZones() {
 const rep = (o) => ({ hasFix: true, fixTime: 1, lat: 48.7060, lon: 21.2200, haccM: 6, battery: 70, mode: 'IDLE', cmdAck: false, cmdSeq: 0,
   lowBatt: false, nbTotal: 2, nbDiscover: false, neighbours: [], quiet: false, quietReason: null, checks: false, nextInS: 3600, energyMah: null, ...o });
 
-describe('left-zone alarm', () => {
-  it('raises "Left School 14:02" when a fix lands outside, ahead of silence and battery', async () => {
+describe('leaving a place', () => {
+  it('shows "Left School 14:02" as a neutral state for 12 h, below silence and battery, and ends when it is back', async () => {
     const { app, rec } = tagWithZones();
     const now = Date.now();
     await app._addReport(rec, 1, rep({}), now - 7_200_000);
     expect(rec.inZone).toBe('School');
-    expect(rec.alarm).toBeNull();
+    expect(rec.leftPlace).toBeNull();
     await app._addReport(rec, 2, rep({ lat: 48.7120 }), now - 60_000);
-    expect(rec.alarm).toMatchObject({ zone: 'School' });
+    expect(rec.leftPlace).toBe('School');
+    expect(rec.alarm).toBeNull();
+    const s = statusOf(rec, now);
+    expect(s.kind).toBe('LEFT');
+    expect(levelOf(s)).toBe('');
+    expect(statusText(rec, s, now)).toMatch(/^Left School \d/);
+    expect(statusOf(rec, now + 13 * 3600_000).kind).not.toBe('LEFT');
+    await app._addReport(rec, 3, rep({}), now + 60_000);
+    expect(rec.leftPlace).toBeNull();
+  });
+  it('leaving together with your own device is no departure', async () => {
+    const { app, rec } = tagWithZones();
+    const now = Date.now();
+    await app._addReport(rec, 1, rep({}), now - 7_200_000);
+    await app._addReport(rec, 2, rep({ lat: 48.7120, quiet: true, quietReason: 'owner' }), now - 60_000);
+    expect(rec.leftPlace).toBeNull();
+  });
+  it('a guarded spot raises the guard alarm once, and Stop guarding clears it', async () => {
+    const { app, rec } = tagWithZones();
+    app.saveBackup = async () => ({});
+    const now = Date.now();
+    await app._addReport(rec, 1, rep({}), now - 7_200_000);
+    await app.guardHere(rec.id);
+    expect(rec.extra.guard).toMatchObject({ lat: 48.706, lon: 21.22, r_m: 300 });
+    await app._addReport(rec, 2, rep({ lat: 48.7061 }), now - 3_600_000);
+    expect(rec.alarm).toBeNull();
+    await app._addReport(rec, 3, rep({ lat: 48.7120 }), now - 60_000);
+    expect(rec.alarm).toMatchObject({ guard: true });
     const s = statusOf(rec, now);
     expect(s.kind).toBe('ALARM');
-    expect(statusText(rec, s, now)).toMatch(/^Left School \d/);
-    app.clearAlarm(rec.id);
-    expect(statusOf(rec, now).kind).toBe('OK');
+    expect(statusText(rec, s, now)).toBe('Moved while guarded');
+    expect(statusSub(rec, s, now)).toMatch(/^Left the guarded spot \d/);
+    await app.guardOff(rec.id);
+    expect(rec.extra.guard).toBeNull();
+    expect(statusOf(rec, now).kind).not.toBe('ALARM');
   });
   it('quiet in a zone names it', async () => {
     const { app, rec } = tagWithZones();

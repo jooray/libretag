@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Mon, 16 Nov 2026 23:29:20 +0100
-Subject: [PATCH 23/41] tracker: blescan D line hex buffer fits 24 maker bytes
+Subject: [PATCH 23/42] tracker: blescan D line hex buffer fits 24 maker bytes
  (was 16+1: a long maker payload overran it into the sort index and printed
  empty table slots as 00:00:00:00:00:00 rows)
 

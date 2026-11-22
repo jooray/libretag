@@ -6,7 +6,7 @@ import android.view.ViewGroup
 import android.widget.TextView
 
 /**
- * The command buttons (Lost / Track 1 h / Beep): one row of equal buttons when every label fits on
+ * The command buttons (Lost / Track / Beep): one row of equal buttons when every label fits on
  * one line at that width, else as many rows as needed, each button as wide as its label and the
  * row stretched to the full width. Labels never break inside a word (no hyphenation, one line).
  */

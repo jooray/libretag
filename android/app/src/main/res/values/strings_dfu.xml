@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Firmware update over USB (docs/design/dfu.md). English only for now: TO TRANSLATE (sk, cs, de, es, nl)
-     once the flow is tested on hardware. Kept in this file so the translation pass finds them in one place. -->
-<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+<!-- Firmware update over USB (docs/design/dfu.md). -->
+<resources>
     <string name="fw_title">Update firmware</string>
     <string name="fw_sub">Over the USB cable</string>
     <string name="fw_on_tag">On the tag: %1$s</string>

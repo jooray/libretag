@@ -128,7 +128,7 @@ No bottom navigation bar: the app has one main goal (tags). Settings are in the 
   - Path: "via mesh, 0 hops" / "via Nostr (bridge)".
 - **Actions:** four buttons in a 2×2 grid.
   - The main one is contextual and filled: **Lost** in an alarm, **Beep** when quiet at home.
-  - The others are outline: Track 1 h, Beep, Normal.
+  - The others are outline: Track, Beep, Normal.
   - Below them always "Takes effect with the next report (~14:31)".
 - **Timeline:** a scrubber by days and reports as stations. Moving it updates the map and the signpost together. Stretches of "quiet at Home" are collapsed into one row.
 - **Swipe left/right** switches between tags.

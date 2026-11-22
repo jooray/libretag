@@ -1,6 +1,6 @@
 # LibreTag: tracker over MeshCore (working specification)
 
-Status: working draft, updated 2026-11-17 (first version 2026-11-13). Based on the owner's initial notes, the first round of research and the prototype. What is built: "Prototype status" in section 10. Current versions: tracker firmware 0.7.8, Android app 0.8.8, web app (PWA) 0.2.3, Android bridge 0.3.2, protocol LT2 (`PROTOCOL.md`).
+Status: working draft, updated 2026-11-17 (first version 2026-11-13). Based on the owner's initial notes, the first round of research and the prototype. What is built: "Prototype status" in section 10. Current versions: tracker firmware 0.7.8, Android app 0.8.8, web app (PWA) 0.4.0, Android bridge 0.3.2, protocol LT2 (`PROTOCOL.md`).
 
 ## 1. What we are building
 
@@ -247,6 +247,10 @@ The tracker is invisible to phones (it does not transmit BLE outside the short w
 
 Two exceptions, both short and both naming no tracker: `blepair` advertises only when the owner asks for it on the cable, and since firmware 0.8.0 a paired tracker advertises its Bluetooth console for 3 minutes after a reboot (PROTOCOL.md 6.2), from a private address with a salted tag only the owner's app recognises. An observer learns "a LibreTag-like device just restarted here". Owners who want none of it set `blecon boot off` and use the cable.
 
+### Sharing a tag (decided 2026-11-22)
+
+The owner shares a tag from the app at one of three levels: view (`V_e`), view and control (`V_e`, `C_e`) and full access, which also carries the tracker's `usb_key` and `id`. Full access is for the owner's other devices (a second phone, a laptop) and for an agent that needs the console. With it the other device unlocks the USB console, opens the Bluetooth console, wakes the tag over Bluetooth, writes settings and updates firmware like the owner's phone. It doesn't get `K0`: the console needs only `usb_key`, and without `K0` the past before the shared epoch stays closed and the tracker's Nostr identity stays with the owner. Anyone with full access can still re-key or unpair the tag, so the app warns before it shows the code. On a laptop, `libretag share import` keeps the keys in a mode 600 file under `~/.config/libretag/tags/`, and `libretag console` and `tools/blecon.py --tag` use it to unlock. Link format: PROTOCOL.md 1.
+
 ## 6. Receiving side
 
 - **Base station**: a MeshCore node (companion or room server) with custom firmware, or a PC/Raspberry Pi connected to a companion node over USB/BLE/TCP. Tasks: recognize rotating identities, decrypt, store, keep the command queue.
@@ -377,7 +381,7 @@ Networks in different countries run on different presets (frequency, BW, SF, CR)
 - the firmware has a table of regions (polygon or bbox → preset + region/transport code), updatable by a command or when flashing the firmware,
 - after every fix the region is evaluated, with hysteresis (e.g. 2 consecutive fixes or 5 km beyond the border), so that it does not jump back and forth when traveling along a border,
 - in the band near a border the tracker can send the report in both presets,
-- without a fix the last known preset stays; after a long gap it tries presets in turn,
+- without a fix the last known preset stays; if the home network stays silent, a second copy also goes to the network the tracker was on before (see Implementation v1),
 - base stations and gateways at the border can listen on several presets (two KISS radios).
 
 **We want to do this, including the region.** Switching the radio is not enough. The tracker should also send with the **region of the country** it is in (MeshCore flood scope, transport codes), so that local repeaters forward it according to the rules of the local network and so that it behaves politely. For example in Slovakia Slovak radio settings and the region `sk`, in Czechia Czech settings and the region `cz`.
@@ -405,7 +409,7 @@ Networks in different countries run on different presets (frequency, BW, SF, CR)
 
   Austria, Germany, Poland and Ukraine are not in the list, EU/UK (Narrow) without a region applies until we learn more. MeshCore Open has its own older, hard-coded list (without SK, with CR 5 for EU Narrow). Go by the official configuration. Generate the table in the firmware from it and update it at builds.
 - **Hash size in the path:** SK, HU and CZ use 2-byte hashes in the packet path (`path_len = 0x40` on send). The tracker takes it from the country preset. Python (`Packet`), the C core and the return path of the command (the base station copies the hash size and transport codes from the report) all handle it.
-- **Without a fix:** the last known country applies. After a long gap try presets in turn.
+- **Without a fix:** the last known country applies. If the home network has been silent, a second copy also goes to the previous network (Implementation v1, change 2026-11-22).
 - **Without a table for the country:** stay on the last preset without a region (or with the default), never transmit on an unknown setting.
 - **Consequence for the receiving side:** the app and bridges must know that a tracker in a foreign country can be heard only on the local network. Public mode and the Nostr bridge help there.
 
@@ -419,7 +423,8 @@ Networks in different countries run on different presets (frequency, BW, SF, CR)
   1. the band is **3 km** (only the outskirts next to the border, not the whole city);
   2. **hysteresis:** when both networks are candidates, the tracker stays on the one it is on; it switches only when it is more than 3 km inside another country;
   3. **second copy only when the home network is quiet:** if in the last 3 listening windows the tracker caught no packet on the home radio. Repeaters of the home network can often be heard just across the border, so a home-network copy is enough there (and a home-network bridge sends it to Nostr). After a network change the state is not known, the first report at the border goes to both.
-- `radio`, `pathhash`, `region` switch to manual mode, `network auto` turns it off. `where <lat> <lon>` shows the decision for any place.
+- **Change 2026-11-22 (back across a border without a fix, firmware 0.9.6):** in a field test a tag crossed into Czechia, switched to the Czech network, then came back to Slovakia in a bag with no fix. It stayed on the Czech network, where nobody heard it. Now the tracker remembers the **previous network**, the one it left at its last automatic switch (radio preset, hash, region, country), and saves it to flash with the home network. A report **without a fix** also goes out as copy `j = 1` on the previous network when all of these hold: the home network was silent in the last 3 listening windows (the same rule as the border copy), the previous network uses another radio than home, the network is not set manually, and the daily flood cap (200 floods in 24 h) is not reached. After the copy the tracker returns to the home radio and listens there, as after a border copy. The home network changes only with a fix: the tracker does not listen on the previous network, so it cannot tell whether the copy was heard. Without any switch since the state was created (and on boards without GPS) there is no previous network. `status` and `network` show it.
+- `radio`, `pathhash`, `region` switch to manual mode, `network auto` turns it off. `network` shows the home and the previous network. `where <lat> <lon>` shows the decision for any place.
 
 ### 6.5 Position without GPS: repeaters and Bluetooth (experiment 2026-11-15)
 
@@ -645,7 +650,7 @@ Conclusions:
 
 ### Prototype status (2026-11-17)
 
-Tracker firmware 0.7.8 (Wio Tracker L1 flashed and running; ESP32-S3 stick without GPS on the bench), Android app 0.8.8 with the UI redesign on `main` (not yet released), web app (PWA) 0.2.3, Android bridge 0.3.2, Python bridge `nostrmesh`, protocol LT2 (`PROTOCOL.md`).
+Tracker firmware 0.7.8 (Wio Tracker L1 flashed and running; ESP32-S3 stick without GPS on the bench), Android app 0.8.8 with the UI redesign on `main` (not yet released), web app (PWA) 0.4.0, Android bridge 0.3.2, Python bridge `nostrmesh`, protocol LT2 (`PROTOCOL.md`).
 
 Protocol, host and firmware:
 
@@ -668,7 +673,7 @@ Apps and bridges:
 
 - [x] LibreTag app 0.5 to 0.8.8: pairing over USB with locking of the tracker and automatic unlocking, map and history with a timeline, commands Lost (10 min / 24 h), Track (2, 5, 10, 15 or 30 min for 1 h), Beep, Bluetooth scan, Normal, checks and report intervals, home zones on the map and known Bluetooth devices, Wi-Fi zones for tags without GPS (0.8.6), commands over Bluetooth advertising for a tag nearby (0.8.7), Wi-Fi positioning through BeaconDB, the GrapheneOS proxy or Apple, key backup with a recovery phrase and a copy for the owner's npub (12.2), NIP-17 DMs, signed mailbox entries (0.11.0, PROTOCOL.md 4.2; mailbox PoW before), Keystore-wrapped secrets, GPX/CSV export (0.8.0). Signed release APK (cert `79750fb4…a24d`).
 - [x] App UI redesign on `main` (after 0.8.8, not released): status vocabulary in which only Guard is an alarm and places notify on leaving and arriving (each place has its own switches); one Places list for GPS and Wi-Fi places; one Tag settings screen; Wi-Fi lookup set by service and by when (only on tap, in Lost mode, every report without GPS) with a cache and a request budget; a four-step Add tag wizard (plug in, name, where it rests, done).
-- [x] Web app (PWA) 0.3.0, over Nostr only (section 12): tags, map, commands and cancelling (signed mailbox, anchors, late entries), backup restore, NIP-17, export. No Wi-Fi lookup.
+- [x] Web app (PWA) 0.4.0, over Nostr only (section 12): tags, map, commands and cancelling (signed mailbox, anchors, late entries), the report interval as a command, backup restore, NIP-17, export, sharing at all three levels (full access included), the Android app's status model (a missed report is tolerated, leaving a place is an event, guard), why a tag is late, battery estimate, units, support ask. No Wi-Fi lookup and no area estimate (the services allow no browser requests, section 12).
 - [x] Nostr ↔ MeshCore bridge `nostrmesh` (Python) and the Android "Nostr bridge" 0.3.2: LT2 uplink kind 4243, command mailbox kind 4244 with the "knew it before catching" rule, bridge choice, zero-hop/direct/flood downlink, airtime budget on the live preset (Python reads the node's preset when the adapter reports it), a per-first-hop limit on `#libretag` uplink (10 per minute by default). The Android bridge has an outbox kept across restarts, a radio watchdog and an hourly heartbeat (`status.json`), like the Python bridge. Service templates for systemd and launchd in `host/deploy/` (`docs/nostr-mesh-bridge.md` 8.11).
 - [ ] Measure on hardware: consumption (PPK2), command latency in a real network, delivery through a foreign bridge, display of NIP-04 in real clients, Bluetooth command delivery from a real phone, the ESP32 stick on a battery and outside its zones.
 - [ ] Tracker: repeater database, place fingerprints, BLE surroundings (6.5, 6.6), `SET_PARAM` remotely.
@@ -763,7 +768,8 @@ If the tracker never had a fix and the app has seen no fix from it, the prior po
 
 A web app for when the owner does not have their phone (lost it, it ran out of battery, it was stolen together with the car) or wants to watch the tracker from a computer. It has no radio and no USB, and communicates **only over Nostr**: it reads reports (kind 4243) and sends commands to the mailbox (kind 4244). Delivery depends on bridges near the tracker.
 
-- **Features:** list of trackers and a map, area estimate without GPS (planned; 0.2.3 does not download the repeater map and shows no area), timeline, commands (Lost, Track, Beep, Normal) through the mailbox, delivery status ("waiting for the next report", "confirmed"). No pairing and no USB settings (zones, BLE anchors, history synchronization).
+- **Features (0.4.0):** list of trackers and a map, timeline, commands (Lost, Track, Beep, stop, report interval) through the mailbox, delivery status ("waiting for the next report", "confirmed"), GPX and CSV export. The status model is the Android app's: one missed report is tolerated (two on a lossy path), a departure from a place is a neutral event for 12 h, the guard (the backup's `guard`, 300 m) raises the alarm; "why is it late" (the browser offline, relays down, a catch-up running, restarts from boot reports, an empty battery, a schedule that differs, out of range, a guess for a place or a known device) with an "All checks" list; battery estimate after two weeks of reports; sharing at view, control and full access (PROTOCOL.md 1; a full-access link carries `usb_key` and `id`, which the web version derives from `K0` or keeps from an imported link, and passes on, but cannot use itself); the invite by Nostr DM from the tag's own key; the support ask (7 days, 10 actions, after a confirmed command); units. No pairing and no USB or Bluetooth settings (zones, BLE anchors, history synchronization, console, firmware).
+- **Not possible in a browser (checked 2026-11-22):** the area estimate from repeaters needs the public node list (`map.meshcore.io/api/v1/nodes`, 57 MB), which answers with `access-control-allow-origin: https://map.meshcore.dev` only; Wi-Fi positioning needs BeaconDB (no CORS headers, the preflight is refused) or Apple's service (binary POST with a fixed `User-Agent`, no CORS). A proxy of ours would see the positions and the networks, which the design rules out. Without a GPS fix the web version shows the last GPS and says so.
 - **Keys:** the PWA needs the tracker's `K0` (or `V_e` + `C_e` from a given epoch). Ways it can get there:
   1. **Backup on Nostr** (for the scenario "I lost my phone"): after pairing, the app stores the trackers' keys as a NIP-44 encrypted event for the owner's npub (e.g. parameterized replaceable kind 30078, `d` tag without the tracker's name). The PWA logs in with a signer (NIP-07 in the browser, NIP-46 bunker, Amber via nostrconnect) and decrypts the backup. A new app on a new phone restores it the same way.
   2. A QR code from the app (a one-time transfer into the browser on a computer).

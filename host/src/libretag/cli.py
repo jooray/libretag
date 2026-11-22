@@ -181,6 +181,80 @@ def cmd_vectors(args) -> None:
     print(f"wrote {path}")
 
 
+def cmd_share_import(args) -> None:
+    """A share link from the app (Share > QR code or DM). Prints what came, never the keys."""
+    from . import share
+    text = sys.stdin.read() if args.link == "-" else args.link
+    sh = share.parse_link(text)
+    if sh is None:
+        sys.exit("not a LibreTag share link (libretag://share?...)")
+    path = share.save(sh, Path(args.config) if args.config else None)
+    level = {"full": "full access (console key)", "control": "view and control", "view": "view only"}[sh.level]
+    print(f"tag:   {sh.name} ({sh.type})")
+    print(f"level: {level}, from epoch {sh.epoch}")
+    if sh.id:
+        print(f"id:    {sh.id}")
+    print(f"saved: {path} (mode 600)")
+    if sh.level == "full":
+        print(f"next:  libretag console --tag {sh.id} -c status")
+
+
+def cmd_share_list(args) -> None:
+    from . import share
+    for path, sh in share.saved(Path(args.config) if args.config else None):
+        print(f"{sh.name}: level={sh.level} id={sh.id or '-'} epoch={sh.epoch} file={path}")
+
+
+def _console_key(args) -> tuple[bytes, str | None]:
+    """usb_key and the id it belongs to: --k0-file (the owner) or a stored full-access share."""
+    if args.k0_file:
+        k = Keys(bytes.fromhex(Path(args.k0_file).read_text().strip()))
+        return k.usb_key, k.id.hex()
+    from . import share
+    try:
+        sh = share.find(args.tag, Path(args.config) if args.config else None)
+    except LookupError as e:
+        sys.exit(str(e))
+    return bytes.fromhex(sh.usb_key), sh.id
+
+
+def cmd_console(args) -> None:
+    """The tag's USB console, unlocked with the stored key; -c runs lines, else lines from stdin."""
+    from . import console
+    usb_key, want_id = _console_key(args)
+    try:
+        path = args.port or console.find_port()
+    except LookupError as e:
+        sys.exit(str(e))
+    port = console.open_serial(path, esp=args.esp)
+    try:
+        c = console.Console(port)
+        st = c.status()
+        if st.id is None and not st.locked:
+            sys.exit(f"{path}: no answer to status, or the tag isn't paired (no LIBRETAG ID)")
+        if want_id and st.id and st.id != want_id:
+            sys.exit(f"{path}: this is tag {st.id}, not {want_id}")
+        if st.locked and not c.unlock(usb_key):
+            sys.exit("unlock refused: the key doesn't fit this tag (re-keyed since it was shared?)")
+        print(f"# {path}: tag {st.id or '?'} unlocked", file=sys.stderr)
+
+        def run(line: str) -> None:
+            out = c.command(line, quiet_s=args.quiet, max_s=args.max)
+            if any(l.startswith("ERR locked") for l in out) and c.unlock(usb_key):  # the unlock lasts 10 min
+                out = c.command(line, quiet_s=args.quiet, max_s=args.max)
+            print("\n".join(out), flush=True)
+
+        if args.c:
+            for line in args.c:
+                run(line)
+        else:
+            for line in sys.stdin:
+                if line.strip():
+                    run(line.strip())
+    finally:
+        port.close()
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="libretag")
     p.add_argument("--db", help="SQLite path (default ~/.local/share/libretag/libretag.db or $LIBRETAG_DB)")
@@ -246,6 +320,27 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser("vectors", help="write the LT2 test vectors (JSON, shared by C, Python and Kotlin)")
     s.add_argument("--out", default="tests/vectors/lt2.json")
     s.set_defaults(func=cmd_vectors)
+
+    s = sub.add_parser("share", help="shared tags: import a share link from the app, list them")
+    ssub = s.add_subparsers(dest="share_cmd", required=True)
+    si = ssub.add_parser("import", help="store a libretag://share link (keys go to a mode 600 file, never stdout)")
+    si.add_argument("link", nargs="?", default="-", help="the link, or - to read it from stdin (default; keeps it out of shell history)")
+    si.add_argument("--config", help="config directory (default ~/.config/libretag or $LIBRETAG_CONFIG)")
+    si.set_defaults(func=cmd_share_import)
+    sl = ssub.add_parser("list", help="stored shared tags (no keys)")
+    sl.add_argument("--config")
+    sl.set_defaults(func=cmd_share_list)
+
+    s = sub.add_parser("console", help="the tag's USB console, unlocked with its usb_key")
+    s.add_argument("--tag", help="stored share: name or id prefix (default: the only one with full access)")
+    s.add_argument("--k0-file", help="the owner's K0 (64 hex) instead of a stored share")
+    s.add_argument("--config")
+    s.add_argument("--port", help="serial port (default: the one tag found on USB)")
+    s.add_argument("--esp", action="store_true", help="ESP32 tag (Heltec): leave DTR and RTS low so it doesn't reset")
+    s.add_argument("-c", action="append", help="a console line (repeat); without -c lines come from stdin")
+    s.add_argument("--quiet", type=float, default=0.6, help="an answer ends after this many quiet seconds")
+    s.add_argument("--max", type=float, default=15, help="the longest one answer may take (s)")
+    s.set_defaults(func=cmd_console)
 
     args = p.parse_args(argv)
     logging.basicConfig(

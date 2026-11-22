@@ -77,7 +77,7 @@ object Status {
     /** heartbeat of a quiet tag when the report did not say (SPEC 11 decisions: 24 h) */
     const val HEARTBEAT_MS = 24 * 3600_000L
     const val LOST_INTERVAL_S = 600
-    /** Track 1 h: one tap = every 5 min; a long press picks one of [TRACK_CHOICES_S] */
+    /** Track: one tap = every 5 min; a long press picks one of [TRACK_CHOICES_S] */
     const val TRACK_INTERVAL_S = 300
     val TRACK_CHOICES_S = listOf(120, 300, 600, 900, 1800)
     /** report intervals the settings offer (min) */

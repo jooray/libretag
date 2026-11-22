@@ -120,7 +120,7 @@ object TagText {
                 ctx.getString(R.string.sub_not_heard, past(), ctx.resources.getQuantityString(R.plurals.reports_missed, missed, missed))
             }
             // a shared tag says whose it is where nothing else needs the line
-            StatusLines.SubKind.NONE -> if (t.isShared) ctx.getString(if (t.sharedControl) R.string.sub_shared_control else R.string.sub_shared_view, t.sharedBy) else null
+            StatusLines.SubKind.NONE -> if (t.isShared) ctx.getString(when { t.sharedAdmin -> R.string.sub_shared_admin; t.sharedControl -> R.string.sub_shared_control; else -> R.string.sub_shared_view }, t.sharedBy) else null
         }
     }
 

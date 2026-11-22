@@ -133,6 +133,7 @@
     </plurals>
     <string name="sub_shared_view">Sdílí s tebou %1$s · jen zobrazení</string>
     <string name="sub_shared_control">Sdílí s tebou %1$s · zobrazení a ovládání</string>
+    <string name="sub_shared_admin">Sdílí s tebou %1$s · plný přístup</string>
     <string name="pos_none">Zatím bez polohy</string>
     <string name="pos_gps">GPS ±%1$s · %2$s</string>
     <string name="pos_gps_noacc">GPS · %1$s</string>
@@ -146,7 +147,7 @@
     <string name="pos_no_repeater">Bez GPS · nezachycen žádný repeater</string>
     <string name="pos_no_gps">Bez GPS</string>
     <string name="cmd_lost">Ztracený</string>
-    <string name="cmd_track">Sledovat 1 h</string>
+    <string name="cmd_track">Sledovat</string>
     <string name="cmd_beep">Pípnout</string>
     <string name="cmd_normal">Normální</string>
     <string name="commands">Příkazy</string>
@@ -368,6 +369,12 @@
     <string name="share_view_sub">Vidí polohy od teď. Nemůže posílat příkazy.</string>
     <string name="share_control">Zobrazení a ovládání</string>
     <string name="share_control_sub">Vidí polohy a může poslat každý příkaz, včetně Ztracený.</string>
+    <string name="share_admin">Plný přístup</string>
+    <string name="share_admin_sub">Vidí polohy, může poslat každý příkaz a měnit nastavení lokátoru přes kabel nebo Bluetooth. Určeno pro tvoje vlastní zařízení.</string>
+    <string name="share_admin_warn_title">Dát plný přístup?</string>
+    <string name="share_admin_warn">V tomto kódu je konzolový klíč lokátoru. Kdo ho má, může lokátoru měnit nastavení, dát mu nový klíč nebo zrušit spárování. Zpět už ho nevezmeš. Sdílej ho jen se svými zařízeními nebo s někým, komu naprosto důvěřuješ.</string>
+    <string name="share_admin_warn_ok">Zobrazit kód</string>
+    <string name="share_admin_note">V tomto kódu je konzolový klíč lokátoru. Nezveřejňuj ho a neposílej ho nikomu, komu naprosto nedůvěřuješ.</string>
     <string name="share_send_with">Odeslat přes</string>
     <string name="share_qr">QR kód</string>
     <string name="share_dm">Zpráva Nostr</string>
@@ -384,10 +391,14 @@
     <string name="share_stop">Ukončit sdílení</string>
     <string name="share_stopped">Sdílení s %1$s ukončeno. Už viděné údaje zůstanou dostupné. Pokud chceš přístup úplně zrušit, dej lokátoru nový klíč přes USB.</string>
     <string name="share_someone_qr">Někdo (QR kód)</string>
+    <string name="share_copy_link">Kopírovat odkaz</string>
+    <string name="share_link_copied">Odkaz zkopírován</string>
+    <string name="share_someone_link">Někdo (odkaz)</string>
     <string name="share_scan_prompt">Naskenuj kód z telefonu majitele lokátoru</string>
     <string name="share_import_title">Přidat sdílený lokátor</string>
     <string name="share_import_view">Jen zobrazení: polohy uvidíš od teď. Příkazy posílat nemůžeš.</string>
     <string name="share_import_control">Zobrazení a ovládání: polohy uvidíš od teď a můžeš poslat každý příkaz, včetně Ztracený.</string>
+    <string name="share_import_admin">Plný přístup: polohy uvidíš od teď, můžeš poslat každý příkaz a měnit jeho nastavení přes kabel nebo Bluetooth.</string>
     <string name="share_import_by">Sdílí</string>
     <string name="share_import_ok">Přidat</string>
     <string name="share_import_someone">někdo</string>

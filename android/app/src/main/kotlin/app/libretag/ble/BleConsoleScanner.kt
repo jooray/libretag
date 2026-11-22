@@ -42,7 +42,7 @@ class BleConsoleScanner(private val app: LibreTagApp) {
 
     private fun refreshKeys() {
         val list = app.store.trackers.value
-        keys = list.mapNotNull { t -> app.keysFor(t)?.let { t.id to it.usbKey } }
+        keys = list.mapNotNull { t -> app.consoleFor(t)?.let { t.id to it.usbKey } }
         keysAt = list.size
     }
 

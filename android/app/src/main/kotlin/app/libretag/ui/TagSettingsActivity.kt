@@ -66,17 +66,15 @@ class TagSettingsActivity : ScreenActivity() {
         content.removeAllViews()
         setTitles(getString(R.string.ts_title), t.name)
         header(t)
-        if (!t.isShared) {
+        if (t.hasConsole) {
             reports(t)
             hr()
             quiet(t)
         }
         hr()
         tellMe(t)
-        if (!t.isShared) {
-            nostr(t)
-            pendingLine(t)
-        }
+        if (!t.isShared) nostr(t)
+        if (t.hasConsole) pendingLine(t)
         content.post { (content.parent?.parent as? View)?.scrollTo(0, scrollY) }
     }
 

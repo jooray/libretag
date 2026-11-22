@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Tue, 17 Nov 2026 22:53:59 +0100
-Subject: [PATCH 33/41] tracker 0.7.8: a reboot inside a Wi-Fi zone reports
+Subject: [PATCH 33/42] tracker 0.7.8: a reboot inside a Wi-Fi zone reports
  quiet (last zone kept in the state, matched with the stay threshold; Wi-Fi
  scan before the Bluetooth presence scan, an empty scan repeated once);
  version/selftest print the self-test (nostr, GPS probe, Wi-Fi scans, owner

@@ -159,7 +159,7 @@ object FirmwareUpdate {
             val tag = app.usb.connected?.takeIf { it.via == Via.USB } ?: fail(DfuFail.NOT_CONNECTED) // never over Bluetooth
             if (tag.find != UsbFind.MINE && tag.find != UsbFind.NEW) fail(DfuFail.LOCKED, tag.find.name)
             _state.value = DfuStep.Rebooting
-            val keys = tag.tagId?.let { app.store.get(it) }?.let { app.keysFor(it) }
+            val keys = tag.tagId?.let { app.store.get(it) }?.let { app.consoleFor(it) }
             val reply = app.usb.session { c ->
                 // the unlock lasts a while only: unlock again right before the command
                 if (c.status().locked && (keys == null || !c.unlock(keys.usbKey))) return@session listOf("ERR locked")

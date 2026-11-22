@@ -49,9 +49,12 @@ class SecretsTest {
         assertEquals("", stored.sharedViewHex)
         Secrets.clearCache()
         assertEquals(plain, Secrets.openTracker(stored))
-        val shared = Tracker(name = "S", keyHex = "", sharedBy = "x", sharedViewHex = "22".repeat(32), sharedCmdHex = "33".repeat(32))
+        val shared = Tracker(name = "S", keyHex = "", sharedBy = "x", sharedViewHex = "22".repeat(32), sharedCmdHex = "33".repeat(32),
+            sharedUsbHex = "44".repeat(32), sharedIdHex = "55".repeat(8))
         val s2 = Secrets.sealTracker(shared)
-        assertTrue(Secrets.isWrapped(s2.sharedViewHex) && Secrets.isWrapped(s2.sharedCmdHex))
+        assertTrue(Secrets.isWrapped(s2.sharedViewHex) && Secrets.isWrapped(s2.sharedCmdHex) && Secrets.isWrapped(s2.sharedUsbHex))
+        assertFalse(Secrets.trackerNeedsWrap(s2))
+        assertTrue(Secrets.trackerNeedsWrap(s2.copy(sharedUsbHex = "44".repeat(32))))
         assertEquals(shared, Secrets.openTracker(s2))
     }
 

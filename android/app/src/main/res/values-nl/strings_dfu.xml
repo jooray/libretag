@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Firmware-update via USB (docs/design/dfu.md). -->
+<resources>
+    <string name="fw_title">Firmware updaten</string>
+    <string name="fw_sub">Via de USB-kabel</string>
+    <string name="fw_on_tag">Op de tracker: %1$s</string>
+    <string name="fw_in_app">In deze app: %1$s</string>
+    <string name="fw_unknown">onbekend</string>
+    <string name="fw_none_bundled">Deze versie van de app bevat geen trackerfirmware. Update in plaats daarvan vanaf een computer.</string>
+    <string name="fw_same">De tracker draait al deze versie. Je kunt hem opnieuw installeren als er iets mis lijkt.</string>
+    <string name="fw_newer_on_tag">De tracker draait een nieuwere versie dan die in deze app. Installeren zou terug naar een oudere gaan.</string>
+    <string name="fw_explain">Het duurt ongeveer een minuut. Laat de kabel aangesloten en het scherm aan. Android vraagt twee keer om USB-toegang: één keer voor de tracker in updatemodus, die als ander apparaat telt, en één keer als hij herstart. Koppeling, sleutels, zones en instellingen blijven op de tracker.</string>
+    <string name="fw_install">%1$s installeren</string>
+    <string name="fw_plug">Sluit de tracker met een USB-C-kabel aan op deze telefoon.</string>
+    <string name="fw_not_mine">Deze tracker is gekoppeld aan een andere telefoon. Alleen die telefoon kan hem updaten.</string>
+    <string name="fw_boot_found">Een tracker in updatemodus zit aan de kabel</string>
+    <string name="fw_boot_text">Of een update is halverwege gestopt, of iemand heeft twee keer op de resetknop gedrukt. De app kan niet zien om welke tracker het gaat, dus ga alleen door als het een LibreTag-tracker is.</string>
+    <string name="fw_continue">Update voortzetten</string>
+    <string name="fw_service_sub">%1$s vanuit deze app via de kabel installeren</string>
+
+    <string name="fw_step_rebooting">Tracker herstarten in updatemodus…</string>
+    <string name="fw_step_waiting">Wachten op de tracker in updatemodus…</string>
+    <string name="fw_step_perm_boot">Tik op Toestaan. Android vraagt het opnieuw, omdat de tracker in updatemodus een ander USB-apparaat is.</string>
+    <string name="fw_step_perm_tag">Tik op Toestaan voor de herstarte tracker.</string>
+    <string name="fw_step_erasing">Oude firmware wissen…</string>
+    <string name="fw_step_sending">Firmware versturen: %1$d %%</string>
+    <string name="fw_step_finishing">Firmware controleren…</string>
+    <string name="fw_step_restarting">De tracker herstart…</string>
+    <string name="fw_step_reading">Versie uitlezen…</string>
+    <string name="fw_keep">Haal de kabel niet los.</string>
+
+    <string name="fw_done">Firmware %1$s is geïnstalleerd</string>
+    <string name="fw_done_paired">De tracker is nog steeds gekoppeld aan deze telefoon.</string>
+    <string name="fw_done_unpaired">De tracker reageert niet meer op de sleutel van deze telefoon. Koppel hem opnieuw via Tracker toevoegen.</string>
+
+    <string name="fw_fail_title">De update is gestopt</string>
+    <string name="fw_fail_no_firmware">De firmware in deze app is de controle niet doorgekomen (%1$s). Er is niets naar de tracker gestuurd.</string>
+    <string name="fw_fail_not_connected">De tracker zit niet meer aan de kabel. Sluit hem aan en probeer het opnieuw.</string>
+    <string name="fw_fail_locked">De tracker weigerde de updateopdracht (%1$s). Haal hem los, steek hem weer in en probeer het opnieuw.</string>
+    <string name="fw_fail_no_bootloader">De tracker verscheen niet in updatemodus. Draait hij nog gewoon, probeer het dan opnieuw. Je kunt ook twee keer op zijn resetknop drukken, dan biedt de app aan door te gaan.</string>
+    <string name="fw_fail_permission">Zonder USB-toegang kan de app de firmware niet versturen. Probeer het opnieuw en tik op Toestaan.</string>
+    <string name="fw_fail_transfer">De overdracht brak af (%1$s). De tracker blijft in updatemodus en zijn sleutels zijn veilig. Controleer de kabel en tik op Update voortzetten.</string>
+    <string name="fw_fail_no_return">De firmware is overgestuurd, maar de tracker kwam niet terug aan de kabel. Haal hem los en steek hem weer in. Start hij niet, druk dan twee keer op reset en zet de update voort.</string>
+    <string name="fw_fail_wrong_version">De tracker kwam terug met versie %1$s in plaats van %2$s. Probeer de update opnieuw.</string>
+    <string name="fw_try_again">Opnieuw proberen</string>
+</resources>

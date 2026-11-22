@@ -122,7 +122,7 @@ class BleWakeBeacon(private val app: LibreTagApp) {
 
     private fun start(id: String) {
         val t = app.store.get(id) ?: return
-        val key = app.keysFor(t)?.usbKey ?: return
+        val key = app.consoleFor(t)?.usbKey ?: return
         val adv = BleCommandBeacon.adapter(app)?.bluetoothLeAdvertiser ?: return
         val salt = ByteArray(6).also { random.nextBytes(it) }
         val params = AdvertisingSetParameters.Builder()

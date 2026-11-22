@@ -149,7 +149,7 @@ object TagOps {
         val tag = app.usb.connected ?: return false
         // over Bluetooth the handshake is the unlock for the whole session
         if (tag.find != UsbFind.MINE || tag.via == Via.BLE) return false
-        val keys = tag.tagId?.let { app.store.get(it) }?.let { app.keysFor(it) } ?: return false
+        val keys = tag.tagId?.let { app.store.get(it) }?.let { app.consoleFor(it) } ?: return false
         return c.unlock(keys.usbKey)
     }
 

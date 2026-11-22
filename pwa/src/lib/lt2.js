@@ -36,6 +36,7 @@ export const NB_WIFI = 0x80;
 
 export const Mode = { IDLE: 0, TRACK: 1, LISTEN: 2, LOST: 3 };
 export const MODE_NAMES = ['IDLE', 'TRACK', 'LISTEN', 'LOST'];
+export const CHECK_OFF = 0xFF;
 export const Op = { SET_MODE: 0x01, SET_IDLE: 0x03, BUZZ: 0x04, BLE_SCAN: 0x05, BLE_CONSOLE: 0x06 };
 
 const SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141n;
@@ -267,8 +268,9 @@ const le16 = (n) => [n & 255, (n >> 8) & 255];
 export const Command = {
   setMode: (seq, mode, intervalS = 0, durationMin = 0) =>
     encodeCommand(seq, Op.SET_MODE, Uint8Array.of(mode, ...le16(intervalS), ...le16(durationMin))),
-  setIdle: (seq, intervalMin, listenS = 0, checkS = 0) =>
-    encodeCommand(seq, Op.SET_IDLE, Uint8Array.of(...le16(intervalMin), ...le16(listenS), checkS)),
+  /** 0 keeps the current value; checkS 1..180 s listening at checks, 0xFF turns it off; reportEvery 1..24 (0.7.3) */
+  setIdle: (seq, intervalMin, listenS = 0, checkS = 0, reportEvery = 0) =>
+    encodeCommand(seq, Op.SET_IDLE, Uint8Array.of(...le16(intervalMin), ...le16(listenS), checkS === CHECK_OFF ? CHECK_OFF : Math.max(0, Math.min(180, checkS)), Math.max(0, Math.min(24, reportEvery)))),
   buzz: (seq, seconds) => encodeCommand(seq, Op.BUZZ, Uint8Array.of(Math.max(1, Math.min(60, seconds)))),
 };
 

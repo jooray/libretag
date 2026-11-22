@@ -119,7 +119,7 @@ class UsbTagSession(private val app: LibreTagApp) {
     suspend fun connectBle(ctx: Context, seen: BleSeen): UsbState = lock.withLock {
         if (connected?.via == Via.USB) return@withLock state.value
         val t = app.store.get(seen.tagId) ?: return@withLock state.value
-        val keys = app.keysFor(t) ?: return@withLock state.value
+        val keys = app.consoleFor(t) ?: return@withLock state.value
         _state.value = UsbState.Connecting
         val r = withContext(Dispatchers.IO) {
             runCatching {
@@ -158,15 +158,15 @@ class UsbTagSession(private val app: LibreTagApp) {
         var tagId: String? = null
         if (bleTag != null) {
             // over Bluetooth the handshake was the unlock
-            find = UsbFind.MINE; key = bleTag.keyHex; tagId = bleTag.id
+            find = UsbFind.MINE; key = bleTag.keyHex.ifEmpty { null }; tagId = bleTag.id
         } else if (s.locked) {
             val mine = app.store.trackers.value.firstOrNull { t ->
-                app.keysFor(t)?.let { LibreTag.bytesToHex(it.id) } == s.idHex
+                app.consoleFor(t)?.idHex == s.idHex
             }
-            val keys = mine?.let { app.keysFor(it) }
+            val keys = mine?.let { app.consoleFor(it) }
             when {
                 keys == null -> find = UsbFind.FOREIGN
-                c.unlock(keys.usbKey) -> { find = UsbFind.MINE; key = mine.keyHex; tagId = mine.id; s = c.status() }
+                c.unlock(keys.usbKey) -> { find = UsbFind.MINE; key = mine.keyHex.ifEmpty { null }; tagId = mine.id; s = c.status() }
                 else -> { find = UsbFind.UNLOCK_FAILED; tagId = mine.id }
             }
         } else if (key != null) {
@@ -307,9 +307,13 @@ class UsbTagSession(private val app: LibreTagApp) {
     private fun adoptSettings(tag: UsbTag) {
         val id = tag.tagId ?: return
         val cur = app.store.get(id) ?: return
-        if (cur.cableDirty || cur.isShared) return
+        if (cur.cableDirty || !cur.hasConsole) return
         val next = TagSettingsRead.adopt(cur, tag.status, tag.version)
-        if (!TagSettingsRead.settingsDiffer(cur, next)) return
+        if (!TagSettingsRead.settingsDiffer(cur, next)) {
+            // a full-access share knows the interval from its first read on (Tracker.intervalKnown)
+            if (cur.sharedAdmin && cur.settingsReadAt == 0L) app.store.updateTracker(id) { it.copy(settingsReadAt = System.currentTimeMillis()) }
+            return
+        }
         DiagLog.i(TAG, "settings read from the tag: interval=${next.intervalMin} every=${next.reportEvery} check=${next.checkS} still=${next.stillAfter}/${next.stillHbH}h hb=${next.zoneHbH}/${next.ownerHbH}h")
         app.store.updateTracker(id) { TagSettingsRead.adopt(it, tag.status, tag.version).copy(settingsReadAt = System.currentTimeMillis()) }
         app.backup.schedule()
@@ -333,12 +337,12 @@ class UsbTagSession(private val app: LibreTagApp) {
         val tag = connected ?: return@withLock false
         val c = console ?: return@withLock false
         val t = tag.tagId?.let { app.store.get(it) } ?: return@withLock false
-        val keys = app.keysFor(t) ?: return@withLock false
+        val keys = app.consoleFor(t) ?: return@withLock false
         val ok = withContext(Dispatchers.IO) { runCatching { c.unlock(keys.usbKey) }.getOrDefault(false) }
         if (ok) {
             val s = withContext(Dispatchers.IO) { c.status() }
             val commands = withContext(Dispatchers.IO) { helpCommands(c.command("help", maxMs = 2000)) }
-            val next = tag.copy(find = UsbFind.MINE, status = s, k0Hex = t.keyHex, commands = commands)
+            val next = tag.copy(find = UsbFind.MINE, status = s, k0Hex = t.keyHex.ifEmpty { null }, commands = commands)
             _state.value = UsbState.Connected(next)
             adoptSettings(next)
         }

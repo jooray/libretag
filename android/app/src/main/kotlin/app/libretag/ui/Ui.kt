@@ -143,6 +143,13 @@ fun Context.copyText(label: String, text: String) {
     getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(label, text))
 }
 
+/** Copies text that carries keys: marked sensitive, so Android 13+ hides it in the clipboard preview. */
+fun Context.copySecret(label: String, text: String) {
+    val clip = ClipData.newPlainText(label, text)
+    clip.description.extras = android.os.PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
+    getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+}
+
 fun Context.openUrl(url: String) {
     runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }

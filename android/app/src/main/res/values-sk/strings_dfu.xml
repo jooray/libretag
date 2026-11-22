@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Aktualizácia firmvéru cez USB (docs/design/dfu.md). -->
+<resources>
+    <string name="fw_title">Aktualizovať firmvér</string>
+    <string name="fw_sub">Cez kábel USB</string>
+    <string name="fw_on_tag">V lokátore: %1$s</string>
+    <string name="fw_in_app">V tejto aplikácii: %1$s</string>
+    <string name="fw_unknown">neznáma</string>
+    <string name="fw_none_bundled">Táto verzia aplikácie nemá firmvér pre lokátor. Aktualizuj ho radšej z počítača.</string>
+    <string name="fw_same">Lokátor už má túto verziu. Ak sa niečo zdá byť v neporiadku, môžeš ju nainštalovať znova.</string>
+    <string name="fw_newer_on_tag">Lokátor má novšiu verziu, než je v tejto aplikácii. Inštaláciou by si sa vrátil k staršej.</string>
+    <string name="fw_explain">Trvá to asi minútu. Nechaj kábel zapojený a obrazovku zapnutú. Android sa spýta na prístup k USB dvakrát: raz pre lokátor v režime aktualizácie, ktorý berie ako iné zariadenie, a raz po jeho reštarte. Párovanie, kľúče, zóny a nastavenia ostanú v lokátore.</string>
+    <string name="fw_install">Nainštalovať %1$s</string>
+    <string name="fw_plug">Pripoj lokátor k tomuto telefónu káblom USB-C.</string>
+    <string name="fw_not_mine">Tento lokátor je spárovaný s iným telefónom. Aktualizovať ho môže len ten.</string>
+    <string name="fw_boot_found">Na kábli je lokátor v režime aktualizácie</string>
+    <string name="fw_boot_text">Buď sa aktualizácia zastavila v polovici, alebo niekto dvakrát stlačil tlačidlo reset. Aplikácia nezistí, o aký lokátor ide, tak pokračuj, len ak je to lokátor LibreTag.</string>
+    <string name="fw_continue">Pokračovať v aktualizácii</string>
+    <string name="fw_service_sub">Nainštalovať %1$s z tejto aplikácie cez kábel</string>
+
+    <string name="fw_step_rebooting">Reštartujem lokátor do režimu aktualizácie…</string>
+    <string name="fw_step_waiting">Čakám na lokátor v režime aktualizácie…</string>
+    <string name="fw_step_perm_boot">Ťukni na Povoliť. Android sa pýta znova, lebo lokátor v režime aktualizácie je iné zariadenie USB.</string>
+    <string name="fw_step_perm_tag">Ťukni na Povoliť pre reštartovaný lokátor.</string>
+    <string name="fw_step_erasing">Mažem starý firmvér…</string>
+    <string name="fw_step_sending">Posielam firmvér: %1$d %%</string>
+    <string name="fw_step_finishing">Kontrolujem firmvér…</string>
+    <string name="fw_step_restarting">Lokátor sa reštartuje…</string>
+    <string name="fw_step_reading">Zisťujem verziu…</string>
+    <string name="fw_keep">Neodpájaj kábel.</string>
+
+    <string name="fw_done">Firmvér %1$s je nainštalovaný</string>
+    <string name="fw_done_paired">Lokátor je stále spárovaný s týmto telefónom.</string>
+    <string name="fw_done_unpaired">Lokátor už neodpovedá na kľúč tohto telefónu. Spáruj ho znova cez Pridať lokátor.</string>
+
+    <string name="fw_fail_title">Aktualizácia sa zastavila</string>
+    <string name="fw_fail_no_firmware">Firmvér v tejto aplikácii neprešiel kontrolou (%1$s). Do lokátora sa nič neposlalo.</string>
+    <string name="fw_fail_not_connected">Lokátor už nie je na kábli. Pripoj ho a skús to znova.</string>
+    <string name="fw_fail_locked">Lokátor odmietol príkaz na aktualizáciu (%1$s). Odpoj ho, pripoj späť a skús to znova.</string>
+    <string name="fw_fail_no_bootloader">Lokátor sa neobjavil v režime aktualizácie. Ak stále beží normálne, skús to znova. Môžeš aj dvakrát stlačiť jeho tlačidlo reset a aplikácia ponúkne pokračovanie.</string>
+    <string name="fw_fail_permission">Bez prístupu k USB aplikácia firmvér poslať nemôže. Skús to znova a ťukni na Povoliť.</string>
+    <string name="fw_fail_transfer">Prenos sa prerušil (%1$s). Lokátor ostáva v režime aktualizácie a jeho kľúče sú v bezpečí. Skontroluj kábel a ťukni na Pokračovať v aktualizácii.</string>
+    <string name="fw_fail_no_return">Firmvér sa preniesol, ale lokátor sa na kábli neobjavil. Odpoj ho a pripoj späť. Ak nenaskočí, dvakrát stlač reset a pokračuj v aktualizácii.</string>
+    <string name="fw_fail_wrong_version">Lokátor naskočil s verziou %1$s namiesto %2$s. Skús aktualizáciu znova.</string>
+    <string name="fw_try_again">Skúsiť znova</string>
+</resources>

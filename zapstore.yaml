@@ -25,4 +25,4 @@ tags:
 license: MIT
 website: https://cypherpunk.today/libretag/
 icon: ./branding/icon-512.png
-release_notes: ./docs/release-notes/app-0.13.1.md
+release_notes: ./docs/release-notes/app-0.13.3.md

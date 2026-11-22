@@ -131,6 +131,7 @@
     </plurals>
     <string name="sub_shared_view">Shared with you by %1$s · view only</string>
     <string name="sub_shared_control">Shared with you by %1$s · view and control</string>
+    <string name="sub_shared_admin">Shared with you by %1$s · full access</string>
 
     <!-- position and certainty -->
     <string name="pos_none">No position yet</string>
@@ -148,7 +149,7 @@
 
     <!-- commands -->
     <string name="cmd_lost">Lost</string>
-    <string name="cmd_track">Track 1 h</string>
+    <string name="cmd_track">Track</string>
     <string name="cmd_beep">Beep</string>
     <string name="cmd_normal">Normal</string>
     <string name="commands">Commands</string>
@@ -383,6 +384,12 @@
     <string name="share_view_sub">Sees positions from now on. Can\'t send commands.</string>
     <string name="share_control">View and control</string>
     <string name="share_control_sub">Sees positions and can send every command, including Lost.</string>
+    <string name="share_admin">Full access</string>
+    <string name="share_admin_sub">Sees positions, sends every command and can change the tag\'s settings over the cable or Bluetooth. Meant for your own devices.</string>
+    <string name="share_admin_warn_title">Give full access?</string>
+    <string name="share_admin_warn">This code holds the tag\'s console key. Whoever has it can change the tag\'s settings, give it a new key or unpair it, and you can\'t take the key back. Share it only with your own devices or with someone you trust completely.</string>
+    <string name="share_admin_warn_ok">Show the code</string>
+    <string name="share_admin_note">This code holds the tag\'s console key. Don\'t post it, and don\'t send it to anyone you don\'t trust completely.</string>
     <string name="share_send_with">Send with</string>
     <string name="share_qr">QR code</string>
     <string name="share_dm">Nostr DM</string>
@@ -399,10 +406,14 @@
     <string name="share_stop">Stop sharing</string>
     <string name="share_stopped">Stopped sharing with %1$s. They keep what they\'ve already seen. To cut them off, give the tag a new key over USB.</string>
     <string name="share_someone_qr">Someone (QR code)</string>
+    <string name="share_copy_link">Copy link</string>
+    <string name="share_link_copied">Link copied</string>
+    <string name="share_someone_link">Someone (link)</string>
     <string name="share_scan_prompt">Scan the code from the tag owner\'s phone</string>
     <string name="share_import_title">Add a shared tag</string>
     <string name="share_import_view">View only: you see its positions from now on. You can\'t send commands.</string>
     <string name="share_import_control">View and control: you see its positions from now on and can send every command, including Lost.</string>
+    <string name="share_import_admin">Full access: you see its positions from now on, can send every command, and can change its settings over the cable or Bluetooth.</string>
     <string name="share_import_by">Shared by</string>
     <string name="share_import_ok">Add</string>
     <string name="share_import_someone">someone</string>

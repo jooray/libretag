@@ -6,22 +6,24 @@
 // work. Mirrors LibreTagApp.publishMailbox / publishCheckSlots.
 import { finalizeEvent } from 'nostr-tools/pure';
 import { b64encode, bytesToHex } from './bytes.js';
-import { Command, EPOCH_REPORTS, Mode, NOSTR_COMMAND_KIND, SEND_AFTER_S, commandTag, epoch, mailboxSk, reportTag, sealCommand } from './lt2.js';
-import { checkPlan, lastPos } from './status.js';
+import { CHECK_OFF, Command, EPOCH_REPORTS, Mode, NOSTR_COMMAND_KIND, SEND_AFTER_S, commandTag, epoch, mailboxSk, reportTag, sealCommand } from './lt2.js';
+import { CHECK_S_DEFAULT, checkPlan, lastPos } from './status.js';
 
 export const MAILBOX_AHEAD = 4;
 export const MAILBOX_CHECKS = 12;
 export const CHECK_SLOT_TTL_S = 600;
 export const LOST_MIN = 1440, TRACK_MIN = 60;
 export const COMMAND_KINDS = ['LOST', 'TRACK', 'BEEP', 'NORMAL'];
+/** every kind the app can queue: the buttons above, and the report interval (SET_IDLE) from the interval setting */
+export const QUEUE_KINDS = [...COMMAND_KINDS, 'INTERVAL'];
 /** anchors for this many counters after the last report (plus the next epoch's first counter) */
 export const ANCHOR_AHEAD = 8;
 export const ANCHOR_MIN_S = 2 * 3600, ANCHOR_MAX_S = 26 * 3600, ANCHOR_DEFAULT_S = 12 * 3600;
 /** the tag listens this long after a report (listen_s default); a late entry is published only inside it */
 export const LISTEN_S = 90;
 
-/** mailbox expiry: Beep 1 h, Track and Normal 12 h, Lost 48 h */
-export const ttlS = (kind) => (kind === 'BEEP' ? 3600 : kind === 'LOST' ? 48 * 3600 : 12 * 3600);
+/** mailbox expiry: Beep 1 h, Track and Normal 12 h, Lost and the report interval 48 h */
+export const ttlS = (kind) => (kind === 'BEEP' ? 3600 : kind === 'LOST' || kind === 'INTERVAL' ? 48 * 3600 : 12 * 3600);
 
 /** Track: how often (s) and how long (min), as the Android app offers them */
 export const TRACK_INTERVALS_S = [120, 300, 600, 900, 1800];
@@ -34,8 +36,29 @@ export const trackHitsCap = (intervalS, durationMin) => Math.floor(Math.min(dura
 export const trackCapAfterMin = (intervalS, durationMin) =>
   trackHitsCap(intervalS, durationMin) ? Math.floor(TRACK_SAFE_24H * Math.max(intervalS, 120) / 60) : null;
 
-export function buildCommand(kind, seq, arg = 0, durationMin = 0) {
+/**
+ * The report interval: the wake-up interval in minutes, reported at every `every`-th wake-up (so the period is
+ * wake * every), and how long the tag listens at checks (seconds, CHECK_OFF turns that off).
+ */
+export function buildInterval(seq, wakeMin, every = 1, checkS = CHECK_S_DEFAULT) {
+  return Command.setIdle(seq, wakeMin, 0, checkS > 0 ? checkS : CHECK_OFF, every);
+}
+
+/** (wake-up interval, report_every) for a report period and a check interval, both in minutes. */
+export function wakeSplit(reportMin, checkMin) {
+  if (checkMin <= 0 || checkMin >= reportMin || reportMin % checkMin !== 0) return [reportMin, 1];
+  return [checkMin, Math.min(24, reportMin / checkMin)];
+}
+export const DEFAULT_LISTEN_MIN = 60;
+/** the split after the owner picks a new period: keep a finer listen interval that still fits, else listen every hour */
+export function splitForPeriod(periodMin, curWakeMin, curEvery) {
+  const keep = curEvery > 1 && curWakeMin > 0 && curWakeMin < periodMin && periodMin % curWakeMin === 0;
+  return wakeSplit(periodMin, keep ? curWakeMin : DEFAULT_LISTEN_MIN);
+}
+
+export function buildCommand(kind, seq, arg = 0, durationMin = 0, opts = {}) {
   switch (kind) {
+    case 'INTERVAL': return buildInterval(seq, arg, opts.every ?? 1, opts.checkS ?? CHECK_S_DEFAULT);
     case 'LOST': return Command.setMode(seq, Mode.LOST, 600, LOST_MIN);
     case 'TRACK': return Command.setMode(seq, Mode.TRACK, arg > 0 ? arg : 300, durationMin > 0 ? durationMin : TRACK_MIN);
     case 'BEEP': return Command.buzz(seq, 10);

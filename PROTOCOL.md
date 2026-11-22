@@ -20,7 +20,21 @@ dm_sk   = HMAC(K0, "LT2-dm") mod n(secp256k1)   # the tracker's Nostr key for DM
 
 **Ratchet:** epoch `e(n) = floor(n / 64)`. `V_{e+1} = HMAC(V_e, "LT2-next")`, likewise `C_{e+1}`. The tracker keeps only the current `V_e`, `C_e` (plus `id`, `usb_key`, `dm_sk`) and deletes `K0` after locking. The old epoch is physically overwritten (the keys are in a raw flash page, not in LittleFS). Whoever steals the tracker and reads it out cannot read older reports. The app keeps `K0` and computes the epochs.
 
-**Read-only sharing:** `V_e` from a given epoch (without `C`) is enough to find and read reports from that epoch onward, but not for commands or for the past.
+**Sharing:** `V_e` from a given epoch (without `C`) is enough to find and read reports from that epoch onward, but not for commands or for the past. The app shares a tag at one of three levels, always from the current epoch `e` and never with `K0`:
+
+| Level | Link carries | The other device can |
+|---|---|---|
+| View | `V_e` | read reports from epoch `e` on |
+| View and control | `V_e`, `C_e` | also send commands (section 3) and sign mailbox entries (4.2) |
+| Full access (app 0.13.3) | `V_e`, `C_e`, `usb_key`, `id` | also unlock the USB console (6) and open the Bluetooth console and its wake advert (6.2, 3.2) |
+
+```
+libretag://share?v=1&name=<name>&type=<type>&mark=<colour>-<symbol>&e=<e>&ve=<hex V_e>[&ce=<hex C_e>[&uk=<hex usb_key>&id=<hex id>]]
+```
+
+Values are percent-encoded (a space as `%20`). `uk` (32 B) comes only together with `ce` and `id` (8 B); a link with `uk` but without either one, or with a key of the wrong length, is invalid as a whole. `id` is what a locked tracker prints (`LIBRETAG ID`), so the app knows which tag is on the cable or behind a Bluetooth advert without trying the key on every tag.
+
+Full access gives the console key and not `K0`, because the console needs nothing else: the USB unlock (6), the Bluetooth handshake and session keys (6.2) and the wake advert (3.2) are all keyed with `usb_key`. Without `K0` the other device still cannot read reports before epoch `e` or sign as the tracker's Nostr key `dm_sk` (section 5). That limit only holds for the past: an unlocked console takes `newkey` and `unpair` on the cable, so whoever has full access can re-key the tracker and lock the owner out. The app says so before it shows the code. A device that re-keys the tracker gets the new `K0` from `status` and becomes its owner. Vectors: `host/tests/vectors/share.json` (`uv run python -m libretag.share vectors`), used by the Python and Kotlin tests.
 
 ## 2. Report (tracker → network)
 
@@ -29,7 +43,7 @@ Report `n` can be sent in several copies `j`. Copies 0 and 1 carry the same repo
 | `j` | What | On air | Plaintext |
 |---|---|---|---|
 | 0 | report, home network | yes | report (33 B) |
-| 1 | report, neighbouring network near a border (SPEC 6.4) | yes | report (33 B) |
+| 1 | report, neighbouring network near a border, or without a fix the previous network (SPEC 6.4, 0.9.6) | yes | report (33 B) |
 | 2 | history record of a sent report (section 6) | never | report (33 B) |
 | 3 | history record of a wake-up without a report, `n` = the next counter (several records may share it) | never | report (33 B) |
 | 4 | Wi-Fi packet after report `n` (LOST) | yes | Wi-Fi (33 B), 2.4 |
@@ -445,7 +459,7 @@ Lines end with `\r\n`. Listings end with `END` (with a count where stated); erro
 
 | Command | Answer |
 |---|---|
-| `history [from_n]` | sealed records with `n ≥ from_n`, oldest first: `H <seq> <n> <j> <flags> <hex P>`, then `END <count>`. `seq` numbers the records (dedupe on it; it restarts after `unpair`/`key`/`newkey`; 0 in records written by 0.5). Open `P` like report `n` copy `j` (`j = 2` a sent report, `j = 3` a wake-up without a report, `n` = the next counter). `flags` low byte: 1 fix, 2 relayed (a repeater repeated it), 4 retransmitted, 8 dropped (never sent), 16 a command arrived, 32 border copy, 64 repeaters from discover, 128 low battery; high byte: 1 quiet, 2 owner, 4 zone, 8 epoch skip, 16 BLE packets sent, 32 Wi-Fi, 64 parked (0.7), 128 sent after a command at a check (0.7). Up to 512 records (two append-only segments of 256) |
+| `history [from_n]` | sealed records with `n ≥ from_n`, oldest first: `H <seq> <n> <j> <flags> <hex P>`, then `END <count>`. `seq` numbers the records (dedupe on it; it restarts after `unpair`/`key`/`newkey`; 0 in records written by 0.5). Open `P` like report `n` copy `j` (`j = 2` a sent report, `j = 3` a wake-up without a report, `n` = the next counter). `flags` low byte: 1 fix, 2 relayed (a repeater repeated it), 4 retransmitted, 8 dropped (never sent), 16 a command arrived, 32 copy `j = 1` (border or previous network), 64 repeaters from discover, 128 low battery; high byte: 1 quiet, 2 owner, 4 zone, 8 epoch skip, 16 BLE packets sent, 32 Wi-Fi, 64 parked (0.7), 128 sent after a command at a check (0.7). Up to 512 records (two append-only segments of 256) |
 | `log [count]` | the same records without ciphertext, for people: `L <seq> <n> <j> <uptime_s> <search_s> <batt> <mode> <repeaters> <words>` |
 | `zone add <lat> <lon> <r_m>` | `OK zone <i>`; at most 8, radius 20–5000 m |
 | `zone list` | `ZONE <i> <lat> <lon> <r_m>` lines, `END <count>` |

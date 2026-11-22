@@ -4,6 +4,7 @@ NPUB = "npub17a09su3mlphlf264ztkh9tc7esmexmqvuw3akttp3rr5735jhcmqucwudu"
 AFF = "?sensecap_affiliate=sRobOdH&referring_service=link"
 SHARED = {
     "npub": NPUB,
+    "nprofile": "nprofile1qqs0whjcwgalsml54d239mtj4u0vcdundsxw8g7m94sc3360g6ftudspr3mhxue69uhkummnw3ezucmewp5x2unsw4hxktn5dajxz7gpzemhxue69uhhyetvv9ujuurjd9kkzmpwdejhgnmsxx4",
     "npub_short": NPUB[:14] + "…" + NPUB[-6:],
     "x1_url": "https://www.seeedstudio.com/sensecap-meshtracker-x1-meshtastic-gps-tracker-p-6935.html" + AFF.replace("&", "&amp;"),
     "l1_url": "https://www.seeedstudio.com/Wio-Tracker-L1-Pro-for-Meshcore-p-6717.html" + AFF.replace("&", "&amp;"),
@@ -20,7 +21,9 @@ T["en"] = {
     "og_alt": "LibreTag: a GPS tag that sleeps, reports once an hour and tells only you.",
     "skip": "Skip to content",
     "nav_label": "Main",
-    "nav_how": "How it works", "nav_privacy": "Privacy", "nav_features": "Features", "nav_hw": "Hardware", "nav_get": "Get it",
+    "nav_how": "How it works", "nav_privacy": "Privacy", "nav_features": "Features", "nav_hw": "Hardware", "nav_news": "News", "nav_get": "Get it",
+    "news_h": "Latest from the project",
+    "news_p": "New releases and notes from testing, posted on the project's Nostr account.",
     "lang_switch": '<span aria-current="true" lang="en">EN</span><a href="sk/" hreflang="sk" lang="sk">SK</a>',
     "other_url": "sk/", "other_lang": "sk", "other_name": "Slovenčina",
 
@@ -171,7 +174,9 @@ T["sk"] = {
     "og_alt": "LibreTag: GPS tag, ktorý spí, raz za hodinu sa ozve a polohu povie len tebe.",
     "skip": "Preskočiť na obsah",
     "nav_label": "Hlavná navigácia",
-    "nav_how": "Ako to funguje", "nav_privacy": "Súkromie", "nav_features": "Funkcie", "nav_hw": "Hardvér", "nav_get": "Získaj",
+    "nav_how": "Ako to funguje", "nav_privacy": "Súkromie", "nav_features": "Funkcie", "nav_hw": "Hardvér", "nav_news": "Novinky", "nav_get": "Získaj",
+    "news_h": "Čo je nové v projekte",
+    "news_p": "Nové vydania a poznámky z testovania, ktoré zverejňujeme na Nostr účte projektu.",
     "lang_switch": '<a href="../" hreflang="en" lang="en">EN</a><span aria-current="true" lang="sk">SK</span>',
     "other_url": "../", "other_lang": "en", "other_name": "English",
 

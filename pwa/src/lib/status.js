@@ -2,7 +2,8 @@
 import { checkOffsets } from './lt2.js';
 import { clock, ageShort, agoAt, at, heardRow, coord, distance, duration, every } from './format.js';
 import { t } from './i18n.js';
-import { zoneOf } from './geo.js';
+import { distanceM, zoneOf } from './geo.js';
+import { LOSSY_RATE, lossRate } from './gaps.js';
 
 export const LOW_BATTERY_PCT = 20;
 /** Firmware 0.7.6 sends a report when the battery crosses 10 %: from there on it is nearly empty. */
@@ -42,7 +43,24 @@ export const intervalMinOf = (tag) => {
 };
 /** The tag's listening time at checks from the backup (check_s); a backup without it means the default. */
 export const checkSOf = (tag) => Number.isFinite(tag.extra?.check_s) ? tag.extra.check_s : CHECK_S_DEFAULT;
+/** The app's idea of the normal report period (min): the wake-up interval times report_every, 60 when unknown. */
+export const reportPeriodMin = (tag) => (intervalMinOf(tag) ?? 60) * reportEveryOf(tag);
+/** What gaps.js needs to tell a lost report from a restart. */
+export const gapPlan = (tag) => ({ periodMin: reportPeriodMin(tag), modeIntervalS: tag.modeIntervalS ?? null });
+
+/** Moving more than this from the guarded spot raises the alarm (Android: GUARD_M). */
+export const GUARD_M = 300;
+/** A departure from a place shows as a neutral state this long (Android: Places.LEFT_SHOW_MS). */
+export const LEFT_SHOW_MS = 12 * 3600_000;
+/** The guarded spot { lat, lon, r_m, since } of the backup, or null. */
+export const guardOf = (tag) => { const g = tag.extra?.guard; return g && Number.isFinite(g.lat) && Number.isFinite(g.lon) ? g : null; };
 export const lastPos = (tag) => tag.positions.length ? tag.positions[tag.positions.length - 1] : null;
+
+/** "LOST", "TRACK" or "IDLE": the mode the tag runs now (a Lost or Track that ran out is IDLE). */
+export function modeNow(tag, now) {
+  const m = lastPos(tag)?.mode;
+  return modeLive(tag, now) && (m === 'LOST' || m === 'TRACK') ? m : 'IDLE';
+}
 
 function modeLive(tag, now) { return tag.modeUntil == null || now < tag.modeUntil; }
 
@@ -63,6 +81,31 @@ export function nextAt(tag, now) {
   if (p.nextInS) return from + p.nextInS * 1000;
   if (p.quiet) return from + HEARTBEAT_MS;
   return from + intervalS(tag, p, now) * 1000;
+}
+
+/**
+ * Expected reports that did not come (docs/design/tag-diagnosis.md 6): 0 while now is within SILENT_MARGIN_MS of the
+ * expected time, then one more for every period the tag kept since.
+ */
+export function missedOf(tag, now) {
+  const p = lastPos(tag);
+  const next = nextAt(tag, now);
+  if (!p || next == null || now <= next + SILENT_MARGIN_MS) return 0;
+  const per = intervalS(tag, p, now) * 1000;
+  if (p.quiet || per <= 0) return 1;
+  return Math.min(1000, Math.floor(1 + (now - next - SILENT_MARGIN_MS) / per));
+}
+
+/**
+ * How many missed reports are tolerated before "silent": none for a guarded tag, in Lost or Track, or after a quiet
+ * report (a heartbeat); one otherwise; two on a lossy path (a quarter of the reports lost over 7 days).
+ */
+export function allowedMissed(tag, now) {
+  const p = lastPos(tag);
+  if (!p) return 0;
+  if (guardOf(tag) || p.quiet) return 0;
+  if (modeNow(tag, now) !== 'IDLE') return 0;
+  return lossRate(tag.positions, gapPlan(tag), now) >= LOSSY_RATE ? 2 : 1;
 }
 
 /** Checks of the current quiet stretch (0.7): only when the report said CHECKS and the interval is known. */
@@ -90,8 +133,8 @@ export function nextCheck(plan, now) {
 }
 
 /**
- * kind: LOST > ALARM(not on the web) > SILENT > BATTERY_CRITICAL (<= 10 %) > LOW_BATTERY > TRACKING > QUIET > OK, or WAITING.
- * Zones are not in the backup, so a "zone" quiet is shown as Home.
+ * kind: LOST > ALARM (guard) > SILENT > BATTERY_CRITICAL (<= 10 %) > LOW_BATTERY > TRACKING > QUIET > OK, or WAITING.
+ * Zones come from the backup; a quiet report in none of them is shown as Home. LEFT is a neutral event (left a place, 12 h).
  */
 export function statusOf(tag, now = Date.now()) {
   const p = lastPos(tag);
@@ -101,11 +144,15 @@ export function statusOf(tag, now = Date.now()) {
   if (!p) return { ...base, kind: 'WAITING' };
   const live = modeLive(tag, now);
   if (p.mode === 'LOST' && live) return { ...base, kind: 'LOST', until: tag.modeUntil, intervalS: intervalS(tag, p, now) };
-  if (tag.alarm) return { ...base, kind: 'ALARM', alarm: tag.alarm };
-  if (next != null && now > next + SILENT_MARGIN_MS) {
+  if (tag.alarm?.guard) return { ...base, kind: 'ALARM', alarm: tag.alarm };
+  const missed = missedOf(tag, now);
+  if (missed > allowedMissed(tag, now)) {
     return { ...base, kind: 'SILENT', nextAt: null, silentForMs: now - p.receivedAt,
       intervalS: p.quiet ? HEARTBEAT_MS / 1000 : intervalS(tag, p, now) };
   }
+  // one report lost on the way is normal on a shared mesh: the next one is projected
+  const projected = missed > 0 ? { missed, nextAt: next + missed * intervalS(tag, p, now) * 1000 } : {};
+  Object.assign(base, projected);
   if (p.battery != null && p.battery <= CRITICAL_BATTERY_PCT) return { ...base, kind: 'BATTERY_CRITICAL' };
   if (p.lowBatt || (p.battery != null && p.battery <= LOW_BATTERY_PCT)) return { ...base, kind: 'LOW_BATTERY' };
   if (p.mode === 'TRACK' && live) return { ...base, kind: 'TRACKING', until: tag.modeUntil, intervalS: intervalS(tag, p, now) };
@@ -116,10 +163,13 @@ export function statusOf(tag, now = Date.now()) {
       nextCheckAt: nc && (next == null || nc.at < next) ? nc.at : null,
       checkEveryS: plan ? plan.intervalMin * 60 : null };
   }
+  // left a place a while ago and not at one again: an event, shown as a neutral state
+  const left = tag.leftPlace && tag.leftAt && !tag.inZone && now - tag.leftAt >= 0 && now - tag.leftAt < LEFT_SHOW_MS
+    ? { ...base, kind: 'LEFT', leftPlace: tag.leftPlace, leftAt: tag.leftAt } : base;
   const plan = checkPlan(tag);
   const nc = nextCheck(plan, now);
-  if (nc && (next == null || nc.at < next)) return { ...base, nextCheckAt: nc.at, checkEveryS: plan.intervalMin * 60 };
-  return base;
+  if (nc && (next == null || nc.at < next) && !left.missed) return { ...left, nextCheckAt: nc.at, checkEveryS: plan.intervalMin * 60 };
+  return left;
 }
 
 /** Name of the zone the tag's last fix is in, else "Home" (the backup may carry no zones). */
@@ -140,7 +190,8 @@ export function sortTags(tags, now = Date.now()) {
 export function statusText(tag, s, now = Date.now(), compact = false) {
   const zone = zoneName(tag, lastPos(tag));
   switch (s.kind) {
-    case 'ALARM': return t('st.alarm_zone', { zone: s.alarm.zone, t: at(s.alarm.at, now) });
+    case 'ALARM': return t('st.alarm_guard');
+    case 'LEFT': return t('st.left', { zone: s.leftPlace, t: at(s.leftAt, now) });
     case 'LOST': return t('st.lost', { every: every(s.intervalS ?? LOST_INTERVAL_S) });
     case 'SILENT': return t('st.silent', { dur: duration(s.silentForMs), every: every(s.intervalS ?? 3600) });
     case 'BATTERY_CRITICAL': return t('st.battery_critical', { n: s.battery });
@@ -158,6 +209,7 @@ export function statusText(tag, s, now = Date.now(), compact = false) {
     case 'WAITING': return t('st.waiting');
     default: {
       if (compact) return heardRow(s.heardAt, now);
+      if (s.missed) return t('st.missed', { n: s.missed, t: '~' + clock(s.nextAt, now) });
       const heard = agoAt(s.heardAt, now, s.approx);
       // an approximate report: only the latest time of the next one, in the detail
       if (s.nextAt == null || s.approx) return t('st.ok_no_next', { heard });
@@ -185,10 +237,18 @@ export function statusSub(tag, s, now = Date.now()) {
     }
     case 'LOST': return s.until ? t('sub.lost_until', { base: heardNext, t: clock(s.until, now) }) : heardNext;
     case 'BATTERY_CRITICAL': return t('sub.battery_critical', { base: heardNext });
-    case 'ALARM': case 'LOW_BATTERY': case 'TRACKING': return heardNext;
+    case 'ALARM': return t('sub.guard_left', { t: at(s.alarm.at, now) });
+    case 'LOW_BATTERY': case 'TRACKING': return heardNext;
+    case 'LEFT': return heardNext;
     case 'WAITING': return t('sub.waiting');
-    default: return t('sub.ok');
+    default: return tag.share ? sharedLabel(tag) : t('sub.ok');
   }
+}
+
+/** Whose a shared tag is, for the detail: "Shared with you by Anna · full access". */
+export function sharedLabel(tag) {
+  const level = tag.share.uk ? 'full' : tag.share.ce ? 'control' : 'view';
+  return tag.sharedBy ? t('shared.by_' + level, { by: tag.sharedBy }) : t('shared.label_' + level);
 }
 
 /** Where and how sure ("GPS ±8 m · 48.70120, 21.25410", "No GPS · last GPS 3 h ago"). */
@@ -219,7 +279,7 @@ export function mapTarget(tag, p) {
 }
 
 export function cmdName(kind) {
-  return t({ LOST: 'cmd.lost', TRACK: 'cmd.track', BEEP: 'cmd.beep', NORMAL: 'cmd.normal' }[kind]);
+  return t({ LOST: 'cmd.lost', TRACK: 'cmd.track', BEEP: 'cmd.beep', NORMAL: 'cmd.normal', INTERVAL: 'cmd.interval' }[kind]);
 }
 
 export function effectText(tag, s, now = Date.now()) {
@@ -244,7 +304,8 @@ export function queuedText(tag, kind, s, now = Date.now()) {
 export function slip(tag, s, now = Date.now()) {
   const p = tag.pending;
   if (p) {
-    const c = p.kind === 'TRACK' && p.durationMin ? t('cmd.track_for', { d: duration(p.durationMin * 60_000), every: every(p.intervalS ?? TRACK_INTERVAL_S) }) : cmdName(p.kind);
+    const c = p.kind === 'TRACK' && p.durationMin ? t('cmd.track_for', { d: duration(p.durationMin * 60_000), every: every(p.intervalS ?? TRACK_INTERVAL_S) })
+      : p.kind === 'INTERVAL' && p.wakeMin ? t('cmd.interval_to', { every: every(p.wakeMin * (p.every ?? 1) * 60) }) : cmdName(p.kind);
     if (p.notConfirmed) return { state: 'fail', text: t('slip.failed', { c }) };
     if (p.sentAt) return { state: 'sent', text: t('slip.sent', { c, t: at(p.sentAt, now) }) };
     if (s.kind === 'SILENT') return { state: 'wait', text: t('slip.waiting_silent', { c, name: tag.name }) };

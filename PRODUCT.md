@@ -16,7 +16,7 @@ The main surface is the native Android app LibreTag (`android/`, Kotlin, Android
 
 ## Product Purpose
 
-LibreTag is a sleeping LoRa GPS tracker on the MeshCore mesh. Once an hour it sends an encrypted position, then listens briefly for commands. Only the owner can read where it is. The app pairs a tracker over USB, shows its positions and an estimated area when it has no GPS (from repeaters heard), sends commands (Lost, Track 1 h, Beep, Normal) that are delivered after the next report, and alerts on silence, low battery and leaving a guarded spot.
+LibreTag is a sleeping LoRa GPS tracker on the MeshCore mesh. Once an hour it sends an encrypted position, then listens briefly for commands. Only the owner can read where it is. The app pairs a tracker over USB, shows its positions and an estimated area when it has no GPS (from repeaters heard), sends commands (Lost, Track, Beep, Normal) that are delivered after the next report, and alerts on silence, low battery and leaving a guarded spot.
 
 Success: the owner can tell where the tracker is, or roughly where it is and how sure that is, from the mesh alone, without a phone network, a server they don't control, or anyone else being able to follow it.
 

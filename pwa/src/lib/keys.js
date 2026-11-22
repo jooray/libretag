@@ -7,6 +7,7 @@ import { KeyChain } from './lt2.js';
 export const COLORS = ['red', 'blue', 'green', 'yellow'];
 export const SYMBOLS = ['stripe', 'diag', 'triangle', 'circle', 'square'];
 const HEX64 = /^[0-9a-f]{64}$/;
+const HEX16 = /^[0-9a-f]{16}$/;
 
 /** Link for a whole tag: libretag://k0?v=1&k=<K0 hex>&name=..&type=person|thing|vehicle&mark=<color>-<symbol> */
 export function k0Link(tag) {
@@ -41,8 +42,17 @@ export function parseKeyInput(text) {
   if (u.hostname === 'share') {
     const ve = (q.get('ve') || '').toLowerCase();
     const ce = (q.get('ce') || '').toLowerCase();
+    const uk = (q.get('uk') || '').toLowerCase();
+    const id = (q.get('id') || '').toLowerCase();
     const epoch = parseInt(q.get('e') || '0', 10);
     if (!HEX64.test(ve) || !(epoch >= 0)) return null;
+    // a key that is there but malformed spoils the whole link (as in ShareLink.kt and host/tests/vectors/share.json)
+    if (q.has('ce') && !HEX64.test(ce)) return null;
+    // full access (app 0.13.3): the console key and the id come together, and only with the command key
+    if (q.has('uk')) {
+      if (!HEX64.test(uk) || !HEX16.test(id) || !HEX64.test(ce)) return null;
+      return { shared: { epoch, ve, ce, uk, id }, ...meta };
+    }
     return { shared: { epoch, ve, ce: HEX64.test(ce) ? ce : null }, ...meta };
   }
   return null;
@@ -58,8 +68,8 @@ export function makeTag(parsed, usedMarks = [], fallbackName = 'Tag') {
   } else {
     const { epoch, ve, ce } = parsed.shared;
     chain = KeyChain.fromShare(epoch, hexToBytes(ve), ce ? hexToBytes(ce) : null);
-    id = bytesToHex(chain.view(epoch).slice(0, 8)); // a stable local id; the real id is not derivable
-    rec = { share: { epoch, ve, ce } };
+    id = bytesToHex(chain.view(epoch).slice(0, 8)); // a stable local id (a view or control share does not carry the real id)
+    rec = { share: { ...parsed.shared }, ...(parsed.sharedBy ? { sharedBy: parsed.sharedBy } : {}) };
   }
   let mark = parsed.mark?.color && parsed.mark?.symbol ? parsed.mark : null;
   if (!mark) {
@@ -88,16 +98,43 @@ export function tagsFromBackup(payload) {
 
 // ------------------------------------------------------------------ share out (byte-compatible with the Android app)
 
-const enc = (s) => encodeURIComponent(s); // same unreserved set as android.net.Uri.Builder: A-Z a-z 0-9 - _ . ! ~ * ' ( )
+// java.net.URLEncoder (ShareLink.kt): everything but A-Z a-z 0-9 . - * _ is escaped, spaces as %20
+const enc = (s) => encodeURIComponent(s).replace(/[!'()~]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+
+/** The console key and id a full-access link carries: derived from K0 for a tag we own, kept from the link for a full-access share. */
+export function fullKeys(tag, chain = tag.chain) {
+  if (chain?.k0) return { uk: bytesToHex(chain.usbKey), id: chain.idHex };
+  const s = tag.share;
+  return s?.uk && s?.id ? { uk: s.uk, id: s.id } : null;
+}
+
+/** What a tag lets us hand on: view always, control with C_e, full access with C_e and the console key. */
+export function shareLevels(tag) {
+  const out = ['view'];
+  if (tag.chain?.canCommand) out.push('control');
+  if (tag.chain?.canCommand && fullKeys(tag)) out.push('full');
+  return out;
+}
+
+/** The epoch a link is made for: the current one, but never before the one a share starts at. */
+export const shareEpoch = (tag, epochOf) => Math.max(tag.chain?.minEpoch ?? 0, epochOf(Math.max(0, tag.lastN)));
 
 /**
- * `libretag://share?v=1&name=..&type=..&mark=..&e=<epoch>&ve=<V_e hex>[&ce=<C_e hex>]`, parameters in
- * exactly the order the Android app writes them (ShareImport.link). `chain` must hold K0.
+ * `libretag://share?v=1&name=..&type=..&mark=..&e=<epoch>&ve=<V_e hex>[&ce=<C_e hex>[&uk=<usb_key hex>&id=<id hex>]]`,
+ * parameters in exactly the order the Android app writes them (ShareLink.build). `level` is 'view',
+ * 'control' or 'full' (true and false still mean control and view). A tag we do not own passes on
+ * only what it holds: its own share epoch and keys.
  */
-export function shareLink(tag, chain, epoch, control) {
+export function shareLink(tag, chain, epoch, level) {
+  const lvl = level === true ? 'control' : level === false || level == null ? 'view' : level;
   const q = [['v', '1'], ['name', tag.name], ['type', tag.type], ['mark', `${tag.mark.color}-${tag.mark.symbol}`],
     ['e', String(epoch)], ['ve', bytesToHex(chain.view(epoch))]];
-  if (control) q.push(['ce', bytesToHex(chain.cmd(epoch))]);
+  if (lvl !== 'view') q.push(['ce', bytesToHex(chain.cmd(epoch))]);
+  if (lvl === 'full') {
+    const f = fullKeys(tag, chain);
+    if (!f) throw new Error('no console key for a full-access link');
+    q.push(['uk', f.uk], ['id', f.id]);
+  }
   return 'libretag://share?' + q.map(([k, v]) => `${k}=${enc(v)}`).join('&');
 }
 

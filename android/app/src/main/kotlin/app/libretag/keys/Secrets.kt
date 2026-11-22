@@ -73,14 +73,16 @@ object Secrets {
     // ---- per type
 
     fun sealTracker(t: Tracker, b: SecretBox? = box): Tracker =
-        if (b == null) t else t.copy(keyHex = wrap(t.keyHex, b), sharedViewHex = wrap(t.sharedViewHex, b), sharedCmdHex = wrap(t.sharedCmdHex, b))
+        if (b == null) t else t.copy(keyHex = wrap(t.keyHex, b), sharedViewHex = wrap(t.sharedViewHex, b), sharedCmdHex = wrap(t.sharedCmdHex, b),
+            sharedUsbHex = wrap(t.sharedUsbHex, b))
 
     fun openTracker(t: Tracker, b: SecretBox? = box): Tracker =
-        t.copy(keyHex = unwrap(t.keyHex, b), sharedViewHex = unwrap(t.sharedViewHex, b), sharedCmdHex = unwrap(t.sharedCmdHex, b))
+        t.copy(keyHex = unwrap(t.keyHex, b), sharedViewHex = unwrap(t.sharedViewHex, b), sharedCmdHex = unwrap(t.sharedCmdHex, b),
+            sharedUsbHex = unwrap(t.sharedUsbHex, b))
 
     /** a tracker still stored in plain form (needs migration) */
     fun trackerNeedsWrap(stored: Tracker): Boolean =
-        listOf(stored.keyHex, stored.sharedViewHex, stored.sharedCmdHex).any { it.isNotEmpty() && !isWrapped(it) }
+        listOf(stored.keyHex, stored.sharedViewHex, stored.sharedCmdHex, stored.sharedUsbHex).any { it.isNotEmpty() && !isWrapped(it) }
 
     /**
      * Key-value migration (SharedPreferences): every plain value under [keys] is rewritten wrapped.

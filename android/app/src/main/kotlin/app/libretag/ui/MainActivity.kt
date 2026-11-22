@@ -863,7 +863,15 @@ class MainActivity : AppCompatActivity(), DetailHost {
 
     private fun tagMenu(anchor: View) {
         val t = selected?.let { app.store.get(it) } ?: return
-        val items = if (t.isShared) listOf(
+        val items = if (t.sharedAdmin) listOf(
+            // full access: the console and Share like the owner's phone, no Remove (Stop following)
+            Triple(R.string.menu_tag_settings, R.drawable.ic_prefs, false),
+            Triple(R.string.menu_share, R.drawable.ic_share, false),
+            Triple(R.string.menu_service, R.drawable.ic_chip, false),
+            Triple(R.string.menu_export, R.drawable.ic_download, false),
+            Triple(R.string.menu_diag, R.drawable.ic_diag, false),
+            Triple(R.string.menu_stop_following, R.drawable.ic_trash, true),
+        ) else if (t.isShared) listOf(
             Triple(R.string.menu_tag_settings, R.drawable.ic_prefs, false),
             Triple(R.string.menu_export, R.drawable.ic_download, false),
             Triple(R.string.menu_diag, R.drawable.ic_diag, false),

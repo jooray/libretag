@@ -12,3 +12,5 @@ pwa/package-lock.json	"(version|integrity|resolved)"
 firmware/third_party/*	.
 # relay filter tests: a carrier-grade NAT address must be refused
 *Test.kt	wss://100\.64\.1\.1
+# nostr-live widget: a comment example of a URL with credentials, not an address
+web/site/vendor/nostr-live.js	bank\.com@evil\.example

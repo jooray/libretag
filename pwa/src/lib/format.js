@@ -83,7 +83,19 @@ export const agoAt = (ms, now = Date.now(), approx = false) => t('ago.at', { ago
 
 export const day = (ms) => new Intl.DateTimeFormat(locale(), { weekday: 'short', day: 'numeric', month: 'short' }).format(ms);
 
+/** Units of the app (Settings, like the Android app): 'metric' or 'imperial'. */
+let units = null;
+export const getUnits = () => {
+  if (units == null) { try { units = localStorage.getItem('lt.units') === 'imperial' ? 'imperial' : 'metric'; } catch { units = 'metric'; } }
+  return units;
+};
+export const setUnits = (u) => { units = u === 'imperial' ? 'imperial' : 'metric'; try { localStorage.setItem('lt.units', units); } catch { /* ignore */ } };
+
 export const distance = (m) => {
+  if (getUnits() === 'imperial') {
+    const ft = m * 3.28084;
+    return ft < 1000 ? t('dist.ft', { n: Math.max(1, Math.floor(ft / 10) * 10) }) : t('dist.mi', { n: (m / 1609.344).toFixed(1).replace('.', locale() === 'sk-SK' ? ',' : '.') });
+  }
   if (m < 100) return t('dist.m', { n: Math.max(1, Math.round(m)) });
   if (m < 1000) return t('dist.m', { n: Math.round(m / 10) * 10 });
   return t('dist.km', { n: (m / 1000).toFixed(1).replace('.', locale() === 'sk-SK' ? ',' : '.') });

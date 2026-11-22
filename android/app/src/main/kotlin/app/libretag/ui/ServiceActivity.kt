@@ -212,7 +212,10 @@ class ServiceActivity : ScreenActivity() {
                         k
                     }
                     if (key == null) { content.snack(getString(R.string.svc_write_failed)); return@launch }
-                    app.store.updateTracker(t.id) { it.copy(keyHex = key, lastN = -1, shares = emptyList(), pending = null) }
+                    // on a full-access share this phone becomes the owner: the new K0 replaces the shared keys
+                    app.store.updateTracker(t.id) { it.copy(keyHex = key, lastN = -1, shares = emptyList(), pending = null,
+                        sharedBy = null, sharedControl = false, sharedEpoch = 0, sharedViewHex = "", sharedCmdHex = "",
+                        sharedUsbHex = "", sharedIdHex = "") }
                     app.forgetWindow(t.id)
                     usbh.reconnect()
                     content.snack(getString(R.string.svc_rekey_done))

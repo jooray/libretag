@@ -7,11 +7,13 @@ connects, runs the handshake (HELLO, AUTH, READY) and then sends console lines i
     uv run --project host --with bleak python host/tools/blecon.py scan [--secs 10]
     uv run --project host --with bleak python host/tools/blecon.py run --k0-file k0.hex -c status -c "history 0"
     uv run --project host --with bleak python host/tools/blecon.py run --k0-file k0.hex          # a terminal
+    uv run --project host --with bleak python host/tools/blecon.py run --tag -c status           # a stored full-access share
     uv run --project host --with bleak python host/tools/blecon.py bad-proof [--times 5]      # wrong key
     uv run --project host --with bleak python host/tools/blecon.py hold [--secs 15]           # connect, stay silent
     uv run --project host --with bleak python host/tools/blecon.py replay --k0-file k0.hex    # a recorded AUTH
 
-The key file holds K0 (64 hex) or, with --usb-key-file, usb_key itself. It is read into memory only
+The key file holds K0 (64 hex) or, with --usb-key-file, usb_key itself; --tag [name|id] takes the
+usb_key of a full-access share stored by `libretag share import` (~/.config/libretag/tags). It is read into memory only
 and never printed. Without a key `scan` lists every console advert and `bad-proof`/`hold` take the
 first one seen (or --addr).
 """
@@ -36,6 +38,12 @@ TX = "4c540003-7a1e-4b0c-9d2f-6c6962726574"
 
 
 def load_key(args) -> bytes | None:
+    if getattr(args, "tag", None) is not None:
+        from libretag import share
+        try:
+            return bytes.fromhex(share.find(args.tag or None).usb_key)
+        except LookupError as e:
+            sys.exit(str(e))
     if getattr(args, "usb_key_file", None):
         return bytes.fromhex(Path(args.usb_key_file).read_text().strip())
     if getattr(args, "k0_file", None):
@@ -140,7 +148,7 @@ async def cmd_scan(args):
 async def cmd_run(args):
     key = load_key(args)
     if key is None:
-        sys.exit("run needs --k0-file or --usb-key-file")
+        sys.exit("run needs --tag, --k0-file or --usb-key-file")
     r = await find(key, args.addr, args.secs)
     if not r:
         sys.exit("tag not seen")
@@ -267,6 +275,7 @@ def main():
     ap.add_argument("what", choices=["scan", "run", "bad-proof", "hold", "replay"])
     ap.add_argument("--k0-file")
     ap.add_argument("--usb-key-file")
+    ap.add_argument("--tag", nargs="?", const="", help="a full-access share stored by `libretag share import` (name or id prefix)")
     ap.add_argument("--addr")
     ap.add_argument("--secs", type=float, default=20)
     ap.add_argument("-c", action="append", help="a console line (repeat)")

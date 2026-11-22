@@ -246,3 +246,6 @@ footer .row a{min-height:44px;display:inline-flex;align-items:center;color:var(-
 .own li{color:var(--ink2)}
 .own .fp{display:block;word-break:break-all;margin-top:6px;background:var(--surf3);padding:8px 12px;border-radius:8px;font-size:.85rem;line-height:1.4}
 .own .note{background:var(--bg);border:1px solid var(--line)}
+
+/* Nostr feed (vendored nostr-live), in the site's tokens */
+.news{--nl-fg:var(--ink);--nl-muted:var(--ink3);--nl-card-bg:var(--surf2);--nl-border:var(--line);--nl-accent:var(--btn);--nl-accent-fg:var(--on-btn);--nl-link:var(--focus);--nl-radius:8px;--nl-media-radius:6px;--nl-gap:20px;--nl-font:var(--font);--nl-heading-font:var(--font);--nl-avatar-radius:8px;--nl-card-pad:20px;min-height:22rem}

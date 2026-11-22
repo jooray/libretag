@@ -117,6 +117,7 @@
     </plurals>
     <string name="sub_shared_view">Von %1$s mit dir geteilt · nur ansehen</string>
     <string name="sub_shared_control">Von %1$s mit dir geteilt · ansehen und steuern</string>
+    <string name="sub_shared_admin">Von %1$s mit dir geteilt · Vollzugriff</string>
     <string name="pos_none">Noch keine Position</string>
     <string name="pos_gps">GPS ±%1$s · %2$s</string>
     <string name="pos_gps_noacc">GPS · %1$s</string>
@@ -130,7 +131,7 @@
     <string name="pos_no_repeater">Kein GPS · kein Repeater empfangen</string>
     <string name="pos_no_gps">Kein GPS</string>
     <string name="cmd_lost">Verloren</string>
-    <string name="cmd_track">1 Std. verfolgen</string>
+    <string name="cmd_track">Verfolgen</string>
     <string name="cmd_beep">Piepen</string>
     <string name="cmd_normal">Normal</string>
     <string name="commands">Befehle</string>
@@ -344,6 +345,12 @@
     <string name="share_view_sub">Sieht Positionen ab jetzt. Kann keine Befehle senden.</string>
     <string name="share_control">Ansehen und steuern</string>
     <string name="share_control_sub">Sieht Positionen und kann jeden Befehl senden, auch Verloren.</string>
+    <string name="share_admin">Vollzugriff</string>
+    <string name="share_admin_sub">Sieht Positionen, kann jeden Befehl senden und die Einstellungen des Trackers per Kabel oder Bluetooth ändern. Gedacht für deine eigenen Geräte.</string>
+    <string name="share_admin_warn_title">Vollzugriff geben?</string>
+    <string name="share_admin_warn">Dieser Code enthält den Konsolenschlüssel des Trackers. Wer ihn hat, kann die Einstellungen des Trackers ändern, ihm einen neuen Schlüssel geben oder seine Kopplung aufheben, und den Schlüssel kannst du nicht zurücknehmen. Teile ihn nur mit deinen eigenen Geräten oder mit jemandem, dem du voll vertraust.</string>
+    <string name="share_admin_warn_ok">Code anzeigen</string>
+    <string name="share_admin_note">Dieser Code enthält den Konsolenschlüssel des Trackers. Poste ihn nicht und schicke ihn niemandem, dem du nicht voll vertraust.</string>
     <string name="share_send_with">Senden per</string>
     <string name="share_qr">QR-Code</string>
     <string name="share_dm">Nostr-DM</string>
@@ -360,10 +367,14 @@
     <string name="share_stop">Teilen beenden</string>
     <string name="share_stopped">Teilen mit %1$s beendet. Schon Gesehenes bleibt sichtbar. Um den Zugriff ganz zu sperren, gib dem Tracker per USB einen neuen Schlüssel.</string>
     <string name="share_someone_qr">Jemand (QR-Code)</string>
+    <string name="share_copy_link">Link kopieren</string>
+    <string name="share_link_copied">Link kopiert</string>
+    <string name="share_someone_link">Jemand (Link)</string>
     <string name="share_scan_prompt">Scanne den Code vom Handy des Tracker-Besitzers</string>
     <string name="share_import_title">Geteilten Tracker hinzufügen</string>
     <string name="share_import_view">Nur ansehen: Du siehst seine Positionen ab jetzt. Befehle kannst du nicht senden.</string>
     <string name="share_import_control">Ansehen und steuern: Du siehst seine Positionen ab jetzt und kannst jeden Befehl senden, auch Verloren.</string>
+    <string name="share_import_admin">Vollzugriff: Du siehst seine Positionen ab jetzt, kannst jeden Befehl senden und seine Einstellungen per Kabel oder Bluetooth ändern.</string>
     <string name="share_import_by">Geteilt von</string>
     <string name="share_import_ok">Hinzufügen</string>
     <string name="share_import_someone">jemand</string>

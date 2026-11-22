@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Tue, 17 Nov 2026 19:15:11 +0100
-Subject: [PATCH 28/41] tracker: ESP32-S3 without GPS: Wi-Fi scan (lt_wifi_scan
+Subject: [PATCH 28/42] tracker: ESP32-S3 without GPS: Wi-Fi scan (lt_wifi_scan
  via NET_REQUEST_WIFI_SCAN, random STA MAC, radio stopped after), Wi-Fi zones
  (wzone snap/list/show/del/clear/test/thr, hashed fingerprints in
  /lfs/libretag/wzones), zone and parked by Wi-Fi in the wake decision, second

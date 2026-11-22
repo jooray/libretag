@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Actualización de firmware por USB (docs/design/dfu.md). -->
+<resources>
+    <string name="fw_title">Actualizar firmware</string>
+    <string name="fw_sub">Por el cable USB</string>
+    <string name="fw_on_tag">En el localizador: %1$s</string>
+    <string name="fw_in_app">En esta app: %1$s</string>
+    <string name="fw_unknown">desconocida</string>
+    <string name="fw_none_bundled">Esta versión de la app no incluye firmware para el localizador. Actualiza desde un ordenador.</string>
+    <string name="fw_same">El localizador ya tiene esta versión. Puedes instalarla otra vez si algo parece ir mal.</string>
+    <string name="fw_newer_on_tag">El localizador tiene una versión más nueva que la de esta app. Al instalarla volverías a una más antigua.</string>
+    <string name="fw_explain">Tarda cerca de un minuto. Deja el cable conectado y la pantalla encendida. Android pide acceso USB dos veces: una para el localizador en modo actualización, que cuenta como otro dispositivo, y otra cuando se reinicia. El emparejamiento, las claves, las zonas y los ajustes se quedan en el localizador.</string>
+    <string name="fw_install">Instalar %1$s</string>
+    <string name="fw_plug">Conecta el localizador a este teléfono con un cable USB-C.</string>
+    <string name="fw_not_mine">Este localizador está emparejado con otro teléfono. Solo ese teléfono puede actualizarlo.</string>
+    <string name="fw_boot_found">Hay un localizador en modo actualización en el cable</string>
+    <string name="fw_boot_text">O una actualización se quedó a medias, o alguien pulsó dos veces el botón de reinicio. La app no sabe de qué localizador se trata, así que continúa solo si es un localizador LibreTag.</string>
+    <string name="fw_continue">Continuar la actualización</string>
+    <string name="fw_service_sub">Instalar %1$s desde esta app por cable</string>
+
+    <string name="fw_step_rebooting">Reiniciando el localizador en modo actualización…</string>
+    <string name="fw_step_waiting">Esperando al localizador en modo actualización…</string>
+    <string name="fw_step_perm_boot">Toca Permitir. Android pregunta de nuevo porque el localizador en modo actualización es otro dispositivo USB.</string>
+    <string name="fw_step_perm_tag">Toca Permitir para el localizador reiniciado.</string>
+    <string name="fw_step_erasing">Borrando el firmware antiguo…</string>
+    <string name="fw_step_sending">Enviando el firmware: %1$d %%</string>
+    <string name="fw_step_finishing">Comprobando el firmware…</string>
+    <string name="fw_step_restarting">El localizador se está reiniciando…</string>
+    <string name="fw_step_reading">Leyendo la versión…</string>
+    <string name="fw_keep">No desconectes el cable.</string>
+
+    <string name="fw_done">El firmware %1$s está instalado</string>
+    <string name="fw_done_paired">El localizador sigue emparejado con este teléfono.</string>
+    <string name="fw_done_unpaired">El localizador ya no responde a la clave de este teléfono. Empareja de nuevo en Añadir localizador.</string>
+
+    <string name="fw_fail_title">La actualización se detuvo</string>
+    <string name="fw_fail_no_firmware">El firmware de esta app no superó la comprobación (%1$s). No se envió nada al localizador.</string>
+    <string name="fw_fail_not_connected">El localizador ya no está en el cable. Conéctalo e inténtalo de nuevo.</string>
+    <string name="fw_fail_locked">El localizador rechazó el comando de actualización (%1$s). Desconéctalo, vuelve a conectarlo e inténtalo de nuevo.</string>
+    <string name="fw_fail_no_bootloader">El localizador no apareció en modo actualización. Si sigue funcionando con normalidad, inténtalo de nuevo. También puedes pulsar dos veces su botón de reinicio y la app te ofrecerá continuar.</string>
+    <string name="fw_fail_permission">Sin acceso USB la app no puede enviar el firmware. Inténtalo de nuevo y toca Permitir.</string>
+    <string name="fw_fail_transfer">La transferencia se cortó (%1$s). El localizador sigue en modo actualización y sus claves están a salvo. Revisa el cable y toca Continuar la actualización.</string>
+    <string name="fw_fail_no_return">El firmware se envió, pero el localizador no volvió a aparecer en el cable. Desconéctalo y vuelve a conectarlo. Si no arranca, pulsa dos veces reinicio y continúa la actualización.</string>
+    <string name="fw_fail_wrong_version">El localizador volvió con la versión %1$s en lugar de la %2$s. Intenta la actualización de nuevo.</string>
+    <string name="fw_try_again">Intentar de nuevo</string>
+</resources>

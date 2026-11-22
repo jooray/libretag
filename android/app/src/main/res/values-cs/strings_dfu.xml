@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Aktualizace firmwaru přes USB (docs/design/dfu.md). -->
+<resources>
+    <string name="fw_title">Aktualizovat firmware</string>
+    <string name="fw_sub">Přes kabel USB</string>
+    <string name="fw_on_tag">V lokátoru: %1$s</string>
+    <string name="fw_in_app">V této aplikaci: %1$s</string>
+    <string name="fw_unknown">neznámá</string>
+    <string name="fw_none_bundled">Tahle verze aplikace nemá firmware pro lokátor. Aktualizuj ho raději z počítače.</string>
+    <string name="fw_same">Lokátor už má tuto verzi. Když se ti něco nezdá, můžeš ji nainstalovat znovu.</string>
+    <string name="fw_newer_on_tag">Lokátor má novější verzi, než je v této aplikaci. Instalací by ses vrátil ke starší.</string>
+    <string name="fw_explain">Trvá to asi minutu. Nech kabel zapojený a displej zapnutý. Android se zeptá na přístup k USB dvakrát: jednou kvůli lokátoru v režimu aktualizace, který bere jako jiné zařízení, a podruhé po jeho restartu. Párování, klíče, zóny a nastavení zůstanou v lokátoru.</string>
+    <string name="fw_install">Nainstalovat %1$s</string>
+    <string name="fw_plug">Připoj lokátor k tomuto telefonu kabelem USB-C.</string>
+    <string name="fw_not_mine">Tento lokátor je spárovaný s jiným telefonem. Aktualizovat ho může jen ten.</string>
+    <string name="fw_boot_found">Na kabelu je lokátor v režimu aktualizace</string>
+    <string name="fw_boot_text">Buď se aktualizace zastavila v půlce, nebo někdo dvakrát stiskl tlačítko reset. Aplikace nepozná, o jaký lokátor jde, takže pokračuj, jen pokud je to lokátor LibreTag.</string>
+    <string name="fw_continue">Pokračovat v aktualizaci</string>
+    <string name="fw_service_sub">Nainstalovat %1$s z této aplikace přes kabel</string>
+
+    <string name="fw_step_rebooting">Restartuji lokátor do režimu aktualizace…</string>
+    <string name="fw_step_waiting">Čekám na lokátor v režimu aktualizace…</string>
+    <string name="fw_step_perm_boot">Klepni na Povolit. Android se ptá znovu, protože lokátor v režimu aktualizace je jiné zařízení USB.</string>
+    <string name="fw_step_perm_tag">Klepni na Povolit pro restartovaný lokátor.</string>
+    <string name="fw_step_erasing">Mažu starý firmware…</string>
+    <string name="fw_step_sending">Posílám firmware: %1$d %%</string>
+    <string name="fw_step_finishing">Kontroluji firmware…</string>
+    <string name="fw_step_restarting">Lokátor se restartuje…</string>
+    <string name="fw_step_reading">Zjišťuji verzi…</string>
+    <string name="fw_keep">Neodpojuj kabel.</string>
+
+    <string name="fw_done">Firmware %1$s je nainstalovaný</string>
+    <string name="fw_done_paired">Lokátor je pořád spárovaný s tímto telefonem.</string>
+    <string name="fw_done_unpaired">Lokátor už neodpovídá na klíč tohoto telefonu. Spáruj ho znovu přes Přidat lokátor.</string>
+
+    <string name="fw_fail_title">Aktualizace se zastavila</string>
+    <string name="fw_fail_no_firmware">Firmware v této aplikaci neprošel kontrolou (%1$s). Do lokátoru se nic neposlalo.</string>
+    <string name="fw_fail_not_connected">Lokátor už není na kabelu. Připoj ho a zkus to znovu.</string>
+    <string name="fw_fail_locked">Lokátor odmítl příkaz k aktualizaci (%1$s). Odpoj ho, připoj zpět a zkus to znovu.</string>
+    <string name="fw_fail_no_bootloader">Lokátor se neobjevil v režimu aktualizace. Pokud pořád běží normálně, zkus to znovu. Můžeš také dvakrát stisknout jeho tlačítko reset a aplikace nabídne pokračování.</string>
+    <string name="fw_fail_permission">Bez přístupu k USB aplikace firmware poslat nemůže. Zkus to znovu a klepni na Povolit.</string>
+    <string name="fw_fail_transfer">Přenos se přerušil (%1$s). Lokátor zůstává v režimu aktualizace a jeho klíče jsou v bezpečí. Zkontroluj kabel a klepni na Pokračovat v aktualizaci.</string>
+    <string name="fw_fail_no_return">Firmware se přenesl, ale lokátor se na kabelu neobjevil. Odpoj ho a připoj zpět. Když nenaběhne, dvakrát stiskni reset a pokračuj v aktualizaci.</string>
+    <string name="fw_fail_wrong_version">Lokátor naběhl s verzí %1$s místo %2$s. Zkus aktualizaci znovu.</string>
+    <string name="fw_try_again">Zkusit znovu</string>
+</resources>

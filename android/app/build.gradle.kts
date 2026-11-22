@@ -41,8 +41,8 @@ android {
         applicationId = "app.libretag"
         minSdk = 26
         targetSdk = 34
-        versionCode = 42
-        versionName = "0.13.1"
+        versionCode = 44
+        versionName = "0.13.3"
         // the newest tracker firmware this app knows about (Service: "up to date" / "x.y.z available")
         buildConfigField("String", "FIRMWARE_DFU_SHA256", "\"$dfuSha256\"")
         buildConfigField("String", "FIRMWARE_DFU_VERSION", "\"$dfuVersion\"")

@@ -25,6 +25,8 @@ import app.libretag.data.Position
 import app.libretag.data.ShareRec
 import app.libretag.data.Status
 import app.libretag.data.Tracker
+import app.libretag.keys.ConsoleKey
+import app.libretag.keys.ShareLink
 import app.libretag.nostr.Bech32
 import app.libretag.proto.LibreTag
 import com.google.android.material.bottomsheet.BottomSheetBehavior
@@ -291,26 +293,53 @@ object TagSheets {
         s.show()
     }
 
+    /** what a share gives: view (V_e), view and control (also C_e), full access (also usb_key and id) */
+    enum class ShareLevel { VIEW, CONTROL, ADMIN }
+
+    private fun levelName(l: ShareLevel) = when (l) {
+        ShareLevel.VIEW -> R.string.share_view
+        ShareLevel.CONTROL -> R.string.share_control
+        ShareLevel.ADMIN -> R.string.share_admin
+    }
+
+    private fun ShareRec.level() = if (admin) ShareLevel.ADMIN else if (control) ShareLevel.CONTROL else ShareLevel.VIEW
+
     /**
-     * Share: view only (V_e from the current epoch) or view and control (V_e and C_e, including
-     * Lost), by QR code or a Nostr DM from the tag's key. Honest about revocation.
+     * Share: view only (V_e from the current epoch), view and control (V_e and C_e, including Lost)
+     * or full access (also the console key: settings over USB and Bluetooth, behind a warning), by
+     * QR code or a Nostr DM from the tag's key. Honest about revocation.
      */
     fun share(a: AppCompatActivity, t: Tracker) {
         val chain = app.chainFor(t) ?: return
         val epoch = LibreTag.epoch(maxOf(0, t.lastN))
+        val console = app.consoleFor(t)
         val s = Sheet(a, a.getString(R.string.share_title, t.name))
-        var control = false
+        var level = ShareLevel.VIEW
         var method = "qr"
         val dynamic = a.vbox()
         val levels = a.vbox()
-        val rView = MaterialRadioButton(a)
-        val rCtl = MaterialRadioButton(a)
-        fun level(rb: MaterialRadioButton, title: Int, sub: Int, v: Boolean) = a.listItem(null, a.getString(title), a.getString(sub)) {
-            control = v; rView.isChecked = !v; rCtl.isChecked = v; render(a, t, s, dynamic, control, method, chain, epoch)
-        }.apply { addView(rb, 0, lp(WRAP, WRAP).margins(r = a.dp(12))); rb.isClickable = false }
-        levels.addView(level(rView, R.string.share_view, R.string.share_view_sub, false))
-        levels.addView(level(rCtl, R.string.share_control, R.string.share_control_sub, true))
-        rView.isChecked = true
+        val radios = mutableMapOf<ShareLevel, MaterialRadioButton>()
+        fun pick(l: ShareLevel) {
+            level = l
+            radios.forEach { (k, rb) -> rb.isChecked = k == l }
+            render(a, t, s, dynamic, level, method, chain, console, epoch)
+        }
+        fun level(l: ShareLevel, sub: Int) {
+            val rb = MaterialRadioButton(a).also { radios[l] = it }
+            levels.addView(a.listItem(null, a.getString(levelName(l)), a.getString(sub)) {
+                if (l != ShareLevel.ADMIN || level == ShareLevel.ADMIN) { pick(l); return@listItem }
+                // whoever holds the console key can change and unpair the tag: say so before the code shows
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(a)
+                    .setTitle(R.string.share_admin_warn_title).setMessage(R.string.share_admin_warn)
+                    .setNegativeButton(R.string.cancel, null)
+                    .setPositiveButton(R.string.share_admin_warn_ok) { _, _ -> pick(ShareLevel.ADMIN) }
+                    .show().getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.setTextColor(a.col(R.color.crit))
+            }.apply { addView(rb, 0, lp(WRAP, WRAP).margins(r = a.dp(12))); rb.isClickable = false })
+        }
+        level(ShareLevel.VIEW, R.string.share_view_sub)
+        if (chain.canCommand) level(ShareLevel.CONTROL, R.string.share_control_sub)
+        if (chain.canCommand && console != null) level(ShareLevel.ADMIN, R.string.share_admin_sub)
+        radios[ShareLevel.VIEW]!!.isChecked = true
         s.body.addView(levels)
         s.label(a.getString(R.string.share_send_with))
         val toggle = MaterialButtonToggleGroup(a).apply { isSingleSelection = true; isSelectionRequired = true }
@@ -318,34 +347,46 @@ object TagSheets {
         val bDm = a.segmentButton(a.getString(R.string.share_dm))
         toggle.addView(bQr); toggle.addView(bDm)
         toggle.check(bQr.id)
-        toggle.addOnButtonCheckedListener { _, id, checked -> if (checked) { method = if (id == bQr.id) "qr" else "dm"; render(a, t, s, dynamic, control, method, chain, epoch) } }
+        toggle.addOnButtonCheckedListener { _, id, checked -> if (checked) { method = if (id == bQr.id) "qr" else "dm"; render(a, t, s, dynamic, level, method, chain, console, epoch) } }
         s.body.addView(toggle, lp(WRAP, WRAP))
         s.body.addView(dynamic, lp())
         s.p(a.getString(R.string.share_revoke_note))
         if (t.shares.isNotEmpty()) {
             s.label(a.getString(R.string.share_with))
             for (r in t.shares) s.body.addView(a.listItem(R.drawable.ic_person, r.who,
-                a.getString(if (r.control) R.string.share_control else R.string.share_view) + " · " + a.getString(R.string.share_since, Format.date(r.since)),
+                a.getString(levelName(r.level())) + " · " + a.getString(R.string.share_since, Format.date(r.since)),
                 a.button(a.getString(R.string.share_stop), Btn.TEXT) {
                     app.store.updateTracker(t.id) { it.copy(shares = it.shares - r) }
                     s.dialog.dismiss()
                     a.findViewById<View>(android.R.id.content).snack(a.getString(R.string.share_stopped, r.who))
                 }))
         }
-        render(a, t, s, dynamic, control, method, chain, epoch)
+        render(a, t, s, dynamic, level, method, chain, console, epoch)
         s.show()
     }
 
-    private fun render(a: AppCompatActivity, t: Tracker, s: Sheet, box: LinearLayout, control: Boolean, method: String,
-                       chain: app.libretag.keys.KeyChain, epoch: Long) {
+    private fun render(a: AppCompatActivity, t: Tracker, s: Sheet, box: LinearLayout, level: ShareLevel, method: String,
+                       chain: app.libretag.keys.KeyChain, console: ConsoleKey?, epoch: Long) {
         box.removeAllViews()
         s.footer.removeAllViews()
-        val link = ShareImport.link(t, epoch, chain.view(epoch)!!, if (control) chain.cmd(epoch) else null)
+        val control = level != ShareLevel.VIEW
+        val admin = level == ShareLevel.ADMIN && console != null
+        val link = ShareLink.build(t.name, t.type, "${t.markColor}-${t.markSymbol}", epoch, chain.view(epoch)!!,
+            if (control) chain.cmd(epoch) else null, if (admin) console!!.usbKey else null, if (admin) console!!.id else null)
+        fun rec(who: String) = ShareRec(who, control, System.currentTimeMillis(), epoch, admin)
+        if (admin) box.addView(a.text(R.style.TextAppearance_LibreTag_BodySmall, a.getString(R.string.share_admin_note), R.color.crit),
+            lp().margins(t = a.dp(12)))
         if (method == "qr") {
             box.addView(a.qrImage(link, 220))
             box.addView(a.text(R.style.TextAppearance_LibreTag_BodyMedium, a.getString(R.string.share_qr_hint), R.color.ink2).apply { gravity = Gravity.CENTER }, lp())
+            s.foot(a.button(a.getString(R.string.share_copy_link), Btn.OUTLINED, R.drawable.ic_copy) {
+                a.copySecret("LibreTag", link)
+                app.store.updateTracker(t.id) { it.copy(shares = it.shares + rec(a.getString(R.string.share_someone_link))) }
+                s.dialog.dismiss()
+                a.findViewById<View>(android.R.id.content).snack(a.getString(R.string.share_link_copied))
+            })
             s.foot(a.button(a.getString(R.string.done)) {
-                app.store.updateTracker(t.id) { it.copy(shares = it.shares + ShareRec(a.getString(R.string.share_someone_qr), control, System.currentTimeMillis(), epoch)) }
+                app.store.updateTracker(t.id) { it.copy(shares = it.shares + rec(a.getString(R.string.share_someone_qr))) }
                 s.dialog.dismiss()
             })
         } else {
@@ -358,7 +399,7 @@ object TagSheets {
                 if (pk == null) { npub.error = a.getString(R.string.npub_invalid); return@button }
                 a.lifecycleScope.launch {
                     val ok = app.sendDm(t, pk, a.getString(R.string.share_dm_text, t.name, link)).ok > 0
-                    if (ok) app.store.updateTracker(t.id) { it.copy(shares = it.shares + ShareRec(Bech32.normalizeNpub(raw)!!.take(16) + "…", control, System.currentTimeMillis(), epoch)) }
+                    if (ok) app.store.updateTracker(t.id) { it.copy(shares = it.shares + rec(Bech32.normalizeNpub(raw)!!.take(16) + "…")) }
                     s.dialog.dismiss()
                     a.findViewById<View>(android.R.id.content).snack(a.getString(if (ok) R.string.share_dm_sent else R.string.share_dm_failed))
                 }

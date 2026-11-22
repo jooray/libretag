@@ -1,0 +1,17 @@
+{
+ "k0": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+ "epoch": 3,
+ "name": "Bob's bike & co",
+ "type": "vehicle",
+ "mark": "blue-circle",
+ "view": "libretag://share?v=1&name=Bob%27s%20bike%20%26%20co&type=vehicle&mark=blue-circle&e=3&ve=7170d62a4650bbb204eea1f022b76acaae2bf646b8e3550228532d61ce3ef573",
+ "control": "libretag://share?v=1&name=Bob%27s%20bike%20%26%20co&type=vehicle&mark=blue-circle&e=3&ve=7170d62a4650bbb204eea1f022b76acaae2bf646b8e3550228532d61ce3ef573&ce=9e20022bb5d75fc227da6fbd4a5254b012f91b717f69ec848dc954f33b6cd207",
+ "full": "libretag://share?v=1&name=Bob%27s%20bike%20%26%20co&type=vehicle&mark=blue-circle&e=3&ve=7170d62a4650bbb204eea1f022b76acaae2bf646b8e3550228532d61ce3ef573&ce=9e20022bb5d75fc227da6fbd4a5254b012f91b717f69ec848dc954f33b6cd207&uk=1879b967dac2cd40ad38c8e416cf4ecc3a3a3541aff160e752613aa045d02f12&id=bebef88c94a515c6",
+ "invalid": [
+  "libretag://share?v=1&e=3&ve=7170d62a4650bbb204eea1f022b76acaae2bf646b8e3550228532d61ce3ef5",
+  "libretag://share?v=1&e=3&ve=7170d62a4650bbb204eea1f022b76acaae2bf646b8e3550228532d61ce3ef573&uk=1879b967dac2cd40ad38c8e416cf4ecc3a3a3541aff160e752613aa045d02f12&id=bebef88c94a515c6",
+  "libretag://share?v=1&e=3&ve=7170d62a4650bbb204eea1f022b76acaae2bf646b8e3550228532d61ce3ef573&ce=9e20022bb5d75fc227da6fbd4a5254b012f91b717f69ec848dc954f33b6cd207&uk=1879b967dac2cd40ad38c8e416cf4ecc3a3a3541aff160e752613aa045d02f12",
+  "libretag://share?v=1&e=3&ve=7170d62a4650bbb204eea1f022b76acaae2bf646b8e3550228532d61ce3ef573&ce=9e20022bb5",
+  "https://example.org/share?ve=7170d62a4650bbb204eea1f022b76acaae2bf646b8e3550228532d61ce3ef573"
+ ]
+}

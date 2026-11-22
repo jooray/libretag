@@ -49,7 +49,7 @@ object CableClassify {
      * tag of that kind. Null when none fits (the home screen shows a strip without a tag).
      */
     fun attribute(esp: Boolean, trackers: List<Tracker>, overdue: Set<String>, now: Long): Tracker? {
-        val kind = trackers.filter { !it.isShared && isEsp(it) == esp }
+        val kind = trackers.filter { it.hasConsole && isEsp(it) == esp }
         kind.filter { it.dfuStartedAt?.let { at -> now - at in 0..DFU_RECENT_MS } == true }
             .maxByOrNull { it.dfuStartedAt!! }?.let { return it }
         kind.filter { it.id in overdue }.singleOrNull()?.let { return it }

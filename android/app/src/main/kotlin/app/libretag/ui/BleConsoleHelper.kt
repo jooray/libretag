@@ -110,8 +110,8 @@ class BleConsoleHelper(private val a: AppCompatActivity, private val tagId: () -
 
     private fun snack(id: Int) { a.findViewById<View>(android.R.id.content)?.snack(a.getString(id)) }
 
-    /** Offered for this tag at all: Android 12+, our own tag with its key, not on the cable. */
-    fun offered(t: Tracker): Boolean = BleConsoleScanner.supported && !t.isShared && app.keysFor(t) != null &&
+    /** Offered for this tag at all: Android 12+, a console key (our own tag, or a full-access share), not on the cable. */
+    fun offered(t: Tracker): Boolean = BleConsoleScanner.supported && app.consoleFor(t) != null &&
         app.usb.via != Via.USB && !(app.usb.via == Via.BLE && app.usb.tagFor(t))
 
     /**
@@ -155,7 +155,7 @@ class BleConsoleHelper(private val a: AppCompatActivity, private val tagId: () -
     fun remoteOffered(t: Tracker): Boolean = t.canCommand && t.lastN >= 0
 
     /** The wake advert needs only the tag's usb_key, not its report counter. */
-    fun wakeOffered(t: Tracker): Boolean = BleConsoleScanner.supported && !t.isShared && app.keysFor(t) != null
+    fun wakeOffered(t: Tracker): Boolean = BleConsoleScanner.supported && app.consoleFor(t) != null
 
     private fun LinearLayout.remoteBlock(t: Tracker) {
         if (!remoteOffered(t) && !wakeOffered(t)) return

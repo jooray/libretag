@@ -388,6 +388,10 @@ class LibreTagApp : Application() {
             ?.let { Keys(it) }?.also { keyCache[t.keyHex] = it }
     }
 
+    /** The tag's console key: from K0 for our own tags, from the link for a full-access share. */
+    fun consoleFor(t: Tracker): app.libretag.keys.ConsoleKey? =
+        keysFor(t)?.let { app.libretag.keys.ConsoleKey.of(it) } ?: app.libretag.keys.ConsoleKey.shared(t)
+
     fun chainFor(t: Tracker): KeyChain? = if (t.isShared) SharedChain.of(t) else keysFor(t)?.let { OwnerChain(it) }
 
     @Synchronized

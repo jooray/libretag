@@ -328,7 +328,7 @@ object Diagnosis {
 
     /** "Check if it's here" can be offered: a tag of ours with keys, Bluetooth on, nothing asked right now */
     fun checkHereOffered(t: Tracker, c: DiagContext, now: Long): Boolean =
-        c.bluetooth && t.canCommand && !t.isShared && t.keyHex.isNotEmpty() && t.pending?.kind != "BLE_CONSOLE"
+        c.bluetooth && t.canCommand && t.hasConsole && t.pending?.kind != "BLE_CONSOLE"
 
     /** the zone the last fix lies in, or within [ZONE_EDGE_M] of its edge */
     fun zoneNear(t: Tracker, p: Position): Zone? {

@@ -196,7 +196,7 @@ data class AlertPrefs(
 
 /** Someone we gave access to (we can't revoke what they already have). */
 @Serializable
-data class ShareRec(val who: String, val control: Boolean, val since: Long, val epoch: Long)
+data class ShareRec(val who: String, val control: Boolean, val since: Long, val epoch: Long, val admin: Boolean = false)
 
 @Serializable
 data class Tracker(
@@ -249,6 +249,9 @@ data class Tracker(
     val sharedEpoch: Long = 0,
     val sharedViewHex: String = "",
     val sharedCmdHex: String = "",
+    /** full access (0.13.3): the tag's usb_key and id (hex), which open its console; empty otherwise */
+    val sharedUsbHex: String = "",
+    val sharedIdHex: String = "",
     /** what the tag said over USB */
     val firmware: String? = null,
     val board: String? = null,
@@ -338,13 +341,17 @@ data class Tracker(
     val people: Boolean get() = useKind == USE_PEOPLE
     val stillAfterEff: Int get() = stillAfter ?: if (people) 0 else DEFAULT_STILL_AFTER
     /** the app knows the tag's IDLE interval (it set it); a shared tag's is unknown */
-    val intervalKnown: Boolean get() = !isShared
+    val intervalKnown: Boolean get() = !isShared || (sharedAdmin && settingsReadAt > 0)
 
     /** the last report heard (fixes the tag kept while quiet were never sent) */
     val last: Position? get() = positions.lastOrNull { it.via != "usb-quiet" }
     val lastFix: Position? get() = positions.lastOrNull { it.hasFix }
     val isShared: Boolean get() = sharedBy != null
     val canCommand: Boolean get() = !isShared || sharedControl
+    /** shared with full access: the console over USB and Bluetooth, like the owner's phone */
+    val sharedAdmin: Boolean get() = isShared && sharedUsbHex.isNotEmpty()
+    /** this phone can open the tag's console: the owner (K0) or a full-access share */
+    val hasConsole: Boolean get() = if (isShared) sharedAdmin else keyHex.isNotEmpty()
 
     /** a guard spot is armed */
     val guarding: Boolean get() = guardLat != null && guardLon != null

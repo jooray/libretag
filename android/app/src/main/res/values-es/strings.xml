@@ -124,6 +124,7 @@
     </plurals>
     <string name="sub_shared_view">Compartido contigo por %1$s · solo ver</string>
     <string name="sub_shared_control">Compartido contigo por %1$s · ver y controlar</string>
+    <string name="sub_shared_admin">Compartido contigo por %1$s · acceso total</string>
     <string name="pos_none">Aún sin posición</string>
     <string name="pos_gps">GPS ±%1$s · %2$s</string>
     <string name="pos_gps_noacc">GPS · %1$s</string>
@@ -137,7 +138,7 @@
     <string name="pos_no_repeater">Sin GPS · ningún repetidor escuchado</string>
     <string name="pos_no_gps">Sin GPS</string>
     <string name="cmd_lost">Perdido</string>
-    <string name="cmd_track">Seguir 1 h</string>
+    <string name="cmd_track">Seguir</string>
     <string name="cmd_beep">Pitar</string>
     <string name="cmd_normal">Normal</string>
     <string name="commands">Comandos</string>
@@ -355,6 +356,12 @@
     <string name="share_view_sub">Ve las posiciones desde ahora. No puede enviar comandos.</string>
     <string name="share_control">Ver y controlar</string>
     <string name="share_control_sub">Ve las posiciones y puede enviar cualquier comando, también Perdido.</string>
+    <string name="share_admin">Acceso total</string>
+    <string name="share_admin_sub">Ve las posiciones, puede enviar cualquier comando y cambiar los ajustes del localizador por cable o Bluetooth. Pensado para tus propios dispositivos.</string>
+    <string name="share_admin_warn_title">¿Dar acceso total?</string>
+    <string name="share_admin_warn">Este código contiene la clave de consola del localizador. Quien la tenga puede cambiar los ajustes del localizador, darle una clave nueva o desemparejarlo, y la clave no se puede recuperar. Compártelo solo con tus propios dispositivos o con alguien en quien confíes del todo.</string>
+    <string name="share_admin_warn_ok">Mostrar el código</string>
+    <string name="share_admin_note">Este código contiene la clave de consola del localizador. No lo publiques ni lo envíes a nadie en quien no confíes del todo.</string>
     <string name="share_send_with">Enviar con</string>
     <string name="share_qr">Código QR</string>
     <string name="share_dm">MD de Nostr</string>
@@ -371,10 +378,14 @@
     <string name="share_stop">Dejar de compartir</string>
     <string name="share_stopped">Se dejó de compartir con %1$s. Lo que ya vio lo conserva. Para cortarle el acceso, pon una clave nueva al localizador por USB.</string>
     <string name="share_someone_qr">Alguien (código QR)</string>
+    <string name="share_copy_link">Copiar enlace</string>
+    <string name="share_link_copied">Enlace copiado</string>
+    <string name="share_someone_link">Alguien (enlace)</string>
     <string name="share_scan_prompt">Escanea el código del teléfono del propietario del localizador</string>
     <string name="share_import_title">Añadir un localizador compartido</string>
     <string name="share_import_view">Solo ver: ves sus posiciones desde ahora. No puedes enviar comandos.</string>
     <string name="share_import_control">Ver y controlar: ves sus posiciones desde ahora y puedes enviar cualquier comando, también Perdido.</string>
+    <string name="share_import_admin">Acceso total: ves sus posiciones desde ahora, puedes enviar cualquier comando y cambiar sus ajustes por cable o Bluetooth.</string>
     <string name="share_import_by">Compartido por</string>
     <string name="share_import_ok">Añadir</string>
     <string name="share_import_someone">alguien</string>

@@ -2,7 +2,7 @@
 
 An open tracker on top of a MeshCore LoRa network: once an hour it sends an encrypted position and listens for commands for a short time. It has no permanent MeshCore identity, and only the owner can see the content.
 
-Current versions (first public release, a preview): tracker firmware 0.9.5 (runs on the Wio Tracker L1; an ESP32-S3 build without GPS runs on the bench), LibreTag app 0.13.1, web app 0.3.1 (`pwa/`), Android bridge 0.5.0, Python bridge 0.6.0, protocol LT2. Changes: `CHANGELOG.md`. What is done and what is open: SPEC.md, "Prototype status". Licences of bundled code: `THIRD_PARTY_NOTICES.md`.
+Current versions (first public release, a preview): tracker firmware 0.9.6 (runs on the Wio Tracker L1; an ESP32-S3 build without GPS runs on the bench), LibreTag app 0.13.3, web app 0.4.0 (`pwa/`), Android bridge 0.5.0, Python bridge 0.6.0, protocol LT2. Changes: `CHANGELOG.md`. What is done and what is open: SPEC.md, "Prototype status". Licences of bundled code: `THIRD_PARTY_NOTICES.md`.
 
 ## Install
 
@@ -83,7 +83,7 @@ make -C ../firmware/lt_core/test test   # lt_core + lt_nostr (libsecp256k1 is in
 
 ## Tracker firmware (ZephCore, Wio Tracker L1 / L1 Pro)
 
-Version 0.9.5. Release files: the UF2 (drive) and the serial DFU package, see "Install" above. Changes per version are in `firmware/README.md`.
+Version 0.9.6. Release files: the UF2 (drive) and the serial DFU package, see "Install" above. Changes per version are in `firmware/README.md`.
 
 Build (workspace `firmware/zephcore`; the changes against ZephCore are a series of patches in `firmware/zephcore-patches/`, the base is pinned in `firmware/zephcore.lock`; how the base changes and what to check after each change is in `firmware/README.md`):
 
@@ -123,13 +123,13 @@ The same role builds for the Heltec Wireless Stick Lite V3 (ESP32-S3, SX1262, no
 
 ## Android app
 
-Version 0.13.1, signed with the certificate SHA-256 `79750fb49349ec3729be5a3e825507a15e47c6d987e854ae91d5d50a20b3a24d` (see "Install"). Procedure:
+Version 0.13.3, signed with the certificate SHA-256 `79750fb49349ec3729be5a3e825507a15e47c6d987e854ae91d5d50a20b3a24d` (see "Install"). Procedure:
 
 1. In MeshCore Open (the jooray/meshcore-open fork with the Local API) turn on the Local API and connect to your companion node.
 2. Open LibreTag. MeshCore Open asks whether to allow it (the fingerprint is in the LibreTag menu), then whether to add the `#libretag` channel.
 3. **Pairing (Add tag, four steps: plug in, name, where it rests, done):** connect the tracker to the phone with a USB cable (OTG). Android opens LibreTag, the app reads the key, sets the channel, interval, network to auto and your Nostr npub, and then **locks** the tracker: the USB console no longer gives the key out, it exists only in the app. In the third step you can add the place where the tag usually rests. Later settings over USB are unlocked by the app itself (challenge/auth). A tracker locked by another phone can be reset ("Reset pairing" / `unpair`). The app data is excluded from backup and from device-to-device transfer; to move to a new phone use the key backup (menu "Backup": a 12-word recovery phrase and a copy encrypted to your npub on Nostr relays). The tracker has USB ID `2fe3:0007`.
 4. After the first report the tracker appears in the list, and tapping it opens a map (OpenStreetMap) with the position, the next report time and a timeline of its history.
-5. **Commands:** "Lost" (a report every 10 min for 24 h, survives a restart), "Track 1 h" (pick every 2, 5, 10, 15 or 30 min; 5 is preselected), "Beep", and "Stop Lost mode" / "Stop tracking" while one runs. "Bluetooth scan" is under Known devices. The tracker carries them out at its next report or check (otherwise it sleeps); the app says when the command goes out and when the tag confirmed it. The app sends them from its own radio and also puts them in the Nostr mailbox (kind 4244), so any bridge can deliver them too. For a tag nearby with known devices (firmware 0.7.7 or newer) the phone also advertises the command over Bluetooth (`PROTOCOL.md` 3.1).
+5. **Commands:** "Lost" (a report every 10 min for 24 h, survives a restart), "Track" (pick every 2, 5, 10, 15 or 30 min; 5 is preselected), "Beep", and "Stop Lost mode" / "Stop tracking" while one runs. "Bluetooth scan" is under Known devices. The tracker carries them out at its next report or check (otherwise it sleeps); the app says when the command goes out and when the tag confirmed it. The app sends them from its own radio and also puts them in the Nostr mailbox (kind 4244), so any bridge can deliver them too. For a tag nearby with known devices (firmware 0.7.7 or newer) the phone also advertises the command over Bluetooth (`PROTOCOL.md` 3.1).
 6. **Tag settings** (one screen): how often it reports when away, how often it listens for commands between reports (checks), when it stays quiet (places, while your devices are near, when it has not moved), and what to tell you (not heard when expected, low battery).
 7. **Places:** GPS places drawn on the map and, for tags without GPS, Wi-Fi places snapped with the tag on the cable at the place itself. The tag stays quiet inside a place and reports when it leaves. Each place has its own switches for a notification when the tag leaves and when it arrives. These are notifications, not alarms.
 8. **Alarms and alerts:** only "Guard" is an alarm (the tag moved more than 300 m from the guarded spot). Lost mode always notifies. Per tag: "not heard when expected" and low battery (from 25 %: a notification and a Nostr DM to the owner from the tracker's own key, sent by the app; below 10 % the tracker sends the DM itself over the mesh). The menu "Tracker's Nostr contact" shows its npub, and the app sends a welcome DM at pairing.

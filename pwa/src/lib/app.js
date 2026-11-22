@@ -8,16 +8,18 @@ import { buildBackupBEvent, buildDeletionB, findBackupB, ownerRelays, randomLoca
 import { makeTag, tagsFromBackup } from './keys.js';
 import { FIRST_SYNC, NOSTR_REPORT_KIND, REPORT_P_LEN, REPORT_P_LEN_STEALTH, ReportWindow, WINDOW_AHEAD } from './lt2.js';
 import { fetchAllReports, findBeyondWindow } from './sync.js';
-import { COMMAND_KINDS, LOST_MIN, TRACK_MIN, anchorEntries, buildCommand, cancelEvents, mailboxEntries, newGroup, nextSeq, notYetOut,
+import { CHECK_S_DEFAULT } from './status.js';
+import { LOST_MIN, QUEUE_KINDS, TRACK_MIN, splitForPeriod, anchorEntries, buildCommand, cancelEvents, mailboxEntries, newGroup, nextSeq, notYetOut,
   pruneAnchors, sentOf, signEntry } from './mailbox.js';
 import { mergePayloads, plaintextOf } from './merge.js';
 import { checkMnemonic, normalizeMnemonic } from './mnemonic.js';
 import { lazySigner, restoreSession } from './signer.js';
 import { cacheKey, clearCache, openCache, readCacheBlob, saveHandoff, serializeTag, takeHandoff } from './vault.js';
 import { clearSession, loadSession, saveSession } from './session.js';
-import { statusOf, sortTags } from './status.js';
+import { GUARD_M, guardOf, intervalMinOf, mapTarget, reportEveryOf, statusOf, sortTags } from './status.js';
 import { exactNs, mergeReport, reportTimeMs, upgrades } from './reports.js';
-import { zoneStep } from './geo.js';
+import { distanceM, zoneStep } from './geo.js';
+import { counterBack } from './gaps.js';
 import { INBOX_INDEXERS, KIND_DM_RELAYS, MAX_EXTRA, KIND_RELAY_LIST, dmTargets, inboxLists, ownerHex, profileEvent, publishEach, welcomeEvent, welcomeWrap } from './welcome.js';
 import { generateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
@@ -107,8 +109,15 @@ export class App {
    * read relays (the Android app's rule). Returns [{ url, ok, reason }] for the DM that counted, with
    * `nip17` true/false, or null without an owner or K0.
    */
-  async sendWelcome(t, text) {
-    const to = this.ownerPubkey;
+  async sendWelcome(t, text) { return this._sendDm(t, this.ownerPubkey, text); }
+
+  /**
+   * The invite DM of a share: the same NIP-17 message as the welcome, from the tag's own Nostr key to
+   * `to` (npub or hex). Only a tag with K0 has that key. null without it or with an unusable npub.
+   */
+  async sendInvite(t, to, text) { return this._sendDm(t, ownerHex(to), text); }
+
+  async _sendDm(t, to, text) {
     if (!to || !t?.k0 || !t.chain) return null;
     const dmSk = t.chain.dmSk;
     let lists = [];
@@ -186,9 +195,47 @@ export class App {
 
   /** A single tracker by pasted or scanned key: read-only on the backup side, never written to it. */
   addFromParsed(parsed) {
+    if (parsed.shared) return this._addShared(parsed);
     const b = makeTag(parsed, this.tags.map((x) => x.mark), parsed.name || 'Tag');
     b.tag.imported = true;
     return this.addTags([b]);
+  }
+
+  /**
+   * A share arrives. A tag whose own keys already open it (same id) is left alone, as in the Android
+   * app. The same tag shared again, say with full access now, replaces the level of the old record.
+   * Returns the tags added or changed.
+   */
+  _addShared(parsed) {
+    const sh = parsed.shared;
+    if (sh.id && this.tags.some((x) => (x.chain?.k0 ? x.chain.idHex : x.share?.id) === sh.id)) return [];
+    const b = makeTag(parsed, this.tags.map((x) => x.mark), parsed.name || 'Tag');
+    const old = this.tag(b.tag.id);
+    if (old?.share) {
+      old.share = b.tag.share; old.chain = b.chain; old._win = null;
+      if (parsed.sharedBy) old.sharedBy = parsed.sharedBy;
+      this.persist(); this.emit();
+      this.syncTag(old);
+      return [old];
+    }
+    b.tag.imported = true;
+    return this.addTags([b]);
+  }
+
+  /** Remember to whom a link went (a local list, like the Android app's "Shared with"). Nothing is sent. */
+  noteShare(id, who, level, epoch) {
+    const t = this.tag(id);
+    if (!t) return;
+    t.shares = [...(t.shares ?? []), { who, level, since: Date.now(), epoch }];
+    this.persist(); this.emit();
+  }
+
+  /** Forget one entry of the list. The keys stay out there: only a new key over USB cuts someone off. */
+  stopShare(id, since) {
+    const t = this.tag(id);
+    if (!t) return;
+    t.shares = (t.shares ?? []).filter((x) => x.since !== since);
+    this.persist(); this.emit();
   }
 
   setSigner(signer) { this.signer = signer; this.persist(); this.emit(); }
@@ -224,11 +271,12 @@ export class App {
   }
 
   /** Rename / retype a tag, then save the backup. */
-  async editTag(id, { name, type }) {
+  async editTag(id, { name, type, mark }) {
     const t = this.tag(id);
     if (!t) return null;
     t.name = name || t.name;
     if (type) t.type = type;
+    if (mark?.color && mark?.symbol) t.mark = { color: mark.color, symbol: mark.symbol };
     t.updated = nowS();
     this.persist(); this.emit();
     return t.imported ? null : this.saveBackup();
@@ -282,7 +330,9 @@ export class App {
         if ((e.updated ?? 0) > (t.updated ?? 0)) {
           changes++;
           t.name = e.name; t.type = e.type; t.updated = e.updated;
+          const guardBefore = JSON.stringify(t.extra?.guard ?? null);
           t.extra = e.extra ?? {}; t.zones = Array.isArray(e.extra?.zones) ? e.extra.zones : [];
+          if (JSON.stringify(t.extra.guard ?? null) !== guardBefore) { t.guardAlerted = false; if (!t.extra.guard) t.alarm = null; }
           if (Number.isFinite(e.extra?.interval_min)) t.intervalMin = e.extra.interval_min;
           const [color, symbol] = (e.mark || '').split('-');
           if (color && symbol) t.mark = { color, symbol };
@@ -347,16 +397,73 @@ export class App {
     return this.publish([await buildBackupBEvent(this.signer, this.meta.d, '', now, true), await buildDeletionB(this.signer, this.signer.pubkey, this.meta.d, now)], relays);
   }
 
+  /**
+   * What the app assumes about a tag's report period (minutes; null = detect it from the reports): the wake-up interval
+   * and report_every are split from it as the Android app does. Nothing is sent to the tag (that is the INTERVAL command).
+   */
   setInterval(id, minutes) {
     const t = this.tag(id);
     if (!t) return;
-    t.intervalMin = minutes;
+    if (minutes == null) t.intervalMin = null;
+    else {
+      const [wake, every] = splitForPeriod(minutes, intervalMinOf(t) ?? 60, reportEveryOf(t));
+      t.intervalMin = wake;
+      if (every !== reportEveryOf(t)) t.extra = { ...(t.extra ?? {}), report_every: every };
+    }
     if (!t.imported && t.k0) { t.updated = nowS(); if (this.canSaveBackup) this.saveBackup().catch(() => {}); }
     this.persist(); this.emit();
   }
 
-  /** Clear the "left a zone" alarm. */
-  clearAlarm(id) { const t = this.tag(id); if (t) { t.alarm = null; this.persist(); this.emit(); } }
+  /**
+   * Guard the tag's last GPS position (the backup's `guard`, which the Android app reads too): an alarm when a fix lands
+   * more than GUARD_M away. Returns false without a position, else the result of saving the backup (null for a tag that
+   * is not in the backup: it guards in this browser only).
+   */
+  async guardHere(id) {
+    const t = this.tag(id);
+    const at = t && mapTarget(t, t.positions.at(-1));
+    if (!at) return false;
+    t.extra = { ...(t.extra ?? {}), guard: { lat: at.lat, lon: at.lon, r_m: GUARD_M, since: nowS() } };
+    t.alarm = null; t.guardAlerted = false;
+    return this._settingChanged(t);
+  }
+
+  /** Stop guarding (also the answer to a guard alarm). */
+  async guardOff(id) {
+    const t = this.tag(id);
+    if (!t) return null;
+    t.extra = { ...(t.extra ?? {}), guard: null };
+    t.alarm = null; t.guardAlerted = false;
+    return this._settingChanged(t);
+  }
+
+  async _settingChanged(t) {
+    t.updated = nowS();
+    this.persist(); this.emit();
+    return t.imported || !t.k0 ? null : this.saveBackup();
+  }
+
+  /** Back online or the tab woke up: ask the relays again for what came while this browser could not listen. */
+  catchUp(force = false) {
+    const now = Date.now();
+    if (!force && now - (this._caughtUp ?? 0) < 120_000) return;
+    this._caughtUp = now;
+    for (const t of this.tags) if (!this.syncing.has(t.id)) this.syncTag(t);
+  }
+
+  /** What the diagnosis needs to know about this browser: online, how many relays answer, a catch-up running. */
+  diagContext(t) {
+    const rs = this.relayStatus();
+    return { online: typeof navigator === 'undefined' || navigator.onLine !== false, relaysUp: rs.filter((r) => r.ok).length,
+      relaysAll: rs.length, syncing: this.syncing.has(t.id) };
+  }
+
+  /** The tag took a new report interval: remember it (and tell the backup, so the Android app and the next sign-in know). */
+  _intervalTaken(t, pend) {
+    t.intervalMin = pend.wakeMin;
+    t.extra = { ...(t.extra ?? {}), report_every: pend.every, check_s: pend.checkS > 0 ? pend.checkS : 0 };
+    if (!t.imported && t.k0) { t.updated = nowS(); if (this.canSaveBackup) this.saveBackup().catch(() => {}); }
+  }
 
   /** Put a single-tag import into the backup. Returns false when there is no backup to save to yet. */
   async addToBackup(id) {
@@ -466,11 +573,12 @@ export class App {
       const parsed = s.k0 ? { k0: s.k0, name: s.name, type: s.type, mark: s.mark }
         : { shared: s.share, name: s.name, type: s.type, mark: s.mark };
       const { chain, tag } = makeTag(parsed, [], s.name);
-      this.tags.push({ ...tag, chain, positions: s.positions ?? [], lastN: s.lastN ?? -1, cmdSeq: s.cmdSeq,
+      this.tags.push({ ...tag, chain, sharedBy: s.sharedBy, shares: s.shares ?? [], positions: s.positions ?? [], lastN: s.lastN ?? -1, cmdSeq: s.cmdSeq,
         pending: s.pending, lastCommand: s.lastCommand, modeUntil: s.modeUntil,
         modeIntervalS: s.modeIntervalS, intervalMin: s.intervalMin ?? null, updated: s.updated ?? 0, imported: !!s.imported,
         extra: s.extra ?? {}, zones: s.zones ?? [], alarm: s.alarm ?? null, inZone: s.inZone ?? null, syncedTo: s.syncedTo ?? null,
-        mbAnchors: s.mbAnchors ?? {} });
+        mbAnchors: s.mbAnchors ?? {}, leftPlace: s.leftPlace ?? null, leftAt: s.leftAt ?? null, guardAlerted: !!s.guardAlerted,
+        counterBackAt: s.counterBackAt ?? null });
     }
     this.emit();
     for (const t of this.tags) this.syncTag(t);
@@ -708,14 +816,23 @@ export class App {
     if (approxUntil != null) pos.approxUntil = Math.max(approxUntil, receivedAt);
     // the first exact copy of the newest report: its checks can be scheduled now
     const upgrade = upgrades(t, pos);
+    if (counterBack(t.positions, pos)) t.counterBackAt = receivedAt; // a second tag on this key, or a restored state
     mergeReport(t.positions, pos, MAX_POSITIONS);
     // the latest time it can have been heard
     const heardBy = pos.approxUntil ?? receivedAt;
     t.lastN = Math.max(t.lastN, n);
     if (isNew && r.hasFix && t.zones?.length) {
       const step = zoneStep(t.zones, t.inZone, r);
-      if (step.left) t.alarm = { zone: step.left, at: receivedAt };
+      // leaving a place is an event shown for 12 h (Android 0.9), not a latched alarm; leaving with your own device is none
+      if (step.left && r.quietReason !== 'owner') { t.leftPlace = step.left; t.leftAt = receivedAt; }
       t.inZone = step.inZone;
+      if (step.inZone) { t.leftPlace = null; t.leftAt = null; }
+    }
+    // the guard: a fix further than the radius from the guarded spot raises the alarm once
+    const guard = guardOf(t);
+    if (isNew && guard && r.hasFix && !t.guardAlerted && distanceM(guard.lat, guard.lon, r.lat, r.lon) > (guard.r_m || GUARD_M)) {
+      t.alarm = { guard: true, at: receivedAt };
+      t.guardAlerted = true;
     }
     let confirmed = false;
     const pend = t.pending;
@@ -725,6 +842,7 @@ export class App {
       if (pend.kind === 'LOST') { t.modeUntil = receivedAt + LOST_MIN * 60_000; t.modeIntervalS = 600; }
       else if (pend.kind === 'TRACK') { t.modeUntil = receivedAt + (pend.durationMin ?? TRACK_MIN) * 60_000; t.modeIntervalS = pend.intervalS ?? 300; }
       else if (pend.kind === 'NORMAL') { t.modeUntil = null; t.modeIntervalS = null; }
+      else if (pend.kind === 'INTERVAL') this._intervalTaken(t, pend);
       // the tag took it: entries for later checks would only flood the mesh for nothing
       const rest = cancelEvents(pend.sent, t.chain);
       t.pending = null;
@@ -769,15 +887,16 @@ export class App {
   // ---------------------------------------------------------------- commands
 
   /** Queue a command: sealed for the next reports (and checks), published to the mailbox signed with sk_n (PROTOCOL.md 4.2). */
-  async queueCommand(id, kind, arg = 0, durationMin = 0) {
+  async queueCommand(id, kind, arg = 0, durationMin = 0, opts = {}) {
     const t = this.tag(id);
-    if (!t || !t.chain.canCommand || !COMMAND_KINDS.includes(kind)) return { ok: 0, events: 0 };
+    if (!t || !t.chain.canCommand || !QUEUE_KINDS.includes(kind)) return { ok: 0, events: 0 };
     const seq = nextSeq(t);
     t.cmdSeq = seq;
     this._stopQueue(t.id);
-    t.pending = { seq, kind, body: [...buildCommand(kind, seq, arg, durationMin)].map((b) => b.toString(16).padStart(2, '0')).join(''),
+    t.pending = { seq, kind, body: [...buildCommand(kind, seq, arg, durationMin, opts)].map((b) => b.toString(16).padStart(2, '0')).join(''),
       g: newGroup(), queuedAt: Date.now(), notConfirmed: false, reportsSince: 0,
-      ...(kind === 'TRACK' ? { intervalS: arg > 0 ? arg : 300, durationMin: durationMin > 0 ? durationMin : TRACK_MIN } : {}) };
+      ...(kind === 'TRACK' ? { intervalS: arg > 0 ? arg : 300, durationMin: durationMin > 0 ? durationMin : TRACK_MIN } : {}),
+      ...(kind === 'INTERVAL' ? { wakeMin: arg, every: opts.every ?? 1, checkS: opts.checkS ?? CHECK_S_DEFAULT } : {}) };
     this.persist(); this.emit();
     this.publishAnchors(t).catch(() => {});
     return this.publishPending(t);

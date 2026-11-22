@@ -2,6 +2,24 @@
 
 LibreTag has four parts with their own version numbers. The first public release is a preview of all of them at once. The development history before it is not public; the main steps are summarised below. Details per version: `firmware/README.md` for the firmware, `docs/release-notes/` for each component.
 
+## Firmware 0.9.6: back across a border without a fix
+
+| Part | Version |
+|---|---|
+| Tracker firmware | 0.9.6 |
+
+A tag that switched to a neighbouring country's network and came back without a GPS fix (in a bag, a car, indoors) used to stay on the foreign network. Now it remembers the network it was on before its last switch. When a report has no fix and the home network has been silent for 3 listen windows, the report also goes out as copy `j = 1` on that previous network, unless the network is set by hand or the tag is above its daily flood cap. `status` and `network` show the previous network (SPEC 6.4, `firmware/README.md` 0.9.6). Release notes: `docs/release-notes/firmware-0.9.6.md`.
+
+## 0.13.3: share a tag with full access
+
+| Part | Version |
+|---|---|
+| Android app | 0.13.3 |
+| Tracker firmware | 0.9.5 or newer; bundles 0.9.6 |
+| Web app | 0.4.0 |
+
+**Share** has a third level, **Full access**, for your own devices. The link also carries the tracker's `usb_key` and `id` (`uk`, `id`; PROTOCOL.md 1), never `K0`, so the other device unlocks the USB console and opens the Bluetooth console like the owner's phone. The app warns before it shows the code: whoever has it can re-key or unpair the tag. On a laptop, `libretag share import` stores the keys in a mode 600 file and `libretag console` (USB) or `tools/blecon.py --tag` (Bluetooth) use them to unlock. Also: **Copy link** in the share sheet, the **Track** button without "1 h", and the firmware update screen translated. Release notes: `docs/release-notes/app-0.13.3.md`.
+
 ## 0.13.1: wake a nearby tag over Bluetooth
 
 | Part | Version |
@@ -37,6 +55,8 @@ Release notes: `docs/release-notes/firmware-0.9.4.md`, `app-0.12.0.md`, `bridge-
 
 ## Tracker firmware
 
+- **0.9.6**: without a fix and with the home network silent, a second copy of the report goes to the network the tag was on before its last switch.
+- **0.9.5**: the phone's console wake advert opens the Bluetooth console of a tag whose reports the phone missed.
 - **0.9.4**: the first report after a boot is marked, and without a fix it also carries the reset cause and the number of resets in a row.
 - **0.9.3**: every wake-up runs a 1.5 s Bluetooth scan for a command advertised by the owner's phone, also the listen-only wake-ups between reports.
 - **0.9.2**: `BLE_CONSOLE` command opens the Bluetooth console window remotely.
@@ -68,6 +88,7 @@ Release notes: `docs/release-notes/firmware-0.9.4.md`, `app-0.12.0.md`, `bridge-
 
 ## Web app
 
+- **0.4.0**: parity with the Android app for everything that works over Nostr: share with full access (`uk`, `id`), share on from a shared tag, invite by Nostr DM, a Shared with list; a missed report is tolerated, leaving a place is an event, guard; why a tag is late with All checks; battery estimate; report interval sent as a command; units; mark in Edit; support ask. Area estimate and Wi-Fi lookup stay out: the services allow no requests from a browser.
 - **0.3.1**: reads the boot flag in firmware 0.9.4 reports.
 - **0.3.0**: the signed mailbox.
 - **0.2.x**: NIP-17 welcome DM, the 10 % battery alert, GPX and CSV export, Wi-Fi reports.

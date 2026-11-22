@@ -25,6 +25,17 @@ firmware/tools/zephcore.sh export
 
 We split the commits in the clone by topic (radio, GPS, USB, tracker role), so that rebase conflicts are resolved in small pieces.
 
+## 0.9.6: back across a border without a fix
+
+- The tracker keeps the **previous network**: the radio preset, path hash size, region and country it left at its last automatic switch (`adopt_net`, only when the radio changes and the old radio is a known preset). It is saved in the state file next to the home network (`prev_preset`, `prev_country`, `prev_path_hash_size`, `prev_scope`; extension magic `LT96`; a 0.7.6 to 0.9.5 state with `LT76` is read with its own CRC and starts with no previous network).
+- A report **without a fix** also goes out as copy `j = 1` on the previous network when the home network was silent in the last 3 listen windows (`HOME_SILENT_WINDOWS`, as for the border copy), the previous network uses another radio than home, the network is not manual (`cfg.region_manual`) and the daily flood cap is not reached. It reuses the border copy path: `alt_net`, `txq_alt`, the radio override and `radio_home()`, the region key, and the history flag 32. Log: `no fix: copy j=1 on CZ's network (previous)`.
+- The home network still changes only with a fix. After the copy the radio goes back home for the listen window, so the tag does not hear the previous network and cannot tell whether the copy got through. Switching home back on an answer would need a listen window on the other radio; that was left out.
+- Why: a field test on 2026-11-22. A tag crossed from Slovakia into Czechia and took the Czech network, then came back in a bag without a fix and kept sending on the Czech network, where nobody heard it. SPEC 6.4 said "try presets in turn" for this case; it was never implemented, and this replaces it.
+- Cost: one more flood per report without a fix while the home network is silent, so at most doubling the reports in that state, within the 200 floods a day cap.
+- Console: `status` has a `previous network:` line; `network` (no argument) prints the home network with its radio and the previous one.
+- Sizes: Wio Tracker L1 flash 451764 B (65 %), RAM 110896 B; ESP32-S3 DRAM 312 KB of 399108 B.
+- Patch 0042. **Needs a bench check:** built for both boards, not flashed or run on hardware yet. To check: `where` in two countries, a `status` after a switch, then a report without a fix after 3 silent windows (log line, two floods in `txcap`).
+
 ## 0.9.5: the phone's console wake advert
 
 - A new advert from the phone (PROTOCOL.md 3.2): manufacturer data, company `0xFFFF`, 13 B `0x26 || salt[6] || HMAC(usb_key, "LT2-bcon-wake" || salt)[0:6]`. Every scan that looks for a command advert (presence, LOST, the 0.9.3 command scan) also looks for it. A match opens the Bluetooth console window for 180 s, as a `BLE_CONSOLE` command with argument 0 does: a locked tag, above the transmit floor, not closed after 5 failed handshakes. `blecon boot off` and the resets in a row do not apply. If the window is already open, the advert is ignored. The tag sends no report for it and needs no `n`. Patch 0041; `lt_bcon_wake`, `lt_bcon_wake_match`, `lt_bcon_wake_find` in lt_core, `bcon_wake*` in the Python reference, vectors `bcon_wake` in `lt2.json`.

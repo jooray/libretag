@@ -117,6 +117,7 @@
     </plurals>
     <string name="sub_shared_view">Met je gedeeld door %1$s · alleen bekijken</string>
     <string name="sub_shared_control">Met je gedeeld door %1$s · bekijken en bedienen</string>
+    <string name="sub_shared_admin">Met je gedeeld door %1$s · volledige toegang</string>
     <string name="pos_none">Nog geen positie</string>
     <string name="pos_gps">GPS ±%1$s · %2$s</string>
     <string name="pos_gps_noacc">GPS · %1$s</string>
@@ -130,7 +131,7 @@
     <string name="pos_no_repeater">Geen GPS · geen repeater ontvangen</string>
     <string name="pos_no_gps">Geen GPS</string>
     <string name="cmd_lost">Verloren</string>
-    <string name="cmd_track">1 u volgen</string>
+    <string name="cmd_track">Volgen</string>
     <string name="cmd_beep">Piepen</string>
     <string name="cmd_normal">Normaal</string>
     <string name="commands">Commando’s</string>
@@ -344,6 +345,12 @@
     <string name="share_view_sub">Ziet posities vanaf nu. Kan geen commando’s sturen.</string>
     <string name="share_control">Bekijken en bedienen</string>
     <string name="share_control_sub">Ziet posities en kan elk commando sturen, ook Verloren.</string>
+    <string name="share_admin">Volledige toegang</string>
+    <string name="share_admin_sub">Ziet posities, kan elk commando sturen en de instellingen van de tracker wijzigen via de kabel of Bluetooth. Bedoeld voor je eigen apparaten.</string>
+    <string name="share_admin_warn_title">Volledige toegang geven?</string>
+    <string name="share_admin_warn">Deze code bevat de consolesleutel van de tracker. Wie hem heeft, kan de instellingen van de tracker wijzigen, hem een nieuwe sleutel geven of de koppeling verbreken, en je kunt de sleutel niet terugnemen. Deel hem alleen met je eigen apparaten of met iemand die je volledig vertrouwt.</string>
+    <string name="share_admin_warn_ok">Code tonen</string>
+    <string name="share_admin_note">Deze code bevat de consolesleutel van de tracker. Plaats hem nergens openbaar en stuur hem niet naar iemand die je niet volledig vertrouwt.</string>
     <string name="share_send_with">Versturen via</string>
     <string name="share_qr">QR-code</string>
     <string name="share_dm">Nostr-DM</string>
@@ -360,10 +367,14 @@
     <string name="share_stop">Delen stoppen</string>
     <string name="share_stopped">Delen met %1$s gestopt. Wat al gezien is, blijft zichtbaar. Om de toegang helemaal af te sluiten, geef je de tracker via USB een nieuwe sleutel.</string>
     <string name="share_someone_qr">Iemand (QR-code)</string>
+    <string name="share_copy_link">Link kopiëren</string>
+    <string name="share_link_copied">Link gekopieerd</string>
+    <string name="share_someone_link">Iemand (link)</string>
     <string name="share_scan_prompt">Scan de code van de telefoon van de trackereigenaar</string>
     <string name="share_import_title">Gedeelde tracker toevoegen</string>
     <string name="share_import_view">Alleen bekijken: je ziet zijn posities vanaf nu. Commando’s sturen kan niet.</string>
     <string name="share_import_control">Bekijken en bedienen: je ziet zijn posities vanaf nu en kunt elk commando sturen, ook Verloren.</string>
+    <string name="share_import_admin">Volledige toegang: je ziet zijn posities vanaf nu, kunt elk commando sturen en zijn instellingen wijzigen via de kabel of Bluetooth.</string>
     <string name="share_import_by">Gedeeld door</string>
     <string name="share_import_ok">Toevoegen</string>
     <string name="share_import_someone">iemand</string>
