@@ -17,7 +17,7 @@ class ApproxReportTest {
     private fun quiet(n: Long, atMs: Long, approxUntil: Long? = null, via: String = "nostr") = Position(
         fixTime = 0, receivedAt = atMs, hasFix = true, lat = 48.70, lon = 21.25, altM = 0, battery = 77,
         mode = "IDLE", hops = null, snrDb = 0.0, via = via, n = n, quiet = true, quietReason = "owner",
-        nextInS = 8 * 3600L, checks = true, approxUntil = approxUntil)
+        nextInS = 8 * 3600L, sync = true, approxUntil = approxUntil)
 
     private fun plan(p: Position) = CheckPlan(p.n, p.receivedAt, 60, listOf(3500L, 7300L, 10700L))
 
@@ -46,8 +46,8 @@ class ApproxReportTest {
 
     @Test fun approxReportIsShownButHasNoChecks() {
         val p = quiet(12, now - 300 * min, approxUntil = now - 60 * min)
-        // even a plan stored for this n (it never should be) is not used
-        val t = Tracker(name = "Car", keyHex = "00", lastN = 12, positions = listOf(p), checkPlan = plan(p))
+        // no anchor is ever made from an approximate time (the app's anchor stays empty)
+        val t = Tracker(name = "Car", keyHex = "00", lastN = 12, positions = listOf(p))
         assertNull(Status.checkPlan(t))
         val s = Status.of(t, now)
         assertEquals(StatusKind.QUIET, s.kind)
@@ -61,7 +61,7 @@ class ApproxReportTest {
     }
 
     @Test fun approxNormalReportNextIsFromDrainTime() {
-        val p = quiet(12, now - 200 * min, approxUntil = now - 30 * min).copy(quiet = false, nextInS = null, checks = false)
+        val p = quiet(12, now - 200 * min, approxUntil = now - 30 * min).copy(quiet = false, nextInS = null, sync = false)
         val t = Tracker(name = "Car", keyHex = "00", lastN = 12, positions = listOf(p), intervalMin = 60)
         val s = Status.of(t, now)
         assertEquals(StatusKind.OK, s.kind) // not silent: the drain time bounds it
@@ -75,7 +75,7 @@ class ApproxReportTest {
         assertTrue(ReportMerge.upgrades(t, exact))
         val merged = ReportMerge.merge(t.positions, exact, 100)
         assertEquals(listOf(exact), merged)
-        val t2 = t.copy(positions = merged, checkPlan = plan(exact))
+        val t2 = t.copy(positions = merged, anchor = AnchorState(a = plan(exact)))
         assertEquals(plan(exact), Status.checkPlan(t2))
         assertEquals(exact.receivedAt + 7300_000L, Status.of(t2, now).nextCheckAt)
         // a later approximate copy does not replace the exact one

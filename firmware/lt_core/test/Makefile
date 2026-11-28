@@ -7,7 +7,7 @@ SECP_DEFS = -DENABLE_MODULE_ECDH=1 -DENABLE_MODULE_EXTRAKEYS=1 -DENABLE_MODULE_S
             -DECMULT_WINDOW_SIZE=8 -DCOMB_BLOCKS=11 -DCOMB_TEETH=6
 SECP_SRC = $(SECP)/src/secp256k1.c $(SECP)/src/precomputed_ecmult.c $(SECP)/src/precomputed_ecmult_gen.c
 
-all: host_test nostr_test region_test
+all: host_test nostr_test region_test qm_test link_test
 
 host_test: host_test.c openssl_hooks.c ../lt_core.c ../lt_core.h lt2_vectors.h
 	$(CC) $(CFLAGS) -o $@ host_test.c openssl_hooks.c ../lt_core.c $(LDFLAGS) -lm
@@ -25,12 +25,23 @@ nostr_test: nostr_test.c openssl_hooks.c ../lt_nostr.c ../lt_nostr.h ../lt_core.
 region_test: region_test.c openssl_hooks.c ../lt_region.c ../lt_region.h ../lt_country_grid.c ../lt_core.c
 	$(CC) $(CFLAGS) -o $@ region_test.c openssl_hooks.c ../lt_region.c ../lt_country_grid.c ../lt_core.c $(LDFLAGS) -lm
 
+qm_vectors.h: gen_qm_vectors.py quiet-mesh-v1.json
+	python3 gen_qm_vectors.py
+
+qm_test: qm_test.c openssl_hooks.c ../lt_core.c ../lt_core.h ../lt_region.c ../lt_country_grid.c qm_vectors.h
+	$(CC) $(CFLAGS) -o $@ qm_test.c openssl_hooks.c ../lt_core.c ../lt_region.c ../lt_country_grid.c $(LDFLAGS) -lm
+
+link_test: link_test.c openssl_hooks.c ../lt_core.c ../lt_link.c ../lt_core.h
+	$(CC) $(CFLAGS) -o $@ link_test.c openssl_hooks.c ../lt_core.c ../lt_link.c $(LDFLAGS) -lm
+
 test: all
 	./host_test
+	./qm_test
+	./link_test
 	./nostr_test
 	./region_test
 
 clean:
-	rm -f host_test nostr_test region_test *.o
+	rm -f host_test nostr_test region_test qm_test link_test *.o
 
 .PHONY: all test clean

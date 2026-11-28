@@ -5,6 +5,13 @@ import app.nostrmesh.BuildConfig
 import app.nostrmesh.bridge.LoRaPreset
 import app.nostrmesh.bridge.Route
 import app.nostrmesh.bridge.RxMeta
+import app.nostrmesh.bridge.TxResult
+import app.nostrmesh.bridge.Airtime
+import io.github.jooray.meshcore.localapi.ApiResponse
+import io.github.jooray.meshcore.localapi.ApiResult
+import io.github.jooray.meshcore.localapi.MeshCoreApiClient
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import app.nostrmesh.data.Settings
 import io.github.jooray.meshcore.localapi.Capabilities
 import io.github.jooray.meshcore.localapi.CursorStore
@@ -33,10 +40,23 @@ fun Route.toApi(): ApiRoute = when (this) {
     is Route.Direct -> ApiRoute.Direct(path, hashSize)
 }
 
-/** What the server said about a received datagram, in the bridge's terms. */
-fun MeshEvent.ChannelData.meta() = RxMeta(
+/**
+ * What the server said about a received datagram, in the bridge's terms. `queued` (`rx_queued`), `transportCode`
+ * and `scope` (`rx_scope`) are taken as the server gives them when it advertises the capability (meshcore-local-api
+ * 0.2.0 passes them). Only a server without `rx_queued` but with `rx_path` is read by the old rule: a frame drained
+ * from the radio's offline queue comes without `path` and `rssiDbm` (LOCAL_API.md), so it counts as queued and its
+ * time is approximate (R22).
+ */
+fun MeshEvent.ChannelData.meta(caps: Set<String> = emptySet()) = RxMeta(
     hops = hops, path = path, pathHashSize = pathHashSize, routeType = routeType, snrDb = snrDb,
     rssiDbm = rssiDbm, receivedAtMs = receivedAtMs,
+    queued = when {
+        Capabilities.RX_QUEUED in caps -> queued.takeIf { it }
+        Capabilities.RX_PATH in caps && routeType != null && path == null && rssiDbm == null -> true
+        else -> null
+    },
+    transportCode = transportCode.takeIf { Capabilities.RX_SCOPE in caps },
+    scope = scope.takeIf { Capabilities.RX_SCOPE in caps },
 )
 
 /** `radio.stats.preset` as the bridge's airtime preset; null when invalid. */
@@ -168,11 +188,51 @@ class BridgeMesh(
      * Sends on any subscribed channel. False when not connected or refused. A [route] other than
      * flood needs `tx_path_data`: without it the library sends nothing (an older server would flood).
      */
-    suspend fun sendData(channel: String, dataType: Int, payload: ByteArray, route: Route = Route.Flood): Boolean {
+    suspend fun sendData(
+        channel: String, dataType: Int, payload: ByteArray, route: Route = Route.Flood, region: String? = null,
+    ): TxResult {
         val s = session
-        if (s.state.value !is SessionState.Connected) return false
-        // Empty: the server applies the channel's or the radio's own flood scope.
-        val region = settings.meshRegion.trim().ifEmpty { null }
-        return s.sendData(payload, dataType, channel, region, route.toApi()).isOk
+        if (s.state.value !is SessionState.Connected) {
+            return TxResult(false, if (s.state.value == SessionState.NoRadio) "not_connected" else "disconnected")
+        }
+        // a short zero-hop or direct send (an ACK, a direct command) must not wait behind the send gap: tx_now
+        if (route != Route.Flood && TX_NOW in s.capabilities && Capabilities.TX_PATH_DATA in s.capabilities &&
+            Airtime.channelPacketBytes(payload.size, (route as? Route.Direct)?.path?.size ?: 0) - 2 <= TX_NOW_MAX_BYTES) {
+            val params = MeshCoreApiClient.sendDataParams(channel, dataType, payload, null, route.toApi())
+            val r = s.request("channel.sendData", JsonObject(params + ("priority" to JsonPrimitive("now"))))
+            return when (r) {
+                is ApiResponse.Ok -> TxResult(true)
+                is ApiResponse.Error -> TxResult(false, r.error.code)
+                ApiResponse.Timeout -> TxResult(false, "timeout")
+                else -> TxResult(false, "disconnected")
+            }
+        }
+        // null: the server applies the channel's or the radio's own flood scope
+        val r = s.sendData(payload, dataType, channel, region?.trim()?.ifEmpty { null }, route.toApi())
+        return when (r) {
+            is ApiResult.Ok -> TxResult(true)
+            is ApiResult.Failed -> TxResult(false, r.error.code)
+        }
+    }
+
+    /** `radio.stats` as a probe of the radio itself (servers with `radio_stats`); null when not offered. */
+    suspend fun probe(): Boolean? {
+        val s = session
+        if (Capabilities.RADIO_STATS !in s.capabilities) return null
+        return s.client?.radioStats()?.isOk == true
+    }
+
+    /** MeshCore Open's own word on its radio: `device.connected`, or the NoRadio state. */
+    val radioConnected: Boolean?
+        get() = when (state.value) {
+            SessionState.NoRadio -> false
+            is SessionState.Connected -> session.device.value?.connected ?: true
+            else -> null
+        }
+
+    companion object {
+        const val TX_NOW = "tx_now"
+        /** `priority: now` is for payloads of at most 40 B on air. */
+        const val TX_NOW_MAX_BYTES = 40
     }
 }

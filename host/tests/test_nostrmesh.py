@@ -279,20 +279,29 @@ def test_companion_adapter_handshake_receive_send():
     got = []
     cs = CompanionSerial("x", ["#nostr", "#roadstr"], add_channels=True, ser=fake, poll_s=0.05)
     payload = b"\x01" + bytes(101)
-    fake.queue.append(bytes([0x1B, 8, 0, 0, 1, 2, 0x50, 0x01, 3]) + b"abc")      # #roadstr, 2 hops
+    fake.queue.append(bytes([0x1B, 8, 0, 0, 1, 0x42, 0x50, 0x01, 3]) + b"abc")   # #roadstr flood, 2 hops, hash 2
+    fake.queue.append(bytes([0x1B, 8, 0, 0, 1, 0xFF, 0x50, 0x01, 3]) + b"def")   # 0xFF: a DIRECT packet
     fake.queue.append(bytes([0x11, 0, 0]) + b"chat message, ignored")
     cs.start(got.append)
     import time
 
     for _ in range(100):
-        if got:
+        if len(got) >= 2:
             break
         time.sleep(0.01)
     assert cs.idx_by_name == {"#roadstr": 1, "#nostr": 2}
     # queued before the bridge connected: heard at an unknown time (stale), never a trigger
-    assert got == [Datagram("#roadstr", 0x0150, b"abc", 2, 2.0, stale=True)]
+    assert got[0] == Datagram("#roadstr", 0x0150, b"abc", 2, 2.0, path_hash_size=2, route_type="flood", stale=True)
+    # ZephCore writes 0xFF for anything that is not a flood: DIRECT, hop count unknown (R36)
+    assert got[1] == Datagram("#roadstr", 0x0150, b"def", None, 2.0, path=[], route_type="direct", stale=True)
+    assert got[1].heard_direct and not got[0].heard_direct
     cs.send("#nostr", frames.DATA_TYPE_NOSTR, payload)
-    assert fake.sent[-1] == bytes([0x3E, 2, 0xFF]) + struct.pack("<H", 0xFF4E) + payload
+    assert fake.sent[-1] == bytes([0x3E, 2, 0xFF]) + struct.pack("<H", 0xFF4E) + payload  # flood
+    cs.send_direct("#nostr", frames.DATA_TYPE_NOSTR, payload, [])
+    assert fake.sent[-1] == bytes([0x3E, 2, 0x00]) + struct.pack("<H", 0xFF4E) + payload  # zero-hop
+    cs.send_direct("#nostr", frames.DATA_TYPE_NOSTR, payload, [b"\xa1\xb2"], 2)
+    assert fake.sent[-1] == bytes([0x3E, 2, 0x41, 0xA1, 0xB2]) + struct.pack("<H", 0xFF4E) + payload
+    assert cs.supports_direct and not cs.supports_path and cs.radio_connected
     cs.close()
 
 
@@ -363,6 +372,12 @@ def make_bridge(now=T0 + 10, downlink=False, registry=None, radio=None, rng_seed
         cfg.downlink.profiles[p] = True
     cfg.airtime.budget_pct = 100  # the budget has its own tests
     cfg.libretag.publish_delay_max_s = 0.01
+    cfg.libretag.fast_publish_min_s = cfg.libretag.fast_publish_max_s = 0.005
+    cfg.libretag.fallback_after_s = 0.05
+    cfg.libretag.ack_jitter_min_s = cfg.libretag.ack_jitter_max_s = 0.001
+    cfg.libretag.claim_routed_ack_s = 0.02
+    cfg.libretag.timed_retry_s = 0.01
+    cfg.watchdog.rx_silence_s = 0  # radio health has its own tests (test_quietmesh_bridge.py)
     cfg.libretag.claim_wait_s = 0.02
     clock = {"t": now}
     br = Bridge(cfg, radio or MemoryRadio(), FakePool(), Ledger(), registry or Registry(),

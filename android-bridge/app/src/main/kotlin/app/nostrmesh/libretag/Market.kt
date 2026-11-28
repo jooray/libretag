@@ -18,14 +18,15 @@ object Market {
     const val RECEIPT_KIND = 4245
     const val ANNOUNCE_KIND = 38244
     const val FORMAT2 = "2"
-    val ROUTES = listOf("near", "direct", "flood")
+    val ROUTES = listOf("near", "direct", "flood", "both")
     /** Bridges named per entry that count. */
     const val MAX_P = 4
     /** More p tags than this: the entry is invalid. */
     const val MAX_P_TAGS = 8
     const val RECEIPT_TTL_S = 48L * 3600
     const val ANNOUNCE_TTL_S = 7L * 86400
-    const val DIRECT_MAX_HOPS = 3
+    /** `direct_max_hops` (SPEC 3.2): a path of at most two repeaters; 0 turns direct routing off. */
+    const val DIRECT_MAX_HOPS = QuietMesh.PATH_MAX_HOPS
 
     private val NETWORK = Regex("^[a-z0-9-]{1,32}$")
 
@@ -63,15 +64,23 @@ object Market {
         else -> "4+"
     }
 
-    fun receiptTags(x: String, hops: Int?, heardAtS: Long): List<List<String>> =
-        listOf(listOf("y", x), listOf("hops", hopsClass(hops)), listOf("expiration", (heardAtS + RECEIPT_TTL_S).toString()))
+    /**
+     * A receipt (PROTOCOL.md 4.1, 0.10.0) only for a report heard directly: on a DIRECT route
+     * (`["route", "direct"]`, no hop count, the bridge does not know it) or as a flood with 0 hops (`["hops", "0"]`).
+     */
+    fun receiptTags(x: String, direct: Boolean, heardAtS: Long): List<List<String>> =
+        listOf(listOf("y", x), if (direct) listOf("route", "direct") else listOf("hops", "0"),
+            listOf("expiration", (heardAtS + RECEIPT_TTL_S).toString()))
 
     fun announceTags(
-        network: String, nowS: Long, region: String? = null, preset: List<Long>? = null, relays: List<String> = emptyList(),
-        acceptOpen: Boolean = true, receipts: Boolean = false, anchorLeadS: Long = 60, lateMaxS: Long = 60,
+        network: String, nowS: Long, regions: List<String> = emptyList(), preset: List<Long>? = null,
+        relays: List<String> = emptyList(), acceptOpen: Boolean = true, receipts: Boolean = true, anchorLeadS: Long = 60,
+        lateMaxS: Long = 40, radio: Pair<String, Long>? = null,
     ): List<List<String>> {
         val tags = mutableListOf(listOf("d", network), listOf("k", Lt2.KIND_COMMAND.toString()))
-        if (!region.isNullOrEmpty()) tags += listOf("region", region)
+        regions.filter { it.isNotEmpty() }.forEach { tags += listOf("region", it) } // narrow first (0.10.0)
+        // the state of the radio itself, not of the software (SPEC 3.2 "Radio health")
+        if (radio != null) tags += listOf("radio", radio.first, radio.second.toString())
         if (preset != null) tags += listOf("preset") + preset.map { it.toString() }
         relays.forEach { tags += listOf("relay", it) }
         tags += listOf("signed", anchorLeadS.toString(), lateMaxS.toString())
@@ -83,6 +92,10 @@ object Market {
 
     data class Announcement(
         val pubkey: String, val network: String, val region: String?,
+        /** Every `region` tag, narrow first. */
+        val regions: List<String>,
+        /** ["radio", state, since]: (state, since) or null. */
+        val radio: Pair<String, Long>?,
         /** ["signed", anchor lead s, late max s] (PROTOCOL.md 4.2), or null. */
         val signed: List<Int>?,
         val open: Boolean, val receipts: Boolean, val expires: Long,
@@ -101,7 +114,9 @@ object Market {
         if (d.isNotEmpty() && !isNetwork(d)) return null
         val sg = get["signed"]?.drop(1)?.take(2)?.filter { it.isNotEmpty() && it.length <= 6 && it.all { c -> c in '0'..'9' } }
             ?.map { it.toInt() }?.takeIf { it.size == 2 }
-        return Announcement(ev.pubkey, d, get["region"]?.get(1), sg, (get["open"]?.get(1) ?: "1") == "1",
+        val radio = get["radio"]?.takeIf { it.size >= 3 && it[1] in setOf("up", "down") }
+            ?.let { r -> r[2].takeIf { it.isNotEmpty() && it.length <= 12 && it.all { c -> c in '0'..'9' } }?.let { r[1] to it.toLong() } }
+        return Announcement(ev.pubkey, d, get["region"]?.get(1), tags.filter { it[0] == "region" }.map { it[1] }, radio, sg, (get["open"]?.get(1) ?: "1") == "1",
             (get["receipts"]?.get(1) ?: "0") == "1", exp.toLong())
     }
 }

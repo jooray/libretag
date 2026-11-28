@@ -94,6 +94,29 @@ class RelayPool(
         emit()
     }
 
+    /**
+     * Field test 2026-11-27: a socket can die without a close while the phone dozes (no ping runs
+     * when the CPU sleeps), and a report published then reaches the app only after the next
+     * reconnect, too late for its ACK. Before an expected report the app asks every connected relay
+     * for nothing (a REQ for an id that cannot exist, answered by EOSE); a relay that says nothing
+     * within [timeoutMs] is reconnected at once. Returns how many were reconnected.
+     */
+    suspend fun freshen(timeoutMs: Long = 5_000): Int {
+        val targets = relays.values.filter { it.isConnected }
+        if (targets.isEmpty()) return 0
+        val t0 = System.currentTimeMillis()
+        val id = "ping" + System.nanoTime().toString(36)
+        targets.forEach { it.sendReq(id, listOf(PING_FILTER)) }
+        val deadline = t0 + timeoutMs
+        while (System.currentTimeMillis() < deadline && targets.any { it.lastRxAt < t0 }) delay(200)
+        targets.forEach { it.sendClose(id) }
+        val stale = targets.filter { it.lastRxAt < t0 }
+        stale.forEach { it.kick() }
+        app.libretag.DiagLog.ev("relay_freshen", "checked" to targets.size, "stale" to stale.map { it.url },
+            "ms" to System.currentTimeMillis() - t0)
+        return stale.size
+    }
+
     fun stop() {
         relays.values.forEach { it.close() }
         relays.clear()
@@ -115,20 +138,39 @@ class RelayPool(
     }
 
     /** True when at least one relay accepted the event (`duplicate:` counts as accepted). */
-    suspend fun publish(event: JsonObject): Boolean {
-        val id = event["id"]?.jsonPrimitive?.contentOrNull ?: return false
+    suspend fun publish(event: JsonObject): Boolean = publishCount(event) > 0
+
+    /** relay url -> until when (ms) it refused with `rate-limited:`: every publish to it waits (P9) */
+    private val limitedUntil = ConcurrentHashMap<String, Long>()
+
+    /**
+     * How many relays accepted the event (R10: "sent to the mailbox" counts relays that accepted).
+     * A `rate-limited:` answer holds every publish to that relay for [RATE_BACKOFF_MS] and tries
+     * again, in order; the other refusals in [FINAL] end the tries at once.
+     */
+    suspend fun publishCount(event: JsonObject, retries: LongArray = RETRY_DELAYS_MS): Int {
+        val id = event["id"]?.jsonPrimitive?.contentOrNull ?: return 0
         val results = publishUrls.mapNotNull { relays[it] }.map { r ->
             scope.async {
-                for (wait in RETRY_DELAYS_MS) {
+                var limited = 0
+                var i = 0
+                while (i < retries.size) {
+                    val wait = retries[i]
                     if (wait > 0) delay(wait)
+                    limitedUntil[r.url]?.let { u -> (u - System.currentTimeMillis()).takeIf { it > 0 }?.let { delay(it) } }
                     val (ok, msg) = r.publish(id, event)
                     if (ok || msg.startsWith("duplicate:")) return@async true
+                    if (msg.startsWith("rate-limited:") && limited++ < RATE_RETRIES) {
+                        limitedUntil[r.url] = System.currentTimeMillis() + RATE_BACKOFF_MS
+                        continue
+                    }
                     if (FINAL.any { msg.startsWith(it) }) return@async false
+                    i++
                 }
                 false
             }
         }.awaitAll()
-        return results.any { it }
+        return results.count { it }
     }
 
     /**
@@ -170,6 +212,8 @@ class RelayPool(
         @Volatile private var closed = false
         private var backoff = 2_000L
         @Volatile private var openedAt = 0L
+        /** when the relay last sent anything (a message, or the open) */
+        @Volatile var lastRxAt = 0L
         private val oks = ConcurrentHashMap<String, CompletableDeferred<Pair<Boolean, String>>>()
         private var job: Job? = null
 
@@ -184,7 +228,9 @@ class RelayPool(
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     isConnected = true
                     openedAt = System.currentTimeMillis()
+                    lastRxAt = openedAt
                     setStatus(url) { it.copy(connected = true, since = openedAt) }
+                    app.libretag.DiagLog.ev("relay_up", "url" to url)
                     emit()
                     if (subscriber) subs.forEach { (id, f) -> sendReq(id, f) }
                 }
@@ -204,6 +250,7 @@ class RelayPool(
             isConnected = false
             ws = null
             setStatus(url) { it.copy(connected = false, lastError = why, lastErrorAt = System.currentTimeMillis()) }
+            app.libretag.DiagLog.ev("relay_down", "url" to url, "why" to why.take(120))
             emit()
             oks.values.forEach { it.complete(false to "error: $why") }
             oks.clear()
@@ -214,6 +261,12 @@ class RelayPool(
                 backoff = (backoff * 2).coerceAtMost(120_000L)
                 connect()
             }
+        }
+
+        /** a socket that stopped answering: drop it and connect again right away */
+        fun kick() {
+            backoff = 1_000L
+            ws?.cancel()
         }
 
         fun close() {
@@ -237,11 +290,29 @@ class RelayPool(
             val t0 = System.currentTimeMillis()
             socket.send(buildJsonArray { add(JsonPrimitive("EVENT")); add(event) }.toString())
             val r = withTimeoutOrNull(15_000) { d.await() } ?: (false to "error: timeout").also { oks.remove(id) }
+            app.libretag.DiagLog.ev("publish", "url" to url, "id" to id,
+                "kind" to event["kind"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(), "ok" to r.first,
+                "msg" to r.second.take(120), "ms" to System.currentTimeMillis() - t0)
             if (r.first) setStatus(url) { it.copy(rttMs = System.currentTimeMillis() - t0) }
             return r
         }
 
+        /** Field log: every LibreTag event a relay delivers, with the time it arrived here. */
+        private fun logEvent(ev: JsonObject, sub: String?, query: Boolean) {
+            val kind = ev["kind"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: return
+            if (kind !in FIELD_KINDS) return
+            val tags = (ev["tags"] as? JsonArray)?.mapNotNull { (it as? JsonArray)?.takeIf { t -> t.size >= 2 } } ?: emptyList()
+            fun tag(n: String) = tags.filter { it[0].jsonPrimitive.contentOrNull == n }.map { it[1].jsonPrimitive.contentOrNull }
+            app.libretag.DiagLog.ev("relay_event", "url" to url, "sub" to sub, "query" to query, "kind" to kind,
+                "id" to ev["id"]?.jsonPrimitive?.contentOrNull, "pubkey" to ev["pubkey"]?.jsonPrimitive?.contentOrNull,
+                "created_at" to ev["created_at"]?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+                "y" to tag("y").takeIf { it.isNotEmpty() }, "approx" to tag("approx").firstOrNull(),
+                "at" to tag("at").firstOrNull(), "via" to tag("via").firstOrNull(), "hops" to tag("hops").firstOrNull(),
+                "route" to tag("route").firstOrNull())
+        }
+
         private fun handle(text: String) {
+            lastRxAt = System.currentTimeMillis()
             val msg = try {
                 Json.parseToJsonElement(text) as? JsonArray
             } catch (e: Exception) {
@@ -257,6 +328,7 @@ class RelayPool(
                     val sub = msg.getOrNull(1)?.jsonPrimitive?.contentOrNull
                     val ev = (msg.getOrNull(2) as? JsonObject) ?: return
                     val q = sub?.let { queries[it] }
+                    logEvent(ev, sub, q != null)
                     if (q != null) { q.first.add(ev); return }
                     setStatus(url) { it.copy(lastEventAt = System.currentTimeMillis()) }
                     scope.launch { onEvent(ev, url) }
@@ -275,7 +347,18 @@ class RelayPool(
 
     companion object {
         const val TAG = "RelayPool"
+        /** matches nothing: the relay answers EOSE at once */
+        private val PING_FILTER = kotlinx.serialization.json.buildJsonObject {
+            put("ids", buildJsonArray { add(JsonPrimitive("0".repeat(64))) }); put("limit", JsonPrimitive(1))
+        }
         val RETRY_DELAYS_MS = longArrayOf(0, 5_000, 30_000, 120_000)
+        /** reports, mailbox entries, receipts, claims */
+        val FIELD_KINDS = setOf(4243, 4244, 4245, 24244)
         val FINAL = listOf("invalid:", "pow:", "blocked:", "restricted:", "auth-required:")
+        /** P9: a relay that said `rate-limited:` is left alone this long */
+        const val RATE_BACKOFF_MS = 20_000L
+        const val RATE_RETRIES = 4
+        /** one try only (live ACK entries: a later one is useless) */
+        val ONCE = longArrayOf(0)
     }
 }

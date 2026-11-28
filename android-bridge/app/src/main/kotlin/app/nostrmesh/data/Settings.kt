@@ -48,7 +48,8 @@ class Settings(context: Context) {
         set(v) { prefs.edit().putBoolean("enabled", v).apply(); changed() }
 
     var relays: List<String>
-        get() = prefs.getString("relays", null)?.let { json.decodeFromString<List<String>>(it) } ?: DEFAULT_RELAYS
+        get() = prefs.getString("relays", null)?.let { json.decodeFromString<List<String>>(it) }
+            ?.takeIf { it != OLD_DEFAULT_RELAYS } ?: DEFAULT_RELAYS
         set(v) { prefs.edit().putString("relays", json.encodeToString(v)).apply(); changed() }
 
     var uplinkProfiles: Set<String>
@@ -78,8 +79,8 @@ class Settings(context: Context) {
         downlinkDm = downlinkDm,
         libretagCommands = libretagCommands,
         preset = loraPreset,
-        region = meshRegion.isNotBlank(),
-        regionName = meshRegion.trim(),
+        region = regions.isNotEmpty(),
+        regions = regions,
         dedupMinRelays = relays.size.coerceIn(1, 2),
         appVersion = BuildConfig.VERSION_NAME,
     )
@@ -96,6 +97,10 @@ class Settings(context: Context) {
             if (v == meshRegion) return
             prefs.edit().putString("mesh_region", v).apply(); changed()
         }
+    /** The flood scopes this bridge serves, narrow first ("sk-ba, sk"): the region field, comma separated. */
+    val regions: List<String>
+        get() = meshRegion.split(',', ' ', ';').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
     var meshCursor: String?
         get() = prefs.getString("mesh_cursor", null)
         set(v) { prefs.edit().putString("mesh_cursor", v).apply() }
@@ -105,7 +110,10 @@ class Settings(context: Context) {
         private fun migrateProfiles(p: Set<String>): Set<String> =
             if ("libretag.public" in p) p - "libretag.public" + "libretag" else p
 
-        val DEFAULT_RELAYS = listOf("wss://nostr.cypherpunk.today", "wss://nos.lol", "wss://relay.primal.net")
+        /** The owner's relay and primal; nos.lol is gone (unreachable here, R23). */
+        val DEFAULT_RELAYS = listOf("wss://nostr.cypherpunk.today", "wss://relay.primal.net")
+        /** A saved list equal to the old defaults is read as the new defaults. */
+        private val OLD_DEFAULT_RELAYS = listOf("wss://nostr.cypherpunk.today", "wss://nos.lol", "wss://relay.primal.net")
     }
 }
 

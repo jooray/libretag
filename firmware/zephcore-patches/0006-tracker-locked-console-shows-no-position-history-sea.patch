@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Mon, 16 Nov 2026 09:13:44 +0100
-Subject: [PATCH 06/42] tracker: locked console shows no position; history
+Subject: [PATCH 06/50] tracker: locked console shows no position; history
  sealed as j=2 in append-only segments, no clear time
 
 ---

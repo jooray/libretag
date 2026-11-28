@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Tue, 17 Nov 2026 20:18:24 +0100
-Subject: [PATCH 29/42] tracker (ESP32): the console RX pad wakes the SoC as a
+Subject: [PATCH 29/50] tracker (ESP32): the console RX pad wakes the SoC as a
  GPIO level wake (the UART wake source did not wake the S3 here)
 
 ---

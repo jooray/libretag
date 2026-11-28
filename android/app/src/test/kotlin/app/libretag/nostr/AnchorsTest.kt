@@ -11,17 +11,19 @@ import java.io.File
 class AnchorsTest {
     private val keys = Keys(ByteArray(32) { it.toByte() })
 
-    @Test fun wantedNextEightAndTheNextEpoch() {
-        assertEquals((101L..108L).toList() + 128L, AnchorPlan.wanted(100))
-        // the next epoch's start already among the eight: not twice
-        assertEquals((60L..67L).toList(), AnchorPlan.wanted(59))
-        assertEquals((0L..7L).toList() + 64L, AnchorPlan.wanted(-1))
+    /** P9 and 4.3 A: 16 ahead (24 moving), the two reboot checkpoints (multiples of 16) and the next epoch, each once. */
+    @Test fun wantedAheadCheckpointsAndTheNextEpoch() {
+        assertEquals((101L..116L).toList() + 128L, AnchorPlan.wanted(100))
+        assertEquals((60L..75L).toList() + 80L, AnchorPlan.wanted(59))
+        assertEquals((0L..15L).toList() + 16L + 32L + 64L, AnchorPlan.wanted(-1))
+        assertEquals((101L..124L).toList() + 128L, AnchorPlan.wanted(100, moving = true))
     }
 
-    @Test fun ttlIsThreeIntervalsWithinBounds() {
-        assertEquals(3 * 3600L, AnchorPlan.ttlS(3600))
+    @Test fun ttlCoversTheCountersAheadWithinBounds() {
+        assertEquals(16 * 3600L, AnchorPlan.ttlS(3600))
+        assertEquals(3 * 3600L, AnchorPlan.ttlS(3600, ahead = 3))
         assertEquals(AnchorPlan.TTL_MIN_S, AnchorPlan.ttlS(120))           // TRACK every 2 min
-        assertEquals(AnchorPlan.TTL_MAX_S, AnchorPlan.ttlS(24 * 3600))     // a quiet tag's heartbeat
+        assertEquals(50 * 3600L, AnchorPlan.ttlS(24 * 3600))               // at most 50 h
         assertEquals(AnchorPlan.TTL_UNKNOWN_S, AnchorPlan.ttlS(null))
     }
 
@@ -40,9 +42,8 @@ class AnchorsTest {
         assertTrue(ev.verify())
         assertEquals(LibreTag.mailboxPk(keys.cmd(e), n).hex(), ev.pubkey)
         assertEquals("", ev.content)
-        assertEquals(listOf(listOf("v", "2"),
-            listOf("y", LibreTag.bytesToHex(LibreTag.reportTag(keys.view(e), n, 0))),
-            listOf("y", LibreTag.bytesToHex(LibreTag.reportTag(keys.view(e), n, 1))),
+        assertEquals(listOf(listOf("v", "2")) +
+            listOf(0, 1, 9, 10, 11).map { j -> listOf("y", LibreTag.bytesToHex(LibreTag.reportTag(keys.view(e), n, j))) } + listOf(
             listOf("expiration", "1763210000"), listOf("p", "ab".repeat(32)), listOf("r", "sk")), ev.tags)
         // and the report n the tag seals commits to exactly this key
         val p = keys.sealReport(n, 0, ByteArray(33).also { it[0] = 0x21 })

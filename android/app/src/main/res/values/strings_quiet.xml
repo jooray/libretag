@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Quiet mesh, app 0.14.0 (SPEC.md 3.2): settings, the link line, the command slip, notices. Same keys in all six locales. -->
+<resources>
+    <!-- Tag settings, Reports section -->
+    <string name="ts_mesh_after">Check in over the wider mesh after</string>
+    <string name="ts_mesh_after_every">Every report</string>
+    <string name="ts_mesh_after_sub">If no bridge or node nearby answers for this long, the tag sends one report that repeaters carry further.</string>
+    <string name="ts_mesh_after_guard">While the tag is guarded, every report goes over the wider mesh.</string>
+    <string name="ts_at_once">Report at once when it moves</string>
+    <string name="ts_at_once_sub">If nothing nearby answers, it goes over the wider mesh after a few seconds instead of at its next check. Uses more airtime.</string>
+
+    <!-- Tag detail, Route row: how the tag reaches you right now -->
+    <string name="link_near_node">In range of your node</string>
+    <string name="link_near_bridge">In range of a bridge</string>
+    <string name="link_routed">Reaches a bridge through one or two repeaters</string>
+    <string name="link_far">No bridge nearby, reports over the wider mesh</string>
+
+    <!-- The command slip. %1$s is the command ("Beep"), %2$s a time such as "18:40" -->
+    <string name="slip2_next_try">%1$s · next try at %2$s</string>
+    <string name="slip2_not_sent">%1$s · a bridge could not send it at %2$s</string>
+    <string name="slip2_no_relay">%1$s · no relay took it yet, trying again</string>
+    <!-- %1$s is the tag's name -->
+    <string name="slip2_schedule_unknown">Waiting for %1$s to report. Its schedule is not known right now.</string>
+
+    <!-- Notifications. %1$s is the tag's name -->
+    <string name="notif_lost_ended_title">Lost mode ended for %1$s</string>
+    <string name="notif_track_ended_title">Tracking ended for %1$s</string>
+    <string name="notif_mode_ended_text">It is back to its normal reports. Open the tag to turn it on again.</string>
+    <!-- %1$s is the command ("Beep"), %2$s the tag's name -->
+    <string name="notif_not_delivered_title">%1$s did not reach %2$s</string>
+    <!-- %1$s is a time such as "18:40" -->
+    <string name="notif_not_delivered_miss">A bridge could not send it at %1$s. Send it again if you still need it.</string>
+    <string name="notif_not_delivered_sent">It went out, but the tag never confirmed it.</string>
+    <!-- %1$s is the tag's name -->
+    <string name="notif_no_answers_title">%1$s is heard but does not get the answers</string>
+    <string name="notif_not_delivered_unheard">%1$s was not heard while the command waited.</string>
+
+    <!-- Diagnosis rows and cards. %1$s is a time such as "18:40" or "yesterday 18:40" -->
+    <string name="dg_row_bridge_offline">The bridge that hears it is offline since %1$s</string>
+    <!-- %1$s is the bridge's name, %2$s a time -->
+    <string name="dg_card_bridge_offline">Its last report came through %1$s, and that bridge has been offline since %2$s. The tag itself may be fine: when nothing nearby answers it, it reports over the wider mesh.</string>
+    <string name="dg_bridge_unnamed">a bridge</string>
+    <string name="dg_row_reports_limited">Reports limited until %1$s</string>
+    <string name="dg_card_reports_limited">The tag has used up today\'s reports over the wider mesh. Until %1$s only a bridge or node close to it hears it.</string>
+    <string name="dg_row_node_off">Your MeshCore node is off · wider mesh by %1$s</string>
+    <!-- %1$s is the tag's name, %2$s a time -->
+    <string name="dg_card_node_off">Your MeshCore node is off. %1$s will report over the wider mesh by %2$s.</string>
+    <string name="dg_find_no_answers">Its reports arrive, but it does not seem to get the answers.</string>
+</resources>

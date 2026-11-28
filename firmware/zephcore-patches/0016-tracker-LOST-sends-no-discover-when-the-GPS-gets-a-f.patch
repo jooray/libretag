@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Mon, 16 Nov 2026 21:43:09 +0100
-Subject: [PATCH 16/42] tracker: LOST sends no discover when the GPS gets a
+Subject: [PATCH 16/50] tracker: LOST sends no discover when the GPS gets a
  fix; without a fix it sends one after the search (unless one already ran in
  this wake-up), before the report; no GPS goes the same way; discover receiver
  time counted as RX in the energy estimate

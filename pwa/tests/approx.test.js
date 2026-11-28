@@ -48,8 +48,8 @@ describe('status of an approximate report', () => {
     expect(nextAt(t, NOW)).toBe(s.nextAt);
     expect(statusSub(t, s, NOW)).toContain('~');
   });
-  it('the same report with an exact time has its checks', () => {
-    const t = tag([pos()]);
+  it('the same report with an exact time has its checks (once its anchor is set)', () => {
+    const t = tag([pos()], { anchor: { a: { n: 12, t0: NOW - 5 * HOUR }, cands: [], lastN: 12, seen: {}, known: true } });
     expect(checkPlan(t)).not.toBeNull();
     expect(checkPlan(t).t0).toBe(NOW - 5 * HOUR);
   });
@@ -72,7 +72,8 @@ describe('copies of one report', () => {
     expect(upgrades(t, exact)).toBe(true);
     expect(mergeReport(t.positions, exact, 100)).toBe(true);
     expect(t.positions).toEqual([exact]);
-    expect(checkPlan(t).t0).toBe(NOW - 2 * HOUR);
+    // no anchor ever from the approximate copy; the exact one (app._addReport) sets it
+    expect(checkPlan(t)).toBeNull();
     // a later approximate copy changes nothing
     expect(mergeReport(t.positions, pos({ approxUntil: NOW }), 100)).toBe(false);
     expect(t.positions).toEqual([exact]);

@@ -2,10 +2,11 @@ package app.libretag.nostr
 
 /** How one command's mailbox entries go out (PROTOCOL.md 4, 4.2). */
 object MailboxPlan {
-    /** the tag listens this long after a report (firmware default `listen` 90 s) */
-    const val LISTEN_S = 90L
-    /** a late entry has to be on the relays and at a bridge before the window closes */
-    const val LATE_MARGIN_S = 15L
+    /** the tag listens this long after a report (firmware default `listen` 60 s, P6) */
+    const val LISTEN_S = 60L
+    /** a late entry has to be on the relays and at a bridge before the window closes: bridges take
+     *  one until the report is 40 s old (`late_max_s`, 0.10.0) */
+    const val LATE_MARGIN_S = 20L
 
     /** ["g", 16 lowercase hex]: one random group id per command, on every entry of it */
     fun newGroup(rnd: java.util.Random = java.security.SecureRandom()): String =

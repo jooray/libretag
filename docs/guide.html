@@ -143,7 +143,7 @@ footer { margin-top: 72px; padding-top: 18px; border-top: 1px solid var(--line);
   <main>
     <header id="co-to-je">
       <h1>LibreTag: a tracker that talks over MeshCore</h1>
-      <p class="lead">LibreTag is an open replacement for an AirTag for your car, jacket or backpack. Instead of strangers' phones and a cloud, it uses the MeshCore LoRa network. Once an hour it sends an encrypted position and listens for a minute in case you have sent it a command. Only you can see the content, and nothing in the packet reveals which tracker sent it.</p>
+      <p class="lead">LibreTag is an open replacement for an AirTag for your car, jacket or backpack. Instead of strangers' phones and a cloud, it uses a LoRa radio link and bridges that anyone can run. It talks mostly to the nearest bridge or your own node, and goes through the wider MeshCore mesh only when nothing nearby answers. After each report it listens for a minute in case you have sent it a command. Only you can see the content, and nothing in the packet reveals which tracker sent it.</p>
       <div class="status">
         <span class="pill"><b>Firmware</b> Wio Tracker L1 / L1 Pro; ESP32-S3 stick with Wi-Fi on the bench</span>
         <span class="pill"><b>Protocol</b> LT2</span>
@@ -152,7 +152,7 @@ footer { margin-top: 72px; padding-top: 18px; border-top: 1px solid var(--line);
       </div>
 
       <div class="flow" role="list" aria-label="System components">
-        <div class="node main" role="listitem"><div class="k">in your pocket</div><div class="t">Tracker</div><div class="d">GPS, LoRa, sleeps. Sends 1 packet per hour.</div></div>
+        <div class="node main" role="listitem"><div class="k">in your pocket</div><div class="t">Tracker</div><div class="d">GPS, LoRa, sleeps. Sends 1 packet per report.</div></div>
         <div class="node" role="listitem"><div class="k">network</div><div class="t">MeshCore</div><div class="d">Repeaters pass the packet on.</div></div>
         <div class="node" role="listitem"><div class="k">your radio</div><div class="t">Companion node</div><div class="d">Paired with the phone over BLE.</div></div>
         <div class="node" role="listitem"><div class="k">phone</div><div class="t">MeshCore Open</div><div class="d">Holds the radio and exposes it to apps.</div></div>
@@ -207,7 +207,7 @@ footer { margin-top: 72px; padding-top: 18px; border-top: 1px solid var(--line);
         <li>Open LibreTag. MeshCore Open asks whether to allow the app (you will find the fingerprint in the LibreTag menu), and then whether to add the channel <code>#libretag</code>. Allow both.</li>
         <li><b>Connect the tracker to the phone with a USB cable</b> (USB-C, or through an OTG adapter). Android offers to open LibreTag and asks for USB access. Allow it. If nothing opens, tap <b>Add tag</b>.</li>
         <li>The wizard has four steps: <b>plug in</b>, <b>name</b> (a name and a mark that tells your tags apart on the map), <b>where it rests</b> and <b>done</b>. In the third step add the place where the tag usually stays, such as home or the garage, and it keeps quiet there. You can skip it and add places later. Then tap <b>Pair</b>.</li>
-        <li>The app reads the key, sets the channel <code>#libretag</code>, the interval, the automatic network by country and your Nostr npub, and then <b>locks</b> the tracker: the USB console no longer gives the key out, and the key stays only in the app. For later settings over USB the app unlocks it by itself. The last step says what the tag will do (hourly reports when away, quiet at your place, an alert when it is not heard or the battery is low) and offers to pick the devices you carry.</li>
+        <li>The app reads the key, sets the channel <code>#libretag</code>, the interval, the automatic network by country and your Nostr npub, and then <b>locks</b> the tracker: the USB console no longer gives the key out, and the key stays only in the app. For later settings over USB the app unlocks it by itself. The last step says what the tag will do (reports when away, quiet at your place, an alert when it is not heard or the battery is low) and offers to pick the devices you carry.</li>
         <li>Disconnect the cable. The first report arrives after the first GPS fix, then at the set interval. Tapping the tracker opens the map. A welcome message from the tracker arrives on your Nostr: add it to your contacts so you get the battery alert later.</li>
       </ol>
       <div class="note"><b>Lost phone, or a tracker from another phone.</b> The app's data is excluded from Android backup and from transfer to a new phone, so the key does not move over by itself. Set up <b>Backup</b> in the menu: LibreTag makes a 12-word recovery phrase for you to write on paper, and can also keep a copy encrypted to your Nostr npub. With either one you restore your tags on a new phone or open them in the web app. Without a backup, reset the tracker and pair it again. A tracker locked by another phone can be reset the same way: <b>Reset pairing</b> in the app, or <code>unpair</code> in the console.</div>
@@ -218,7 +218,7 @@ footer { margin-top: 72px; padding-top: 18px; border-top: 1px solid var(--line);
       <h2>3. Tag settings and places</h2>
       <p>Everything about one tag sits on one screen, <b>Tag settings</b> in the tag's menu. Each row shows its value and what it does. A change that has not reached the tag yet says when it goes out by radio, or that it waits for the cable.</p>
       <ol class="steps">
-        <li><b>Reports.</b> How often the tag reports when it is away (15 minutes to 6 hours), and how often it listens for commands between reports. Those listen-only wake-ups are <b>checks</b>: the tag wakes, listens for about 30 seconds and goes back to sleep without GPS or transmitting, so a command reaches it within one check interval while the battery lasts longer.</li>
+        <li><b>Reports.</b> How often the tag reports when it is away (15 minutes to 6 hours), and how often it listens for commands between reports. Those listen-only wake-ups are <b>checks</b>: the tag wakes, listens for about 30 seconds and goes back to sleep without GPS or transmitting, so a command reaches it within one check interval (about an hour by default) while the battery lasts longer.</li>
         <li><b>Quiet.</b> The tag stays quiet in its places, while your devices are near (a watch, a ring, a beacon in the garage; pick them under <b>Known devices</b> with the tag on the cable) and when it has not moved for a while. While quiet it still sends a sign of life now and then. For a person, "while my devices are near" is off, because someone could take your phone along.</li>
         <li><b>Places.</b> One list holds all places of a tag. A GPS place is a circle on the map: tap where the tag rests and drag the handle to change its size. A tag without GPS learns a <b>Wi-Fi place</b> from the networks it hears: put it there, connect the cable and snap the place, which takes about half a minute. Each place has two switches, <b>Tell me when it leaves</b> and <b>Tell me when it arrives</b>. These are ordinary notifications, not alarms.</li>
         <li><b>Guard.</b> On the tag's detail, <b>Guard this spot</b> raises an alarm if the tag moves more than 300 m. Guard is the only alarm. The other alerts are <b>not heard when expected</b> and <b>low battery</b>, and you set both per tag.</li>
@@ -291,13 +291,13 @@ uv run libretag console -c status -c "history 0"</pre><button type="button" data
 
     <section id="ako-funguje">
       <h2>How it works</h2>
-      <h3>One hour of the tracker</h3>
+      <h3>One wake-up of the tracker</h3>
       <p>The tracker sleeps most of the time. It spends the most energy on listening, not on transmitting.</p>
       <div class="cycle" aria-label="Duty cycle over one hour">
-        <div class="bar" role="img" aria-label="GPS 90 s, transmitting less than a second, listening 60 s, sleep for the rest of the hour">
+        <div class="bar" role="img" aria-label="GPS 90 s, transmitting less than a second, listening 60 s, sleep until the next wake-up">
           <span class="seg-gps" style="width:2.5%"></span><span class="seg-tx" style="width:0.4%"></span><span class="seg-rx" style="width:1.7%"></span><span class="seg-sleep" style="flex:1"></span>
         </div>
-        <div class="scale"><span>0 min</span><span>15</span><span>30</span><span>45</span><span>60 ±6 min</span></div>
+        <div class="scale"><span>wake-up</span><span></span><span></span><span></span><span>next wake-up, interval ±10 %</span></div>
         <div class="zoom">
           <div class="bar" role="img" aria-label="Zoom on the first three minutes">
             <span class="seg-gps" style="width:59%"></span><span class="seg-tx" style="width:1.3%"></span><span class="seg-rx" style="width:39.7%"></span>
@@ -307,12 +307,12 @@ uv run libretag console -c status -c "history 0"</pre><button type="button" data
         <div class="legend"><span><i class="seg-gps"></i>GPS fix</span><span><i class="seg-tx"></i>1 packet (under 1 s)</span><span><i class="seg-rx"></i>listening for commands</span><span><i class="seg-sleep"></i>sleep</span></div>
       </div>
       <div class="cols">
-        <div class="card"><h3>One packet per wake-up</h3><p>Every wake-up sends one encrypted report (near a border possibly a copy to the neighboring network). The interval has a random offset of ±10 %, so it cannot be recognized by its regularity.</p></div>
+        <div class="card"><h3>One packet per report</h3><p>Every report is one encrypted packet, sent first as a zero-hop hello that no repeater forwards. Your app confirms it through a bridge or your own node. Only when nobody confirms and the tag moved or was silent too long, or on an event such as a command answer or low battery, the tag sends the report through the repeaters, starting in the narrowest region (near a border possibly a copy to the neighboring network). The interval has a random offset of ±10 %, so it cannot be recognized by its regularity.</p></div>
         <div class="card"><h3>LT2 encryption</h3><p>The report is encrypted so that an identical counter reveals nothing. It has a rotating 4-byte tag, the key for reading is separate from the key for commands, and every 64 reports it advances (ratchet), so a stolen tracker does not reveal old positions. After pairing the key leaves the tracker and the USB console locks.</p></div>
         <div class="card"><h3>Commands after the report</h3><p>The app holds the command and sends it after the tracker's report, while the tracker listens for a minute, or at the next check of a quiet tracker. It transmits it from its own radio and also leaves it in the Nostr mailbox, from where any bridge delivers it. When the phone is near the tag, it also advertises the command over Bluetooth. The tracker confirms it in its next report.</p></div>
         <div class="card"><h3>Bridges</h3><p>Any bridge publishes a captured report to Nostr as an encrypted event with a random signature. It cannot read the content. That is how you see the tracker even outside the range of your own nodes. A bridge sends a command only when it is signed with the key that the tracker's last report points to. Only you and the people you gave control of the tag have that key, so a stranger cannot get a bridge to send anything to your tag.</p></div>
       </div>
-      <div class="note"><b>Limits that protect the battery and the mesh.</b> Track and Lost report at most every 2 minutes. A tag that has sent 200 packets in the last 24 hours reports at most hourly until the count drops, but it still answers your commands. Below a safe battery voltage it does not transmit at all.</div>
+      <div class="note"><b>Limits that protect the battery and the mesh.</b> Most reports are a hello that no repeater forwards, and a tag confirmed by a bridge or your node does not flood at all. A tag that stands still floods at most 8 times in 24 hours as a fallback. Track and Lost report at most every 2 minutes. A tag that has sent 200 packets in the last 24 hours slows down to one report an hour until the count drops, but it still answers your commands. Below a safe battery voltage it does not transmit at all.</div>
       <div class="note"><b>What is visible from outside.</b> The channel <code>#libretag</code> is public. A radio observer sees that a LibreTag report was sent and roughly from where (by the first repeater in the path). They do not see which tracker it was or what is in the report.</div>
       <div class="note"><b>A position without GPS is an area, not a single point.</b> From the heard repeaters and the downloaded map the app draws 68 % and 95 % circles. With a poor signal they can be a kilometer wide.</div>
     </section>
@@ -358,7 +358,7 @@ uv run libretag console -c status -c "history 0"</pre><button type="button" data
           <tr><td>May be quiet near you, or at Home</td><td>A guess: the one report that says the tag went quiet may have been lost. <b>Check if it's here</b> asks the tag over Bluetooth at its next wake-up; keep the phone near the tag. A guess never turns the warning off.</td></tr>
           <tr><td>With you · quiet on purpose</td><td>The tag answered over Bluetooth and said it sees one of your devices.</td></tr>
           <tr><td>Battery probably empty</td><td>The last report was at 5 % or below, or the battery trend says it ran out since. Charge it.</td></tr>
-          <tr><td>Sends every 2 h, app expects hourly</td><td>The tag and the app disagree on the schedule. <b>Use the tag's schedule</b> or <b>Send the app's schedule</b>.</td></tr>
+          <tr><td>Sends every 2 h, app expects every 3 h</td><td>The tag and the app disagree on the schedule. <b>Use the tag's schedule</b> or <b>Send the app's schedule</b>.</td></tr>
         </tbody>
       </table></div>
       <p><b>Notice my tags over Bluetooth</b> in Settings (on by default, Android 12 and newer) lets the phone hear a tag's Bluetooth signal in the background, so it notices a restart near you. It uses the phone's Bluetooth filter and no location.</p>

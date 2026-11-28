@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Wed, 18 Nov 2026 21:31:20 +0100
-Subject: [PATCH 37/42] tracker 0.9.1: deliberate resets (button, power-on,
+Subject: [PATCH 37/50] tracker 0.9.1: deliberate resets (button, power-on,
  USB-serial reset, debugger) do not count as a reset loop: boot_resets from
  the SoC reset cause (lt_reset_deliberate, lt_boot_resets_next), so a reboot
  by the owner always opens the Bluetooth window and reports after 30 s; txcap

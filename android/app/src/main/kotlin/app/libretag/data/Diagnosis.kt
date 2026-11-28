@@ -26,6 +26,9 @@ data class ReceiptSeen(
     val fetchFailed: Boolean = true,
 )
 
+/** 0.14.0 (R13): the bridge that heard the tag's last report is offline since [sinceMs]; [name] from its announcement. */
+data class BridgeDownSeen(val sinceMs: Long, val name: String? = null, val radioDown: Boolean = false, val checkedAt: Long = 0)
+
 /** Everything the diagnosis knows besides the tag (docs/design/tag-diagnosis.md 3). */
 data class DiagContext(
     val online: Boolean = true,
@@ -50,6 +53,8 @@ data class DiagContext(
     val minFirmware: String = "0.9.5",
     /** Bluetooth is on and allowed: "Check if it's here" can be offered */
     val bluetooth: Boolean = true,
+    /** 0.14.0: every bridge that heard the tag lately is offline */
+    val bridgeDown: BridgeDownSeen? = null,
 ) {
     val blind: Boolean get() = pathUpSince == null
     /** the phone could not receive at some point after [since] */
@@ -72,6 +77,8 @@ object Diagnosis {
         RESTARTED_HERE(Level.NOTE), RESTARTING(Level.WARN), UPDATE_UNFINISHED(Level.WARN), BATTERY_EMPTY(Level.WARN),
         SCHEDULE_PENDING(Level.NOTE), SCHEDULE_MISMATCH(Level.NOTE), OUT_OF_RANGE(Level.WARN), NODE_DOWN(Level.NOTE),
         MAYBE_WITH_YOU(Level.WARN), MAYBE_QUIET_PLACE(Level.WARN), AFTER_CABLE(Level.WARN), PHONE_CLOCK(Level.NOTE),
+        /** 0.14.0: the bridge that hears the tag is offline (R13); the tag used up its IDLE flood budget (R12) */
+        BRIDGE_OFFLINE(Level.NOTE), REPORTS_LIMITED(Level.NOTE),
         UNKNOWN(Level.WARN),
     }
 
@@ -174,6 +181,14 @@ object Diagnosis {
             return Result(Cause.NOT_DELIVERED, Confidence.HIGH, Facts(at = r.atMs, word = r.hops, name = r.relay),
                 listOfNotNull(Action.ADD_RELAY.takeIf { r.trusted && r.relay != null }, Action.CONNECTIONS))
         }
+        // 0.14.0 (4.4): the own node heard its hellos and is off now: the tag reports over the wider mesh by t_ack + hold
+        QuietPlan.nodeOffBy(t, c.mesh == MeshLink.DOWN, now)?.let { by ->
+            return Result(Cause.NODE_DOWN, Confidence.HIGH, Facts(at = c.meshUpAt, deadline = by), listOf(Action.CONNECTIONS))
+        }
+        // R12: it used up its IDLE floods for the day; next_in of the last one says when they free
+        QuietPlan.limitedUntil(t, now)?.let { until -> return Result(Cause.REPORTS_LIMITED, Confidence.HIGH, Facts(deadline = until)) }
+        // R13: before "silent", the bridge that heard it: an announcement older than 2 h or radio down
+        c.bridgeDown?.let { b -> return Result(Cause.BRIDGE_OFFLINE, Confidence.MEDIUM, Facts(at = b.sinceMs, name = b.name), listOf(Action.CONNECTIONS)) }
         // 11: the phone and the tag see each other, or the tag said why it is quiet
         val ownerMs = t.ownerHbH * 3600_000L + Status.SILENT_MARGIN_MS
         val sight = t.bleSight
@@ -256,6 +271,8 @@ object Diagnosis {
     private fun batteryEmpty(t: Tracker, now: Long): Result? {
         val p = t.last ?: return null
         val b = p.battery
+        // R14: after a report with LOW_BATT or at 10 % and below, silence is most likely an empty battery
+        if (p.lowBatt && b != null && b <= CritBattery.PCT) return Result(Cause.BATTERY_EMPTY, Confidence.HIGH, Facts(at = p.receivedAt, count = b), listOf(Action.OPEN_MAP))
         if (b != null && b <= EMPTY_PCT) return Result(Cause.BATTERY_EMPTY, Confidence.HIGH, Facts(at = p.receivedAt, count = b), listOf(Action.OPEN_MAP))
         if (t.critBattNotified) return Result(Cause.BATTERY_EMPTY, Confidence.HIGH, Facts(at = p.receivedAt, count = b), listOf(Action.OPEN_MAP))
         if (p.lowBatt && b != null) {
@@ -294,7 +311,11 @@ object Diagnosis {
                 Facts(periodS = tagMin * 60, period2S = appMin * 60, count = h.intervalMin), listOf(Action.USE_TAG_SCHEDULE, Action.SEND_MINE))
         }
         val p = t.positions.lastOrNull { it.via != "usb-quiet" && it.mode == "IDLE" && !it.quiet && it.nextInS != null }
-        if (p != null && p == t.last && Status.modeNow(t, now) == "IDLE") {
+        // 0.14.0 (W): only a hello, or the first flood after a move, says the period; the no-fix
+        // backoff floods and the heartbeats carry longer next_in values on purpose
+        val prev = p?.let { q -> t.positions.lastOrNull { it.n in 0 until q.n && it.via != "usb-quiet" } }
+        val says = p != null && (p.j == app.libretag.proto.QuietMesh.J_NEAR || (p.flood && !QuietPlan.still(prev, p)))
+        if (p != null && says && p == t.last && Status.modeNow(t, now) == "IDLE") {
             val tagS = p.nextInS!!
             if (abs(tagS - appMin * 60L) > appMin * 60L * 0.15 && tagS < 3600L * 34)
                 return Result(Cause.SCHEDULE_MISMATCH, Confidence.MEDIUM,
@@ -350,7 +371,7 @@ object Diagnosis {
 
     // ---------------------------------------------------------------- findings and checks
 
-    enum class Finding { NODE_DOWN, BATTERY_CLIFF, NO_GPS_RUN, COUNTER_BACK, COUNTER_AHEAD, FIRMWARE_BEHIND, FLOOD_CAP, RESTARTING }
+    enum class Finding { NODE_DOWN, BATTERY_CLIFF, NO_GPS_RUN, COUNTER_BACK, COUNTER_AHEAD, FIRMWARE_BEHIND, FLOOD_CAP, RESTARTING, NO_ANSWERS }
 
     data class Found(val finding: Finding, val facts: Facts = Facts())
 
@@ -379,6 +400,7 @@ object Diagnosis {
             (t.modeIntervalS ?: if (p.mode == "LOST") Status.LOST_INTERVAL_S else Status.TRACK_INTERVAL_S) < 3600)
             out += Found(Finding.FLOOD_CAP, Facts(periodS = ns.toInt()))
         restarting(t, now)?.let { out += Found(Finding.RESTARTING, it.facts) }
+        if (QuietPlan.noAnswers(t)) out += Found(Finding.NO_ANSWERS)
         return out
     }
 

@@ -263,9 +263,13 @@ object TagSheets {
             p.energyMah?.let { rows += a.getString(R.string.diag_energy) to "≥ $it mAh" }
             p.nextInS?.let { rows += a.getString(R.string.diag_next_in) to Format.duration(a, it * 1000) }
             if (p.quiet) rows += a.getString(R.string.diag_quiet) to (p.quietReason ?: "zone")
-            if (p.checks) rows += a.getString(R.string.diag_checks) to (Status.checkPlan(t)?.let { pl ->
-                "${Format.every(a, pl.intervalMin * 60)} · ${pl.offsetsS.size}" + (pl.next(System.currentTimeMillis())?.let { (k, at) -> " · k=$k ${Format.clock(a, at)}" } ?: "")
-            } ?: "CHECKS")
+            // 0.14.0: copy, link and the anchor's grids (PROTOCOL.md 2.6)
+            if (p.j >= 0) rows += "j" to "${p.j}" + (p.route?.let { " · $it" } ?: "") + (if (p.nodeDirect) " · direct" else "") + (if (p.sync) " · SYNC" else "")
+            rows += a.getString(R.string.diag_checks) to (Status.checkPlan(t)?.let { pl ->
+                "A n=${pl.n} · ${Format.every(a, pl.intervalMin * 60)}" + (pl.next(System.currentTimeMillis())?.let { (k, at) -> " · k=$k ${Format.clock(a, at)}" } ?: "")
+            } ?: "?") + (if (t.anchor.cands.isNotEmpty()) " · +${t.anchor.cands.size}" else "") + (if (!t.anchor.known) " · unknown" else "")
+            t.lastAck?.let { rows += "ACK" to "n ${it.n} · ${it.form} · ${it.path}" + (if (it.timed) " · timed" else "") +
+                (it.settled?.let { st -> " · $st" } ?: "") + " · ${Format.at(a, it.at)}" }
             p.bleDevices?.let { rows += a.getString(R.string.diag_ble) to "$it · ${p.bleStable ?: 0} stable" }
             p.wifi?.let { rows += "Wi-Fi" to "${it.apCount} APs" }
             rows += a.getString(R.string.diag_epoch) to LibreTag.epoch(p.n).toString()

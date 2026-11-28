@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tichý mesh, app 0.14.0 (SPEC.md 3.2): nastavení, řádek spojení, lístek příkazu, upozornění. Stejné klíče ve všech šesti jazycích. -->
+<resources>
+    <!-- Nastavení lokátoru, sekce Hlášení -->
+    <string name="ts_mesh_after">Ozvat se přes širší mesh po</string>
+    <string name="ts_mesh_after_every">Každé hlášení</string>
+    <string name="ts_mesh_after_sub">Pokud most ani uzel v okolí neodpovídá tak dlouho, lokátor pošle jedno hlášení, které repeatery doručí dál.</string>
+    <string name="ts_mesh_after_guard">Dokud je lokátor hlídaný, každé hlášení jde přes širší mesh.</string>
+    <string name="ts_at_once">Hlásit hned, když se pohne</string>
+    <string name="ts_at_once_sub">Pokud v okolí nikdo neodpoví, pošle se to přes širší mesh po pár sekundách, ne až při další kontrole. Zabere víc vysílacího času.</string>
+
+    <!-- Detail lokátoru, řádek Cesta: jak se k tobě lokátor právě dostává -->
+    <string name="link_near_node">V dosahu tvého uzlu</string>
+    <string name="link_near_bridge">V dosahu mostu</string>
+    <string name="link_routed">K mostu se dostane přes jeden nebo dva repeatery</string>
+    <string name="link_far">Žádný most v okolí, hlásí přes širší mesh</string>
+
+    <!-- Lístek příkazu. %1$s je příkaz („Pípnout“), %2$s čas, například „18:40“ -->
+    <string name="slip2_next_try">%1$s · další pokus v %2$s</string>
+    <string name="slip2_not_sent">%1$s · most ho v %2$s nemohl odeslat</string>
+    <string name="slip2_no_relay">%1$s · zatím ho nevzal žádný relay, zkusím znovu</string>
+    <!-- %1$s je jméno lokátoru -->
+    <string name="slip2_schedule_unknown">Čekám, až se ozve %1$s. Jeho rozvrh teď neznám.</string>
+
+    <!-- Upozornění. %1$s je jméno lokátoru -->
+    <string name="notif_lost_ended_title">Režim Ztracený skončil pro %1$s</string>
+    <string name="notif_track_ended_title">Sledování lokátoru %1$s skončilo</string>
+    <string name="notif_mode_ended_text">Lokátor hlásí zase jako obvykle. Chceš-li ho zapnout, otevři ho.</string>
+    <!-- %1$s je příkaz („Pípnout“), %2$s jméno lokátoru -->
+    <string name="notif_not_delivered_title">%1$s nedorazilo k lokátoru %2$s</string>
+    <!-- %1$s je čas, například „18:40“ -->
+    <string name="notif_not_delivered_miss">Most ho v %1$s nemohl odeslat. Pokud ho ještě potřebuješ, pošli ho znovu.</string>
+    <string name="notif_not_delivered_sent">Odešel, ale lokátor ho nikdy nepotvrdil.</string>
+    <!-- %1$s je jméno lokátoru -->
+    <string name="notif_not_delivered_unheard">%1$s se neozval, dokud příkaz čekal.</string>
+
+    <string name="notif_no_answers_title">%1$s je slyšet, ale nedostává odpovědi</string>
+
+    <!-- Řádky a karty diagnostiky. %1$s je čas, například „18:40“ nebo „včera 18:40“ -->
+    <string name="dg_row_bridge_offline">Most, který ho slyší, je offline od %1$s</string>
+    <!-- %1$s je jméno mostu, %2$s čas -->
+    <string name="dg_card_bridge_offline">Poslední hlášení přišlo přes %1$s a ten most je offline od %2$s. Lokátor může být v pořádku: když mu v okolí nikdo neodpoví, hlásí přes širší mesh.</string>
+    <string name="dg_bridge_unnamed">most</string>
+    <string name="dg_row_reports_limited">Hlášení omezena do %1$s</string>
+    <string name="dg_card_reports_limited">Lokátor dnes vyčerpal hlášení přes širší mesh. Do %1$s ho slyší jen most nebo uzel v jeho blízkosti.</string>
+    <string name="dg_row_node_off">Tvůj uzel MeshCore je vypnutý · širší mesh do %1$s</string>
+    <!-- %1$s je jméno lokátoru, %2$s čas -->
+    <string name="dg_card_node_off">Tvůj uzel MeshCore je vypnutý. %1$s bude hlásit přes širší mesh do %2$s.</string>
+    <string name="dg_find_no_answers">Jeho hlášení přicházejí, ale odpovědi jako by nedostával.</string>
+</resources>

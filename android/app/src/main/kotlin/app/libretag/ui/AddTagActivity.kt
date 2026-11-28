@@ -424,15 +424,17 @@ class AddTagActivity : AppCompatActivity() {
             app.usb.session { c ->
                 if (!c.set("transport channel")) failed += "channel"
                 if (!c.set(ConsoleCommands.interval(INTERVAL_MIN))) failed += "interval"
+                // 0.14.0 (SPEC.md 3.2 defaults): wake every 60 min, report at every 3rd, the rest only listen
+                if (!c.set(ConsoleCommands.reportEvery(REPORT_EVERY))) failed += "report every"
                 if (!c.set(ConsoleCommands.check(Tracker.DEFAULT_CHECK_S))) failed += "check"
                 if (!c.set(ConsoleCommands.still(stillAfter, Tracker.DEFAULT_STILL_HB_H))) failed += "still"
                 if (!c.set("network auto")) failed += "network"
                 if (npub != null && npub != tag.status.owner && c.command("owner $npub").none { it.startsWith("owner npub1") }) failed += "owner"
             }
             val id = app.store.addOrUpdate(key, {
-                Tracker(name = label, keyHex = key.lowercase(), intervalMin = INTERVAL_MIN, type = type, markColor = mark.first, markSymbol = mark.second,
+                Tracker(name = label, keyHex = key.lowercase(), intervalMin = INTERVAL_MIN, reportEvery = REPORT_EVERY, type = type, markColor = mark.first, markSymbol = mark.second,
                     zones = zones.toList(), createdAt = System.currentTimeMillis(), firmware = tag.version)
-            }) { it.copy(name = label, intervalMin = INTERVAL_MIN, type = type, markColor = mark.first, markSymbol = mark.second, zones = zones.toList(),
+            }) { it.copy(name = label, intervalMin = INTERVAL_MIN, reportEvery = REPORT_EVERY, type = type, markColor = mark.first, markSymbol = mark.second, zones = zones.toList(),
                 stillAfter = null, firmware = tag.version ?: it.firmware) }
             app.usb.update { it.copy(tagId = id, find = UsbFind.MINE) }
             // a Wi-Fi tag: the places snapped here are on it already; their switches are the app's
@@ -526,5 +528,7 @@ class AddTagActivity : AppCompatActivity() {
         private const val TAG = "AddTag"
         /** a new tag reports hourly; Tag settings changes it later */
         const val INTERVAL_MIN = 60
+        /** 0.14.0: report at every 3rd wake-up, listen at the others */
+        const val REPORT_EVERY = 3
     }
 }

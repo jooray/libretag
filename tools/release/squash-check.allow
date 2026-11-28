@@ -14,3 +14,5 @@ firmware/third_party/*	.
 *Test.kt	wss://100\.64\.1\.1
 # nostr-live widget: a comment example of a URL with credentials, not an address
 web/site/vendor/nostr-live.js	bank\.com@evil\.example
+# quiet mesh baked area: the first bridge city (Bratislava old town centre, 25 km), a public point like region_test
+firmware/lt_core/lt_core.c	\{48144[0-9]+, 17108[0-9]+, 25, "sk-ba", "sk"\}

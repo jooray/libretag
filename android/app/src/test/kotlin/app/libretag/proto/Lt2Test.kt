@@ -140,42 +140,25 @@ class Lt2Test {
         assertEquals(-71, w.tailRssi)
     }
 
-    /** 0.7 reports (n 203..205): parked + CHECKS, owner + CHECKS with an ack, CHECKS while reporting. */
+    /** 0.7 reports (n 203..205): flags bit 7, CHECKS then and SYNC since 0.10.0: parked, owner + CHECKS with an ack, CHECKS while reporting. */
     @Test fun reports07() {
         val all = v["reports"]!!.jsonArray.map { it.jsonObject }
         fun byN(n: Int) = Report.decode(h(all.first { it["n"]!!.jsonPrimitive.int == n }, "pt"))!!
         val parked = byN(203)
-        assertTrue(parked.quiet && parked.parked && parked.checks)
+        assertTrue(parked.quiet && parked.parked && parked.sync)
         assertEquals("parked", parked.quietReason)
         assertEquals(Mode.IDLE, parked.mode)
         assertEquals(6 * 3600L, parked.nextInS)
         val owner = byN(204)
-        assertTrue(owner.quiet && owner.checks && owner.cmdAck)
+        assertTrue(owner.quiet && owner.sync && owner.cmdAck)
         assertEquals("owner", owner.quietReason)
         assertEquals(8 * 3600L, owner.nextInS)
         val moving = byN(205)
-        assertTrue(moving.checks && moving.hasFix)
+        assertTrue(moving.sync && moving.hasFix)
         assertFalse(moving.quiet)
         assertNull(moving.quietReason)
         // 0.6 reports carry neither
-        for (i in 0 until 6) assertFalse(report(i).checks || report(i).parked)
-    }
-
-    /** The keyed check schedule (checks-0.7.md "Schedule"). */
-    @Test fun checks() {
-        for (e in v["checks"]!!.jsonArray) {
-            val o = e.jsonObject
-            val n = o["n"]!!.jsonPrimitive.long
-            val base = o["base_s"]!!.jsonPrimitive.long
-            val hb = o["heartbeat_s"]!!.jsonPrimitive.long
-            val ce = keys.cmd(LibreTag.epoch(n))
-            val jit = o["jitter"]!!.jsonArray.map { it.jsonPrimitive.long }
-            jit.forEachIndexed { i, j -> assertEquals("n=$n i=${i + 1}", j, LibreTag.checkJitter(ce, n, i + 1, base)) }
-            val offs = o["offsets"]!!.jsonArray.map { it.jsonPrimitive.long }
-            assertEquals(offs, LibreTag.checkOffsets(ce, n, (base / 60).toInt(), Long.MAX_VALUE, max = offs.size))
-            assertEquals(o["before_heartbeat"]!!.jsonArray.map { it.jsonPrimitive.long },
-                LibreTag.checkOffsets(ce, n, (base / 60).toInt(), hb, max = 64))
-        }
+        for (i in 0 until 6) assertFalse(report(i).sync || report(i).parked)
     }
 
     /** Commands at check k >= 1 (u16(k) in the derivation); k = 0 stays the 0.6 command. */
@@ -204,19 +187,7 @@ class Lt2Test {
         assertArrayEquals(h("set_idle_report_every"), cmd.encode())
         assertEquals(3, Command.idleReportEvery(cmd))
         assertNull(Command.idleReportEvery(Command.setIdle(9, 120, 0, 30)))
-        // the wake-ups between reports are the keyed check schedule; next_in is wake-up n
-        for (e in v["report_every"]!!.jsonArray) {
-            val o = e.jsonObject
-            val n = o["n"]!!.jsonPrimitive.long
-            val base = o["base_s"]!!.jsonPrimitive.int
-            val every = o["every"]!!.jsonPrimitive.int
-            val offs = o["offsets"]!!.jsonArray.map { it.jsonPrimitive.long }
-            val ce = keys.cmd(LibreTag.epoch(n))
-            assertEquals(offs, LibreTag.checkOffsets(ce, n, base / 60, Long.MAX_VALUE, offs.size))
-            assertEquals(o["next_in"]!!.jsonPrimitive.long, offs[every - 1])
-            // the app's plan between reports: checks strictly before next_in
-            assertEquals(offs.take(every - 1), LibreTag.checkOffsets(ce, n, base / 60, offs[every - 1]))
-        }
+        // the 0.7 offsets from C_e(n) are obsolete (slots in quiet-mesh-v1.json, QuietMeshTest)
     }
 
     @Test fun nextInAndEnergy() {

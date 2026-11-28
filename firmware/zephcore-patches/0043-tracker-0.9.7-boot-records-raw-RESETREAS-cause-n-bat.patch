@@ -1,0 +1,1269 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Tue, 24 Nov 2026 11:03:59 +0100
+Subject: [PATCH 43/50] tracker 0.9.7: boot records (raw RESETREAS, cause, n,
+ battery, the previous run's breadcrumb from noinit RAM: phase, activity,
+ uptime, n, flags; the recorded fatal error with PC, LR, thread), an event log
+ (quiet, mode, network, still/moving, transmit floor, flood cap, clock,
+ console window, commands, hourly alive, stall, txfail), an nRF WDT (240 s)
+ reloaded only until a deadline tied to the main loop's phase; a packet the
+ radio gave up on no longer leaves the wake-up in PH_TX for good; console
+ boots, events, wdtest, status lines; CONFIG_THREAD_NAME
+
+---
+ zephcore/CMakeLists.txt             |   1 +
+ zephcore/boards/common/tracker.conf |   3 +
+ zephcore/helpers/boot_info.c        |  16 +
+ zephcore/helpers/boot_info.h        |   6 +
+ zephcore/src/lt_diag.c              | 212 ++++++++++
+ zephcore/src/lt_diag.h              | 113 +++++
+ zephcore/src/lt_version.h           |   2 +-
+ zephcore/src/main_tracker.cpp       | 628 +++++++++++++++++++++++++++-
+ 8 files changed, 973 insertions(+), 8 deletions(-)
+ create mode 100644 zephcore/src/lt_diag.c
+ create mode 100644 zephcore/src/lt_diag.h
+
+diff --git a/zephcore/CMakeLists.txt b/zephcore/CMakeLists.txt
+index 4453664..3966ffa 100644
+--- a/zephcore/CMakeLists.txt
++++ b/zephcore/CMakeLists.txt
+@@ -638,6 +638,7 @@ elseif(CONFIG_ZEPHCORE_ROLE_TRACKER)
+   target_sources(app PRIVATE
+     src/main_tracker.cpp
+     src/lt_platform_zephyr.c
++    src/lt_diag.c
+     ${LIBRETAG_CORE_DIR}/lt_core.c
+     ${LIBRETAG_CORE_DIR}/lt_region.c
+     ${LIBRETAG_CORE_DIR}/lt_country_grid.c
+diff --git a/zephcore/boards/common/tracker.conf b/zephcore/boards/common/tracker.conf
+index 38bc0a9..c358681 100644
+--- a/zephcore/boards/common/tracker.conf
++++ b/zephcore/boards/common/tracker.conf
+@@ -35,3 +35,6 @@ CONFIG_SHELL=n
+ # real erase); nothing else may mount that partition.
+ CONFIG_SETTINGS=n
+ CONFIG_NVS=n
++
++# 0.9.7: a fatal error records the thread it happened in (helpers/fatal_reboot.c, `boots`)
++CONFIG_THREAD_NAME=y
+diff --git a/zephcore/helpers/boot_info.c b/zephcore/helpers/boot_info.c
+index 0f92204..04b7bcc 100644
+--- a/zephcore/helpers/boot_info.c
++++ b/zephcore/helpers/boot_info.c
+@@ -15,11 +15,15 @@
+ #if defined(CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
+ #include <esp_system.h>
+ #endif
++#if defined(CONFIG_SOC_SERIES_NRF52)
++#include <hal/nrf_power.h>
++#endif
+ 
+ LOG_MODULE_REGISTER(zephcore_boot, CONFIG_ZEPHCORE_MAIN_LOG_LEVEL);
+ 
+ static uint32_t s_reset_cause;
+ static bool s_reset_cause_valid;
++static uint32_t s_reset_raw;
+ 
+ #if defined(CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
+ /* Zephyr's ESP32 hwinfo driver reports 0 for the reasons it has no case for,
+@@ -49,6 +53,13 @@ static int boot_info_init(void)
+ {
+ 	uint32_t cause = 0;
+ 
++	/* The register itself, all bits, before hwinfo decodes and clears it (LibreTag boot record). */
++#if defined(CONFIG_SOC_SERIES_NRF52)
++	s_reset_raw = nrf_power_resetreas_get(NRF_POWER);
++#elif defined(CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
++	s_reset_raw = (uint32_t)esp_reset_reason();
++#endif
++
+ 	if (hwinfo_get_reset_cause(&cause) != 0) {
+ 		/* Nothing to capture; the accessor reports false. */
+ 		return 0;
+@@ -78,6 +89,11 @@ static int boot_info_init(void)
+ 
+ SYS_INIT(boot_info_init, POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+ 
++uint32_t zephcore_boot_reset_raw(void)
++{
++	return s_reset_raw;
++}
++
+ bool zephcore_boot_reset_cause(uint32_t *out)
+ {
+ 	if (!s_reset_cause_valid) {
+diff --git a/zephcore/helpers/boot_info.h b/zephcore/helpers/boot_info.h
+index 5b38b2d..bc7134a 100644
+--- a/zephcore/helpers/boot_info.h
++++ b/zephcore/helpers/boot_info.h
+@@ -23,6 +23,12 @@ extern "C" {
+  */
+ bool zephcore_boot_reset_cause(uint32_t *out);
+ 
++/*
++ * The raw reset register as read at POST_KERNEL, before the clear: RESETREAS on the nRF52 (all
++ * bits), esp_reset_reason() on the ESP32, 0 elsewhere.
++ */
++uint32_t zephcore_boot_reset_raw(void);
++
+ /*
+  * Render as space-prefixed labels, e.g. " PIN SOFTWARE", or with hints set,
+  * " PIN(reset button) SOFTWARE". Returns characters written, excluding the
+diff --git a/zephcore/src/lt_diag.c b/zephcore/src/lt_diag.c
+new file mode 100644
+index 0000000..c9670d3
+--- /dev/null
++++ b/zephcore/src/lt_diag.c
+@@ -0,0 +1,212 @@
++/*
++ * SPDX-License-Identifier: MIT
++ * LibreTag 0.9.7: breadcrumb in RAM the boot keeps, and the watchdog. See lt_diag.h.
++ */
++
++#include "lt_diag.h"
++
++#include <zephyr/kernel.h>
++#include <zephyr/irq.h>
++#include <zephyr/logging/log.h>
++#include <string.h>
++
++#include <helpers/boot_info.h>
++
++#if defined(CONFIG_SOC_SERIES_NRF52)
++#include <hal/nrf_wdt.h>
++#define LT_HAS_WDT 1
++#else
++#define LT_HAS_WDT 0
++#endif
++
++LOG_MODULE_REGISTER(lt_diag, LOG_LEVEL_INF);
++
++#define CRUMB_MAGIC 0x4C544244u /* "LTBD" */
++
++static __noinit struct lt_crumb s_crumb;
++static struct lt_crumb s_prev;
++static bool s_prev_valid;
++static int64_t s_deadline_ms;
++static int s_wdt;
++
++static uint32_t crumb_check(const struct lt_crumb *c)
++{
++	const uint32_t *w = (const uint32_t *)c;
++	uint32_t sum = CRUMB_MAGIC;
++
++	for (size_t i = 0; i < offsetof(struct lt_crumb, check) / sizeof(uint32_t); i++) {
++		sum = (sum << 7 | sum >> 25) ^ w[i];
++		sum *= 0x9E3779B1u;
++	}
++	return sum;
++}
++
++/* callers hold the irq lock */
++static void crumb_seal(void)
++{
++	s_crumb.magic = CRUMB_MAGIC;
++	s_crumb.check = crumb_check(&s_crumb);
++}
++
++static void wdt_reload(void)
++{
++#if LT_HAS_WDT
++	/* every channel the WDT was started with (a previous run's too), as the bootloader does */
++	for (uint8_t i = 0; i < 8; i++) {
++		if (nrf_wdt_reload_request_enable_check(NRF_WDT, (nrf_wdt_rr_register_t)i)) {
++			nrf_wdt_reload_request_set(NRF_WDT, (nrf_wdt_rr_register_t)i);
++		}
++	}
++#endif
++}
++
++static void feed_fn(struct k_timer *t)
++{
++	ARG_UNUSED(t);
++	int64_t now = k_uptime_get();
++	unsigned int key = irq_lock();
++
++	s_crumb.up_s = (uint32_t)(now / 1000);
++	if (now < s_deadline_ms) {
++		wdt_reload();
++	} else {
++		s_crumb.flags |= LT_DF_STARVED;
++	}
++	crumb_seal();
++	irq_unlock(key);
++}
++
++K_TIMER_DEFINE(lt_feed_timer, feed_fn, NULL);
++
++void lt_diag_init(void)
++{
++	unsigned int key = irq_lock();
++
++	if (s_crumb.magic == CRUMB_MAGIC && s_crumb.check == crumb_check(&s_crumb)) {
++		s_prev = s_crumb;
++		s_prev_valid = true;
++	}
++	memset(&s_crumb, 0, sizeof(s_crumb));
++	s_crumb.phase = LT_PHASE_BOOT;
++	s_crumb.act = LT_ACT_INIT;
++	s_deadline_ms = k_uptime_get() + 600 * 1000;
++	crumb_seal();
++	irq_unlock(key);
++
++#if LT_HAS_WDT
++	if (nrf_wdt_started_check(NRF_WDT)) {
++		/* a soft reset (reboot, dfu, a fatal error) keeps the WDT running with the settings it
++		 * was started with; they cannot be changed until the next pin, power or WDT reset */
++		s_wdt = 2;
++		wdt_reload();
++	} else {
++		/* run while the CPU sleeps (a deadlock looks like sleep), pause under a debugger */
++		nrf_wdt_behaviour_set(NRF_WDT, NRF_WDT_BEHAVIOUR_RUN_SLEEP_MASK);
++		nrf_wdt_reload_value_set(NRF_WDT, (uint32_t)LT_WDT_TIMEOUT_S * 32768U);
++		nrf_wdt_reload_request_enable(NRF_WDT, NRF_WDT_RR0);
++		nrf_wdt_task_trigger(NRF_WDT, NRF_WDT_TASK_START);
++		s_wdt = 1;
++	}
++#endif
++	/* without a watchdog the timer only moves the breadcrumb's uptime: rarely, so an ESP32 in
++	 * light sleep is not woken every 30 s for it */
++	uint32_t period = LT_HAS_WDT ? LT_WDT_FEED_S : 600;
++
++	k_timer_start(&lt_feed_timer, K_SECONDS(period), K_SECONDS(period));
++	if (s_prev_valid) {
++		LOG_INF("previous run: up %u s, phase %u act %u, n %u", s_prev.up_s, s_prev.phase, s_prev.act,
++			s_prev.n);
++	} else {
++		LOG_INF("previous run: no breadcrumb");
++	}
++}
++
++bool lt_diag_prev(struct lt_crumb *out)
++{
++	if (!s_prev_valid) {
++		return false;
++	}
++	*out = s_prev;
++	return true;
++}
++
++void lt_diag_phase(uint8_t phase, uint32_t budget_s)
++{
++	int64_t now = k_uptime_get();
++	unsigned int key = irq_lock();
++
++	s_crumb.phase = phase;
++	s_crumb.phase_s = (uint32_t)(now / 1000);
++	s_crumb.up_s = s_crumb.phase_s;
++	s_crumb.flags &= (uint8_t)~LT_DF_STARVED;
++	s_deadline_ms = now + (int64_t)budget_s * 1000;
++	crumb_seal();
++	irq_unlock(key);
++}
++
++void lt_diag_deadline(uint32_t s)
++{
++	int64_t now = k_uptime_get();
++	unsigned int key = irq_lock();
++
++	s_deadline_ms = now + (int64_t)s * 1000;
++	s_crumb.flags &= (uint8_t)~LT_DF_STARVED;
++	crumb_seal();
++	irq_unlock(key);
++}
++
++int32_t lt_diag_deadline_left_s(void)
++{
++	int64_t left = s_deadline_ms - k_uptime_get();
++
++	return (int32_t)(left / 1000);
++}
++
++uint8_t lt_diag_act(uint8_t act)
++{
++	unsigned int key = irq_lock();
++	uint8_t was = s_crumb.act;
++
++	s_crumb.act = act;
++	s_crumb.up_s = (uint32_t)(k_uptime_get() / 1000);
++	crumb_seal();
++	irq_unlock(key);
++	return was;
++}
++
++void lt_diag_state(uint32_t n, uint8_t mode, uint8_t quiet, uint8_t flags, uint16_t batt_mv, uint32_t unix_s,
++		   uint32_t ev)
++{
++	uint32_t now_s = (uint32_t)(k_uptime_get() / 1000);
++	unsigned int key = irq_lock();
++
++	s_crumb.n = n;
++	s_crumb.mode = mode;
++	s_crumb.quiet = quiet;
++	s_crumb.flags = (uint8_t)((flags & (uint8_t)~LT_DF_STARVED) | (s_crumb.flags & LT_DF_STARVED));
++	s_crumb.batt_mv = batt_mv;
++	s_crumb.unix_s = unix_s;
++	s_crumb.ev = ev;
++	s_crumb.loop_s = now_s;
++	s_crumb.up_s = now_s;
++	crumb_seal();
++	irq_unlock(key);
++}
++
++void lt_diag_now(struct lt_crumb *out)
++{
++	unsigned int key = irq_lock();
++
++	*out = s_crumb;
++	irq_unlock(key);
++}
++
++int lt_diag_wdt(void)
++{
++	return s_wdt;
++}
++
++uint32_t lt_diag_resetreas(void)
++{
++	return zephcore_boot_reset_raw();
++}
+diff --git a/zephcore/src/lt_diag.h b/zephcore/src/lt_diag.h
+new file mode 100644
+index 0000000..0ad481d
+--- /dev/null
++++ b/zephcore/src/lt_diag.h
+@@ -0,0 +1,113 @@
++/*
++ * SPDX-License-Identifier: MIT
++ *
++ * LibreTag 0.9.7: what the tracker was doing when a run ended, and a hardware watchdog.
++ *
++ * Breadcrumb: a small record in RAM that the boot does not clear (survives a pin, soft, watchdog
++ * or lockup reset, not a power loss), with a magic and a checksum. The main loop writes its phase,
++ * what it is busy with, n, mode, quiet, battery and the clock into it; a 30 s timer writes the
++ * uptime. The next boot reads it (lt_diag_prev) into its boot record.
++ *
++ * Watchdog (nRF52 only): the nRF WDT with LT_WDT_TIMEOUT_S, running while the CPU sleeps. A timer
++ * reloads it every LT_WDT_FEED_S, but only until the deadline the main loop last set
++ * (lt_diag_deadline). The main loop moves the deadline when its phase changes, and while asleep
++ * to the end of the planned sleep, never on every event: a loop that keeps handling events but
++ * sits in one phase (a transmission that never finishes, say) runs into the deadline as well as a
++ * thread that blocks. Past the deadline nothing reloads the WDT and it resets the SoC: RESETREAS
++ * DOG, and the breadcrumb says where.
++ */
++#pragma once
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define LT_WDT_TIMEOUT_S 240
++#define LT_WDT_FEED_S    30
++
++/* what the main thread is busy with (act) */
++enum {
++	LT_ACT_INIT = 0,  /* main() before the loop */
++	LT_ACT_WAIT = 1,  /* idle in k_event_wait */
++	LT_ACT_EVENT = 2, /* handling the events of one loop pass */
++	LT_ACT_CLI = 3,   /* a console command (USB or Bluetooth) */
++	LT_ACT_FLASH = 4, /* writing the state, history or diagnostics */
++	LT_ACT_RX = 5,    /* a LoRa packet */
++	LT_ACT_BLECON = 6,
++	LT_ACT_GPS = 7,   /* the GPS driver's event */
++	LT_ACT_DFU = 8,   /* going to the bootloader */
++	LT_ACT_REBOOT = 9,
++	LT_ACT_COUNT
++};
++
++/* flags in the breadcrumb and the event log */
++enum {
++	LT_DF_GPS_ON = 1,     /* GPS acquiring */
++	LT_DF_RX = 2,         /* LoRa receiver on */
++	LT_DF_TX = 4,         /* LoRa transmission in flight */
++	LT_DF_BLE = 8,        /* Bluetooth scan running */
++	LT_DF_USB = 16,       /* external (USB) power */
++	LT_DF_BCON = 32,      /* Bluetooth console window open */
++	LT_DF_STARVED = 64,   /* the deadline passed: the watchdog is no longer reloaded */
++	LT_DF_TXINH = 128,    /* below the transmit floor */
++};
++
++#define LT_PHASE_BOOT 0xF0 /* before the main loop's first phase */
++
++struct lt_crumb {
++	uint32_t magic;
++	uint32_t up_s;     /* uptime at the last write (the 30 s timer or the main loop) */
++	uint32_t loop_s;   /* uptime of the main loop's last pass */
++	uint32_t phase_s;  /* uptime when the phase began */
++	uint32_t unix_s;   /* wall clock at the last main loop write, 0 = unknown */
++	uint32_t n;
++	uint32_t ev;       /* events of the last loop pass */
++	uint16_t batt_mv;
++	uint8_t phase;     /* the tracker's enum phase, or LT_PHASE_BOOT */
++	uint8_t act;       /* LT_ACT_* */
++	uint8_t mode;
++	uint8_t quiet;     /* 0, or the quiet reason + 1 */
++	uint8_t flags;     /* LT_DF_* */
++	uint8_t rsv;
++	uint32_t check;
++};
++
++/* Takes the previous run's breadcrumb (valid or not), starts a new one and the watchdog. Call once,
++ * early in main(). */
++void lt_diag_init(void);
++
++/* The previous run's breadcrumb; false if there was none (power loss, first boot, damaged). */
++bool lt_diag_prev(struct lt_crumb *out);
++
++/* A new phase: sets phase_s and the deadline to now + budget_s. */
++void lt_diag_phase(uint8_t phase, uint32_t budget_s);
++
++/* Moves the deadline to now + s, without a new phase (the sleep's planned end). */
++void lt_diag_deadline(uint32_t s);
++
++/* Seconds until the deadline (negative: past it). */
++int32_t lt_diag_deadline_left_s(void);
++
++/* What the main thread does now; returns the previous value, for lt_diag_act() after it. */
++uint8_t lt_diag_act(uint8_t act);
++
++/* The rest of the breadcrumb, from the main loop; also sets loop_s. */
++void lt_diag_state(uint32_t n, uint8_t mode, uint8_t quiet, uint8_t flags, uint16_t batt_mv, uint32_t unix_s,
++		   uint32_t ev);
++
++/* A copy of the current breadcrumb. */
++void lt_diag_now(struct lt_crumb *out);
++
++/* Watchdog: 1 running (started by this run), 2 running (left on by the previous run, a soft reset
++ * keeps it), 0 none on this SoC. */
++int lt_diag_wdt(void);
++
++/* Raw reset register as read at boot (nRF52 RESETREAS, ESP32 esp_reset_reason()); see boot_info. */
++uint32_t lt_diag_resetreas(void);
++
++#ifdef __cplusplus
++}
++#endif
+diff --git a/zephcore/src/lt_version.h b/zephcore/src/lt_version.h
+index ecfc574..7c83aca 100644
+--- a/zephcore/src/lt_version.h
++++ b/zephcore/src/lt_version.h
+@@ -1,4 +1,4 @@
+ /* Generated by firmware/tools/zephcore.sh; do not edit. */
+ #pragma once
+-#define LT_FW_VERSION "0.9.6"
++#define LT_FW_VERSION "0.9.7"
+ #define LT_ZEPHCORE_BASE "da3513aa6d08"
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 9bf78bc..f357f24 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -87,6 +87,7 @@ extern "C" {
+ #include "lt_core.h"
+ #include "lt_region.h"
+ #include "lt_version.h"
++#include "lt_diag.h"
+ #if IS_ENABLED(CONFIG_LIBRETAG_NOSTR)
+ #include "lt_nostr.h"
+ #endif
+@@ -127,10 +128,11 @@ extern "C" void bt_ctlr_assert_handle(char *file, uint32_t line)
+ #define EV_CHECK_END   BIT(MESH_EVENT_ROLE_BASE + 10) /* 0.7: the receiver window of a check is over */
+ #define EV_BLECMD      BIT(MESH_EVENT_ROLE_BASE + 11) /* 0.7.7: an advert carried a command with our tag */
+ #define EV_BCON        BIT(MESH_EVENT_ROLE_BASE + 12) /* 0.8.0: Bluetooth console: a frame, a connection, the timer */
++#define EV_ALIVE       BIT(MESH_EVENT_ROLE_BASE + 13) /* 0.9.7: hourly record in the event log */
+ #define EV_ALL (MESH_EVENT_LORA_RX | MESH_EVENT_LORA_TX_DONE | MESH_EVENT_CLI_RX | \
+ 		MESH_EVENT_GPS_ACTION | EV_REPORT_DUE | EV_FIX_TIMEOUT | EV_LISTEN_END | EV_TX_RETRY | \
+ 		EV_SCAN_END | EV_RETX | EV_BLE | EV_OWNER | EV_USB_LINE | EV_PAIR | EV_CHECK_END | EV_BLECMD | \
+-		EV_BCON)
++		EV_BCON | EV_ALIVE)
+ 
+ static struct k_event events;
+ 
+@@ -148,6 +150,37 @@ TIMER(ble_tmr, EV_BLE); /* blescan / blesurvey / presence / BLE_SCAN, apart from
+ TIMER(pair_tmr, EV_PAIR); /* blepair window */
+ TIMER(bcon_tmr, EV_BCON); /* 0.8.0: Bluetooth console window, every second while open */
+ TIMER(check_tmr, EV_CHECK_END); /* 0.7: end of a check's receiver window */
++TIMER(alive_tmr, EV_ALIVE);     /* 0.9.7: hourly "alive" record */
++
++/* 0.9.7: event log (STATE_DIR/ev0, ev1): state changes and an hourly record, for a tag that went
++ * silent (`events`). Types: */
++enum {
++	EVT_BOOT = 1,    /* a = LT_RST_* bits, x = RESETREAS */
++	EVT_ALIVE = 2,   /* hourly: a = listen windows without the home network, b = resets in a row,
++			  * c = energy mAh, x = seconds to the watchdog deadline */
++	EVT_QUIET = 3,   /* quiet began or its reason changed: a = reason, b = zone + 1 */
++	EVT_ACTIVE = 4,  /* quiet ended: a = the reason it had */
++	EVT_MODE = 5,    /* a = old mode, b = new */
++	EVT_NET = 6,     /* network switch: a = old country, b = new, x = new frequency in kHz */
++	EVT_STILL = 7,   /* parked condition met (a = wake-ups in a row at one place) */
++	EVT_MOVING = 8,  /* no longer at one place */
++	EVT_TXFAIL = 9,  /* the radio lost a packet of the queue: a = index, b = queue length */
++	EVT_TXFLOOR = 10, /* a = 1 below the transmit floor, 0 back above it */
++	EVT_CAP = 11,    /* a = 1 over the daily flood cap, 0 below again */
++	EVT_CLOCK = 12,  /* the clock became known in this run: x = unix time */
++	EVT_REBOOT = 13, /* console reboot (a = 0) or dfu (a = 1) */
++	EVT_BCON = 14,   /* a = 1 Bluetooth console window open, 0 closed */
++	EVT_CMD = 15,    /* a command taken: a = op, b = seq */
++	EVT_STALL = 16,  /* the main loop runs past its watchdog deadline: a reset follows (b = 1: wdtest) */
++};
++static void ev_log(uint8_t type, uint8_t a, uint8_t b, uint16_t c, uint32_t x);
++
++/* 0.9.7: what the main thread is doing, in the breadcrumb; restored when the scope ends */
++struct diag_act {
++	uint8_t was;
++	explicit diag_act(uint8_t a) : was(lt_diag_act(a)) {}
++	~diag_act() { lt_diag_act(was); }
++};
+ 
+ static void post_lora_rx(void *) { k_event_post(&events, MESH_EVENT_LORA_RX); }
+ static void post_lora_tx_done(void *) { k_event_post(&events, MESH_EVENT_LORA_TX_DONE); }
+@@ -554,6 +587,7 @@ static uint32_t state_crc(const struct persisted *p)
+  * failed write never leaves a half-written state (LittleFS renames atomically). */
+ static bool save_cfg(void)
+ {
++	diag_act da(LT_ACT_FLASH);
+ 	struct fs_file_t f;
+ 
+ 	cfg.ext_magic = STATE_EXT_MAGIC;
+@@ -668,6 +702,7 @@ static void hist_init(void)
+ /* append only: LittleFS copies the tail on a write into the middle of a file */
+ static void hist_write(const struct histrec *h)
+ {
++	diag_act da(LT_ACT_FLASH);
+ 	struct fs_file_t f;
+ 	char name[40];
+ 
+@@ -762,6 +797,7 @@ static uint32_t keys_read_floor(int page)
+ 
+ static bool keys_save(void)
+ {
++	diag_act da(LT_ACT_FLASH);
+ 	static struct keypage kp;
+ 
+ 	if (!keys_fa) {
+@@ -945,6 +981,7 @@ static uint8_t boot_rst;
+  * cause and the resets in a row as they were at boot (byte 14, lt_boot_info) */
+ static bool boot_report_due = true;
+ static uint8_t boot_resets_at_boot;
++static uint8_t boot_was_deliberate; /* 0.9.7: the previous run announced this boot (reboot, dfu) */
+ 
+ static uint8_t boot_reset_bits(void)
+ {
+@@ -1040,6 +1077,7 @@ static void load_cfg(void)
+ 	cfg.boot_resets = lt_boot_resets_next(cfg.boot_resets, cfg.boot_deliberate,
+ 					      lt_reset_deliberate(boot_rst, board.getBattMilliVolts(),
+ 								  board.isExternalPowered()));
++	boot_was_deliberate = cfg.boot_deliberate;
+ 	cfg.boot_deliberate = 0;
+ 	boot_resets_at_boot = cfg.boot_resets;
+ 
+@@ -2593,6 +2631,7 @@ static void apply_command(const lt_command_t *c)
+ 		pending_ack = true; /* already done (a second copy): acknowledge again, do not repeat */
+ 		return;
+ 	}
++	ev_log(EVT_CMD, c->op, c->seq, 0, 0);
+ 	switch (c->op) {
+ 	case LT_OP_SET_MODE: {
+ 		uint8_t m = c->args[0];
+@@ -4917,7 +4956,7 @@ static bool bcon_authed(void) { return false; }
+  * firmware update, the USB unlock, and blepair (it needs the connection the console uses). */
+ static bool cli_ble_denied(const char *c, int argc)
+ {
+-	static const char *const deny[] = {"dfu", "newkey", "lock", "unpair", "challenge", "auth", "blepair"};
++	static const char *const deny[] = {"dfu", "newkey", "lock", "unpair", "challenge", "auth", "blepair", "wdtest"};
+ 
+ 	if (!strcmp(c, "key")) {
+ 		return argc >= 2; /* `key` alone is `status` */
+@@ -4952,6 +4991,499 @@ static bool cli_needs_unlock(const char *c)
+ 	return true;
+ }
+ 
++/* ------------------------------------------------------------------ diagnostics (0.9.7)
++ * Boot records (STATE_DIR/boot0, boot1) and the event log (ev0, ev1): two append-only segments
++ * each, like the history; the older segment is dropped when the current one is full. A boot
++ * record keeps the raw reset register and the previous run's breadcrumb (lt_diag.h); the event
++ * log keeps state changes and an hourly record. Neither holds a position. */
++#define BOOT_SEG_RECS 16 /* the newest 16..32 boots */
++#define EV_SEG_RECS 128  /* the newest 128..256 events: at one an hour plus changes, about a week */
++#define BOOT_MAGIC 0xB7
++#define EVREC_MAGIC 0xE7
++/* phase budgets for the watchdog deadline (lt_diag.h): the longest legitimate wake-up phase is a
++ * GPS search of up to 600 s (fixto) plus a LOST scan or discover; a sleep ends when report_timer
++ * fires, so its deadline is that time plus a margin */
++#define PHASE_BUDGET_S 1200
++#define SLEEP_SLACK_S 600
++#define ALIVE_S 3600
++
++struct bootrec {
++	uint8_t magic;
++	uint8_t rst;        /* LT_RST_* bits of this boot */
++	uint8_t resets;     /* resets in a row after this boot */
++	uint8_t deliberate; /* the previous run announced it (reboot, dfu) */
++	uint32_t seq;
++	uint32_t resetreas; /* raw register (nRF52 RESETREAS) */
++	uint32_t n;         /* n at boot */
++	uint32_t unix_s;    /* estimate of the boot time from the breadcrumb's clock, 0 = unknown */
++	uint16_t batt_mv;
++	uint8_t crumb;      /* 1: the previous run left a breadcrumb (below) */
++	uint8_t crash;      /* 1: the previous run ended in a fatal error (below) */
++	/* previous run, from its breadcrumb */
++	uint32_t p_up_s, p_loop_s, p_phase_s, p_unix_s, p_n, p_ev;
++	uint16_t p_batt_mv;
++	uint8_t p_phase, p_act, p_mode, p_quiet, p_flags;
++	uint8_t wdt;        /* lt_diag_wdt() of this boot */
++	/* the fatal error the previous run recorded (helpers/fatal_reboot.c) */
++	uint32_t c_reason, c_pc, c_lr;
++	char c_thread[12];
++} __packed;
++BUILD_ASSERT(sizeof(struct bootrec) == 80, "bootrec size");
++
++struct evrec {
++	uint8_t magic;
++	uint8_t type;   /* EVT_* */
++	uint8_t phase;
++	uint8_t mode;
++	uint32_t seq;
++	uint32_t up_s;
++	uint32_t unix_s; /* 0 = clock unknown */
++	uint32_t n;
++	uint16_t batt_mv;
++	uint8_t flags;   /* LT_DF_* */
++	uint8_t quiet;   /* quiet reason + 1, 0 = not quiet */
++	uint8_t a, b;
++	uint16_t c;
++	uint32_t x;
++} __packed;
++BUILD_ASSERT(sizeof(struct evrec) == 32, "evrec size");
++
++struct ring {
++	const char *fmt;
++	uint16_t rec_size;
++	uint16_t seg_recs;
++	uint8_t seg;
++	uint16_t count;
++	uint32_t seq;
++	bool ready;
++};
++static struct ring boot_ring = {STATE_DIR "/boot%u", sizeof(struct bootrec), BOOT_SEG_RECS, 0, 0, 0, false};
++static struct ring ev_ring = {STATE_DIR "/ev%u", sizeof(struct evrec), EV_SEG_RECS, 0, 0, 0, false};
++
++/* every record type here starts with magic, three bytes, then u32 seq */
++static void ring_init(struct ring *r)
++{
++	struct fs_dirent st;
++	char name[40];
++	size_t sz[2] = {0, 0};
++	uint8_t buf[sizeof(struct bootrec)];
++
++	for (unsigned i = 0; i < 2; i++) {
++		snprintf(name, sizeof(name), r->fmt, i);
++		if (fs_stat(name, &st) == 0) {
++			sz[i] = st.size / r->rec_size;
++		}
++	}
++	r->seg = (sz[0] >= r->seg_recs && sz[1] < r->seg_recs) ? 1 : 0;
++	if (sz[0] >= r->seg_recs && sz[1] >= r->seg_recs) {
++		r->seg = 0;
++		snprintf(name, sizeof(name), r->fmt, 0);
++		fs_unlink(name);
++		sz[0] = 0;
++	}
++	r->count = (uint16_t)MIN(sz[r->seg], (size_t)r->seg_recs);
++	r->seq = 0;
++	for (unsigned i = 0; i < 2; i++) {
++		struct fs_file_t f;
++
++		snprintf(name, sizeof(name), r->fmt, i);
++		fs_file_t_init(&f);
++		if (fs_open(&f, name, FS_O_READ) < 0) {
++			continue;
++		}
++		while (fs_read(&f, buf, r->rec_size) == (ssize_t)r->rec_size) {
++			uint32_t q = sys_get_le32(buf + 4);
++
++			r->seq = MAX(r->seq, q + 1);
++		}
++		fs_close(&f);
++	}
++	r->ready = true;
++}
++
++static void ring_append(struct ring *r, void *rec)
++{
++	diag_act da(LT_ACT_FLASH);
++	struct fs_file_t f;
++	char name[40];
++
++	if (!r->ready) {
++		return;
++	}
++	if (r->count >= r->seg_recs) {
++		r->seg ^= 1;
++		r->count = 0;
++		snprintf(name, sizeof(name), r->fmt, r->seg);
++		fs_unlink(name);
++	}
++	snprintf(name, sizeof(name), r->fmt, r->seg);
++	fs_file_t_init(&f);
++	if (fs_open(&f, name, FS_O_CREATE | FS_O_WRITE | FS_O_APPEND) < 0) {
++		return;
++	}
++	sys_put_le32(r->seq, (uint8_t *)rec + 4);
++	if (fs_write(&f, rec, r->rec_size) == (ssize_t)r->rec_size) {
++		r->count++;
++		r->seq++;
++	}
++	fs_close(&f);
++}
++
++/* records oldest first; fn gets each one with the expected magic */
++static void ring_each(struct ring *r, uint8_t magic, void (*fn)(const void *))
++{
++	unsigned order[2] = {(unsigned)(r->seg ^ 1), r->seg};
++	uint8_t buf[sizeof(struct bootrec)];
++
++	for (unsigned k = 0; k < 2; k++) {
++		struct fs_file_t f;
++		char name[40];
++
++		snprintf(name, sizeof(name), r->fmt, order[k]);
++		fs_file_t_init(&f);
++		if (fs_open(&f, name, FS_O_READ) < 0) {
++			continue;
++		}
++		while (fs_read(&f, buf, r->rec_size) == (ssize_t)r->rec_size) {
++			if (buf[0] == magic) {
++				fn(buf);
++			}
++		}
++		fs_close(&f);
++	}
++}
++
++static const char *phase_name(uint8_t p)
++{
++	static const char *const names[] = {"sleep", "gps", "tx", "listen", "blescan", "check"};
++
++	if (p == LT_PHASE_BOOT) {
++		return "boot";
++	}
++	return p < ARRAY_SIZE(names) ? names[p] : "?";
++}
++
++static const char *act_name(uint8_t a)
++{
++	static const char *const names[] = {"init", "wait", "event", "cli", "flash", "rx", "blecon", "gps", "dfu",
++					    "reboot"};
++
++	return a < ARRAY_SIZE(names) ? names[a] : "?";
++}
++
++static const char *rst_word(uint8_t rst)
++{
++	static const char *const names[] = {"pin", "power", "soft", "debug", "brownout", "watchdog", "crash"};
++	uint8_t c = lt_boot_cause(rst);
++
++	return c ? names[c - 1] : "none";
++}
++
++/* nRF52840 RESETREAS bits as words; the raw value is printed next to them */
++static void resetreas_words(uint32_t r, char *b, size_t n)
++{
++#if defined(CONFIG_SOC_SERIES_NRF52)
++	static const struct {
++		uint32_t bit;
++		const char *w;
++	} t[] = {{BIT(0), "RESETPIN"}, {BIT(1), "DOG"},   {BIT(2), "SREQ"}, {BIT(3), "LOCKUP"}, {BIT(16), "OFF"},
++		 {BIT(17), "LPCOMP"},  {BIT(18), "DIF"},  {BIT(19), "NFC"},  {BIT(20), "VBUS"}};
++	size_t l = 0;
++
++	b[0] = 0;
++	for (size_t i = 0; i < ARRAY_SIZE(t) && l + 10 < n; i++) {
++		if (r & t[i].bit) {
++			l += (size_t)snprintf(b + l, n - l, "%s%s", l ? "+" : "", t[i].w);
++		}
++	}
++	if (!l) {
++		snprintf(b, n, "%s", r ? "other" : "none(power-on/brownout)");
++	}
++#else
++	snprintf(b, n, "esp%u", (unsigned)r);
++#endif
++}
++
++static uint8_t diag_quiet(void)
++{
++	return wake_st.quiet ? (uint8_t)(wake_st.reason + 1) : 0;
++}
++
++static uint8_t diag_flags(void)
++{
++	struct gps_state_info gi;
++	uint8_t f = 0;
++
++	gps_get_state_info(&gi);
++	if (gi.state == 2) {
++		f |= LT_DF_GPS_ON;
++	}
++	if (radio.isTxActive()) {
++		f |= LT_DF_TX;
++	} else if (radio.isInRecvMode()) {
++		f |= LT_DF_RX;
++	}
++#if IS_ENABLED(CONFIG_BT_OBSERVER)
++	if (ble_scanning) {
++		f |= LT_DF_BLE;
++	}
++#endif
++#if BCON
++	if (bcon_on) {
++		f |= LT_DF_BCON;
++	}
++#endif
++	if (board.isExternalPowered()) {
++		f |= LT_DF_USB;
++	}
++	if (tx_inhibited) {
++		f |= LT_DF_TXINH;
++	}
++	return f;
++}
++
++static void ev_log(uint8_t type, uint8_t a, uint8_t b, uint16_t c, uint32_t x)
++{
++	struct evrec e = {};
++
++	e.magic = EVREC_MAGIC;
++	e.type = type;
++	e.phase = (uint8_t)phase;
++	e.mode = (uint8_t)mode;
++	e.up_s = (uint32_t)(k_uptime_get() / 1000);
++	e.unix_s = now_unix();
++	e.n = n_cur;
++	e.batt_mv = board.getBattMilliVolts();
++	e.flags = diag_flags();
++	e.quiet = diag_quiet();
++	e.a = a;
++	e.b = b;
++	e.c = c;
++	e.x = x;
++	ring_append(&ev_ring, &e);
++}
++
++/* the boot record: once, after the file system and the state are loaded */
++static void boot_record(void)
++{
++	struct bootrec r = {};
++	struct lt_crumb p;
++	struct zephcore_crash cr;
++
++	ring_init(&boot_ring);
++	ring_init(&ev_ring);
++	r.magic = BOOT_MAGIC;
++	r.rst = boot_rst;
++	r.resets = cfg.boot_resets;
++	r.deliberate = boot_was_deliberate;
++	r.resetreas = lt_diag_resetreas();
++	r.n = n_cur;
++	r.batt_mv = board.getBattMilliVolts();
++	r.wdt = (uint8_t)lt_diag_wdt();
++	if (lt_diag_prev(&p)) {
++		r.crumb = 1;
++		r.p_up_s = p.up_s;
++		r.p_loop_s = p.loop_s;
++		r.p_phase_s = p.phase_s;
++		r.p_unix_s = p.unix_s;
++		r.p_n = p.n;
++		r.p_ev = p.ev;
++		r.p_batt_mv = p.batt_mv;
++		r.p_phase = p.phase;
++		r.p_act = p.act;
++		r.p_mode = p.mode;
++		r.p_quiet = p.quiet;
++		r.p_flags = p.flags;
++		/* the clock at the last breadcrumb, moved on to the last uptime the timer wrote */
++		r.unix_s = p.unix_s ? p.unix_s + (p.up_s - MIN(p.loop_s, p.up_s)) : 0;
++	}
++	if (zephcore_boot_crash(&cr)) {
++		r.crash = 1;
++		r.c_reason = cr.reason;
++		r.c_pc = cr.pc;
++		r.c_lr = cr.lr;
++		strncpy(r.c_thread, cr.thread, sizeof(r.c_thread) - 1);
++	}
++	ring_append(&boot_ring, &r);
++	ev_log(EVT_BOOT, boot_rst, r.crumb ? r.p_phase : 0xFF, 0, r.resetreas);
++	LOG_INF("boot record %u: reset %s RESETREAS 0x%08x, previous run %s up %u s phase %s act %s",
++		(unsigned)(boot_ring.seq - 1), rst_word(boot_rst), (unsigned)r.resetreas, r.crumb ? "" : "(no breadcrumb)",
++		(unsigned)r.p_up_s, r.crumb ? phase_name(r.p_phase) : "-", r.crumb ? act_name(r.p_act) : "-");
++}
++
++/* what the event log follows from one loop pass to the next */
++static struct {
++	bool init;
++	uint8_t phase;
++	uint8_t mode;
++	uint8_t quiet;
++	int8_t zone;
++	bool still;
++	bool txinh;
++	bool cap;
++	bool clock;
++	bool stall;
++	uint8_t country;
++	float freq;
++#if BCON
++	bool bcon;
++#endif
++} dw;
++
++/* end of every main loop pass: breadcrumb, watchdog deadline, state changes for the event log */
++static void diag_pass(uint32_t ev)
++{
++	uint8_t q = diag_quiet();
++	bool still = cfg.still_after && wake_st.still_count >= cfg.still_after;
++	bool cap = over_cap();
++
++	if (!dw.init) {
++		dw.init = true;
++		dw.phase = LT_PHASE_BOOT;
++		dw.mode = (uint8_t)mode;
++		dw.quiet = q;
++		dw.zone = wake_st.zone;
++		dw.still = still;
++		dw.txinh = tx_inhibited;
++		dw.cap = cap;
++		dw.country = cfg.country;
++		dw.freq = cfg.freq;
++	}
++	if ((uint8_t)phase != dw.phase) {
++		dw.phase = (uint8_t)phase;
++		dw.stall = false;
++		lt_diag_phase((uint8_t)phase, phase == PH_SLEEP ? SLEEP_SLACK_S : PHASE_BUDGET_S);
++	}
++	if (phase == PH_SLEEP) {
++		/* asleep until report_timer fires: the deadline follows it (a sleep without it never ends,
++		 * and then the watchdog does it) */
++		uint32_t rem = k_timer_remaining_get(&report_timer);
++
++		if (rem) {
++			lt_diag_deadline(rem / 1000 + SLEEP_SLACK_S);
++		}
++	}
++	if (lt_diag_deadline_left_s() < 0 && !dw.stall) {
++		dw.stall = true;
++		LOG_ERR("phase %s past its watchdog deadline", phase_name((uint8_t)phase));
++		ev_log(EVT_STALL, (uint8_t)phase, 0, 0, (uint32_t)(-lt_diag_deadline_left_s()));
++	}
++	if ((uint8_t)mode != dw.mode) {
++		ev_log(EVT_MODE, dw.mode, (uint8_t)mode, 0, 0);
++		dw.mode = (uint8_t)mode;
++	}
++	if (q != dw.quiet || (q && wake_st.zone != dw.zone)) {
++		if (q) {
++			ev_log(EVT_QUIET, wake_st.reason, (uint8_t)(wake_st.zone + 1), 0, 0);
++		} else {
++			ev_log(EVT_ACTIVE, dw.quiet ? (uint8_t)(dw.quiet - 1) : 0, 0, 0, 0);
++		}
++		dw.quiet = q;
++		dw.zone = wake_st.zone;
++	}
++	if (still != dw.still) {
++		ev_log(still ? EVT_STILL : EVT_MOVING, wake_st.still_count, 0, 0, 0);
++		dw.still = still;
++	}
++	if (tx_inhibited != dw.txinh) {
++		ev_log(EVT_TXFLOOR, tx_inhibited, 0, 0, 0);
++		dw.txinh = tx_inhibited;
++	}
++	if (cap != dw.cap) {
++		ev_log(EVT_CAP, cap, 0, 0, floods_24h());
++		dw.cap = cap;
++	}
++	if (cfg.country != dw.country || cfg.freq != dw.freq) {
++		ev_log(EVT_NET, dw.country, cfg.country, 0, (uint32_t)lroundf(cfg.freq * 1000.0f));
++		dw.country = cfg.country;
++		dw.freq = cfg.freq;
++	}
++	if (!dw.clock && clock_unix) {
++		dw.clock = true;
++		ev_log(EVT_CLOCK, 0, 0, 0, now_unix());
++	}
++#if BCON
++	if (bcon_on != dw.bcon) {
++		ev_log(EVT_BCON, bcon_on, 0, 0, 0);
++		dw.bcon = bcon_on;
++	}
++#endif
++	if (ev & EV_ALIVE) {
++		ev_log(EVT_ALIVE, home_silent, cfg.boot_resets, (uint16_t)MIN(cfg.energy_uah / 1000, 65535U),
++		       (uint32_t)lt_diag_deadline_left_s());
++	}
++	lt_diag_state(n_cur, (uint8_t)mode, q, diag_flags(), board.getBattMilliVolts(), now_unix(), ev);
++}
++
++static void print_boot(const struct bootrec *r)
++{
++	char w[48];
++
++	resetreas_words(r->resetreas, w, sizeof(w));
++	out("B %u reset=%s resetreas=0x%08x(%s) n=%u batt=%umV resets=%u%s wdt=%u t=%u\r\n", (unsigned)r->seq,
++	    rst_word(r->rst), (unsigned)r->resetreas, w, (unsigned)r->n, r->batt_mv, r->resets,
++	    r->deliberate ? " announced" : "", r->wdt, (unsigned)r->unix_s);
++	if (r->crumb) {
++		out("  before: up=%us loop=%us phase=%s since=%us act=%s n=%u mode=%u quiet=%u flags=0x%02x ev=0x%x "
++		    "batt=%umV t=%u\r\n",
++		    (unsigned)r->p_up_s, (unsigned)r->p_loop_s, phase_name(r->p_phase), (unsigned)r->p_phase_s,
++		    act_name(r->p_act), (unsigned)r->p_n, r->p_mode, r->p_quiet, r->p_flags, (unsigned)r->p_ev,
++		    r->p_batt_mv, (unsigned)r->p_unix_s);
++	} else {
++		out("  before: no breadcrumb (power loss, or a run before 0.9.7)\r\n");
++	}
++	if (r->crash) {
++		out("  crash: reason=%u pc=0x%08x lr=0x%08x thread=%.12s\r\n", (unsigned)r->c_reason, (unsigned)r->c_pc,
++		    (unsigned)r->c_lr, r->c_thread);
++	}
++}
++
++static const char *evt_name(uint8_t t)
++{
++	static const char *const names[] = {"?",      "boot",   "alive", "quiet",  "active", "mode",
++					    "net",    "still",  "moving", "txfail", "txfloor", "cap",
++					    "clock",  "reboot", "blecon", "cmd",    "stall"};
++
++	return t < ARRAY_SIZE(names) ? names[t] : "?";
++}
++
++static void print_ev(const struct evrec *e)
++{
++	out("E %u %s up=%u t=%u n=%u phase=%s mode=%u quiet=%u batt=%umV flags=0x%02x a=%u b=%u c=%u x=%u\r\n",
++	    (unsigned)e->seq, evt_name(e->type), (unsigned)e->up_s, (unsigned)e->unix_s, (unsigned)e->n,
++	    phase_name(e->phase), e->mode, e->quiet, e->batt_mv, e->flags, e->a, e->b, e->c, (unsigned)e->x);
++}
++
++static void print_diag_status(void)
++{
++	struct lt_crumb now, p;
++	struct zephcore_crash cr;
++	char w[48];
++
++	lt_diag_now(&now);
++	resetreas_words(lt_diag_resetreas(), w, sizeof(w));
++	out("reset %s resetreas=0x%08x(%s)%s\r\n", boot_rst_name(), (unsigned)lt_diag_resetreas(), w,
++	    boot_was_deliberate ? ", announced by the previous run" : "");
++	if (zephcore_boot_crash(&cr)) {
++		out("previous run crashed: reason %u pc 0x%08x lr 0x%08x thread %s\r\n", (unsigned)cr.reason,
++		    (unsigned)cr.pc, (unsigned)cr.lr, cr.thread[0] ? cr.thread : "?");
++	}
++	if (lt_diag_prev(&p)) {
++		out("previous run: up %u s, phase %s since %u s, act %s, n=%u, batt %u mV, flags 0x%02x\r\n",
++		    (unsigned)p.up_s, phase_name(p.phase), (unsigned)p.phase_s, act_name(p.act), (unsigned)p.n,
++		    p.batt_mv, p.flags);
++	} else {
++		out("previous run: no breadcrumb (power loss, or before 0.9.7)\r\n");
++	}
++	if (lt_diag_wdt()) {
++		out("watchdog %u s%s, deadline in %d s (phase %s since %u s, act %s)\r\n", (unsigned)LT_WDT_TIMEOUT_S,
++		    lt_diag_wdt() == 2 ? ", running since before this boot" : "", (int)lt_diag_deadline_left_s(),
++		    phase_name(now.phase), (unsigned)now.phase_s, act_name(now.act));
++	} else {
++		out("watchdog: none on this board, deadline in %d s\r\n", (int)lt_diag_deadline_left_s());
++	}
++}
++
+ static char line[160];
+ static size_t line_len;
+ 
+@@ -5074,6 +5606,7 @@ static void print_status(void)
+ 	out("battery %u%% (%u mV) phase=%d gps=%s last_fix=%s %.6f,%.6f\r\n", board.getBattPercent(),
+ 	    board.getBattMilliVolts(), phase, gps_is_available() ? "yes" : "no",
+ 	    fix_valid ? "yes" : "no", fix_lat, fix_lon);
++	print_diag_status(); /* 0.9.7 */
+ #if BCON
+ 	bcon_print("blecon");
+ #endif
+@@ -5467,6 +6000,8 @@ static void cli_dfu(const char *how)
+ 		return;
+ 	}
+ 	out("dfu: rebooting to %s\r\n", how);
++	ev_log(EVT_REBOOT, 1, magic, 0, 0);
++	lt_diag_act(LT_ACT_DFU);
+ 	cfg.boot_deliberate = 1; /* the first boot of the new firmware is not a reset */
+ 	save_mode();
+ 	save_cfg();
+@@ -5764,10 +6299,11 @@ static void cli_exec(char *l)
+ 		out("status | version | selftest | challenge | auth <hex> | lock | unpair | key <hex64> | newkey\r\n");
+ 		out("report | interval <min> | listen <s> | fixto <s> | check <s>\r\n");
+ 		out("still <after> <heartbeat_h> | still off | heartbeat zone|owner <h>\r\n");
+-		out("log [count] | history [from_n]\r\n");
++		out("log [count] | history [from_n] | boots [count] | events [count]\r\n");
+ 		out("track <interval_s> <minutes> | idle | transport channel|stealth\r\n");
+ 		out("radio <MHz> <bwkHz> <sf> <cr> | power <dBm> | pathhash 1|2|3 | region <name>|none\r\n");
+ 		out("network [auto|manual] | where <lat> <lon> | test [count] [interval_s] | gps | reboot\r\n");
++		out("wdtest: stop the main loop; the watchdog resets the tag (a test of the reset record)\r\n");
+ 		out("dfu [serial|ble|uf2]: reboot into the bootloader (serial DFU by default)\r\n");
+ 		out("meshscan [s] | discover [s] | neighbours | noise [n] | blescan [s] [passive] [full]\r\n");
+ 		out("blesurvey <rounds> <scan_s> <gap_s> [passive] [quiet] | blestop | blepair [s]\r\n");
+@@ -6000,6 +6536,37 @@ static void cli_exec(char *l)
+ 			    h->flags2 & HF2_WIFI ? "wifi " : "", h->flags2 & HF2_BLE ? "ble" : "");
+ 		});
+ 		out("END\r\n");
++	} else if (!strcmp(c, "boots") || !strcmp(c, "events")) {
++		/* 0.9.7: boots [count] (default 16), events [count] (default 30), oldest first */
++		static uint32_t want, total, skip;
++		bool boots = !strcmp(c, "boots");
++		struct ring *r = boots ? &boot_ring : &ev_ring;
++		uint8_t magic = boots ? BOOT_MAGIC : EVREC_MAGIC;
++
++		want = argc >= 2 ? (uint32_t)CLAMP(atoi(argv[1]), 1, 2 * r->seg_recs) : (boots ? 16 : 30);
++		total = 0;
++		ring_each(r, magic, [](const void *) { total++; });
++		skip = total > want ? total - want : 0;
++		if (boots) {
++			out("BOOTS %u of %u\r\n", (unsigned)(total - skip), (unsigned)total);
++			ring_each(r, magic, [](const void *p) {
++				if (skip) {
++					skip--;
++					return;
++				}
++				print_boot(static_cast<const struct bootrec *>(p));
++			});
++		} else {
++			out("EVENTS %u of %u\r\n", (unsigned)(total - skip), (unsigned)total);
++			ring_each(r, magic, [](const void *p) {
++				if (skip) {
++					skip--;
++					return;
++				}
++				print_ev(static_cast<const struct evrec *>(p));
++			});
++		}
++		out("END\r\n");
+ 	} else if (!strcmp(c, "history")) {
+ 		/* history [from_n]: sealed records for the app (opened with K0 as copy j of n), oldest first;
+ 		 * `H <seq> <n> <j> <flags> <hex P>`, then `END <count>` (PROTOCOL.md 6) */
+@@ -6203,10 +6770,28 @@ static void cli_exec(char *l)
+ 		save_cfg();
+ 		apply_radio_cfg();
+ 		out("OK\r\n");
++	} else if (!strcmp(c, "wdtest")) {
++		/* 0.9.7: the main loop stops here; the deadline is now, so the watchdog resets the tag
++		 * within LT_WDT_TIMEOUT_S + LT_WDT_FEED_S (`boots` then shows watchdog, act cli) */
++		if (!lt_diag_wdt()) {
++			out("ERR no watchdog on this board\r\n");
++			return;
++		}
++		out("wdtest: main loop stopped, the watchdog resets the tag within %u s\r\n",
++		    (unsigned)(LT_WDT_TIMEOUT_S + LT_WDT_FEED_S));
++		ev_log(EVT_STALL, (uint8_t)phase, 1, 0, 0);
++		radio.sleepRadio();
++		gps_stop_acquiring();
++		lt_diag_deadline(0);
++		for (;;) {
++			k_msleep(1000);
++		}
+ 	} else if (!strcmp(c, "reboot")) {
++		ev_log(EVT_REBOOT, 0, 0, 0, 0);
+ 		cfg.boot_deliberate = 1; /* 0.7.6: not a reset for the backoff */
+ 		save_mode();
+ 		save_cfg();
++		lt_diag_act(LT_ACT_REBOOT);
+ 		board.reboot();
+ 	} else if (!strcmp(c, "dfu")) {
+ 		cli_dfu(argc >= 2 ? argv[1] : "serial");
+@@ -6273,6 +6858,7 @@ static void nostr_init(void)
+ 
+ int main(void)
+ {
++	lt_diag_init(); /* 0.9.7: the previous run's breadcrumb, a new one, the watchdog */
+ 	board.clearBootloaderMagic();
+ 
+ #if ZEPHCORE_USB_STACK && DT_HAS_COMPAT_STATUS_OKAY(zephyr_cdc_acm_uart) && \
+@@ -6299,6 +6885,7 @@ int main(void)
+ 	initNodePrefs(&prefs);
+ 	load_cfg();
+ 	hist_init();
++	boot_record(); /* 0.9.7 */
+ #if IS_ENABLED(CONFIG_LIBRETAG_WIFI)
+ 	wz_load();
+ #endif
+@@ -6346,6 +6933,7 @@ int main(void)
+ 	LOG_INF("LibreTag tracker up, n=%u, reset %s, resets in a row %u, first report in %u s", n_cur,
+ 		boot_rst_name(), cfg.boot_resets, boot_delay);
+ 	schedule_next(boot_delay);
++	k_timer_start(&alive_tmr, K_SECONDS(ALIVE_S), K_SECONDS(ALIVE_S));
+ #if BCON
+ 	/* 0.8.0: a paired tag listens on Bluetooth for 3 minutes after a boot (not switched off, above
+ 	 * the transmit floor, not in a reset loop) */
+@@ -6358,20 +6946,29 @@ int main(void)
+ 	}
+ #endif
+ 
++	uint32_t ev = 0;
++
+ 	for (;;) {
+ #if BCON
+ 		bcon_flush(); /* Bluetooth console output waits for nothing once the loop is idle */
+ #endif
+-		uint32_t ev = k_event_wait(&events, EV_ALL, false, K_FOREVER);
++		diag_pass(ev); /* 0.9.7: breadcrumb, watchdog deadline, event log */
++		lt_diag_act(LT_ACT_WAIT);
++		ev = k_event_wait(&events, EV_ALL, false, K_FOREVER);
++		lt_diag_act(LT_ACT_EVENT);
+ 
+ 		k_event_clear(&events, ev);
+ #if BCON
+ 		if (ev & EV_BCON) {
++			diag_act da(LT_ACT_BLECON);
++
+ 			bcon_handle();
+ 		}
+ #endif
+ 
+ 		if (ev & MESH_EVENT_GPS_ACTION) {
++			diag_act da(LT_ACT_GPS);
++
+ 			gps_process_event();
+ 			/* 0.7.8: ZephCore's boot probe found no GPS (no NMEA sentence within 10 s of power-on,
+ 			 * e.g. the Wireless Stick Lite on the Heltec V3 definition): a search still running
+@@ -6384,6 +6981,8 @@ int main(void)
+ 			}
+ 		}
+ 		if (ev & MESH_EVENT_CLI_RX) {
++			diag_act da(LT_ACT_CLI);
++
+ 			cli_poll();
+ 		}
+ 		if (ev & EV_REPORT_DUE) {
+@@ -6468,11 +7067,26 @@ int main(void)
+ 				LOG_INF("report not relayed, sent again");
+ 			}
+ 		}
+-		if ((ev & MESH_EVENT_LORA_TX_DONE) && radio.isSendComplete() && phase == PH_TX) {
+-			radio.onSendFinished();
+-			tx_finished();
++		if ((ev & MESH_EVENT_LORA_TX_DONE) && phase == PH_TX) {
++			if (radio.isSendComplete()) {
++				radio.onSendFinished();
++				tx_finished();
++			} else if (tx_start_ms && !radio.isTxActive()) {
++				/* 0.9.7: the radio's wait thread gave up on this packet (no TX_DONE within its
++				 * budget, or the driver reported a failure) and said so without a completion.
++				 * Before, the wake-up waited here in PH_TX for good: no sleep, no next wake-up,
++				 * the receiver on. Count it as sent (lost) and go on with the queue. */
++				LOG_ERR("packet %d of %d lost in the radio", txq_i + 1, txq_n);
++				ev_log(EVT_TXFAIL, (uint8_t)txq_i, (uint8_t)txq_n, 0, 0);
++				if (txq_i == 0) {
++					hist_cur.flags |= HF_DROPPED;
++				}
++				tx_finished();
++			}
+ 		}
+ 		if (ev & MESH_EVENT_LORA_RX) {
++			diag_act da(LT_ACT_RX);
++
+ 			handle_rx();
+ 		}
+ 		if ((ev & EV_LISTEN_END) && phase == PH_LISTEN) {

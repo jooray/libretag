@@ -24,6 +24,7 @@ CANONICAL = [
     "docs/vectors/key-backup-v1.json",
     "docs/vectors/share-link-v1.json",
     "docs/vectors/lora-airtime-v1.json",
+    "docs/vectors/quiet-mesh-v1.json",
 ]
 SKIP_DIRS = {".git", ".claude", "build", "node_modules", ".gradle", "dist", ".venv", "__pycache__", ".idea"}
 

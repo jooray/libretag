@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Mon, 16 Nov 2026 23:36:31 +0100
-Subject: [PATCH 24/42] tracker: anchor/zone del rejects a negative index
+Subject: [PATCH 24/50] tracker: anchor/zone del rejects a negative index
  (wrote before the array); print_anchor clamps len so a damaged state cannot
  underflow or overrun the hex buffer; zone and anchor counts clamped at load
 

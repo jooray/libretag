@@ -60,6 +60,27 @@ class Console:
             lines = lines[1:]
         return lines
 
+    def command_until(self, cmd: str, end_prefix: str, max_s: float = 600.0, idle_s: float = 10.0) -> list[str]:
+        """A long answer (fieldlog dump): lines until one starts with end_prefix, or idle_s of silence."""
+        self._drain()
+        self.port.write((cmd + "\r").encode())
+        buf, lines, start, last = b"", [], time.monotonic(), time.monotonic()
+        while time.monotonic() - start < max_s and time.monotonic() - last < idle_s:
+            b = self.port.read(4096)
+            if not b:
+                time.sleep(0.01)
+                continue
+            last = time.monotonic()
+            buf += b
+            *done, buf = buf.split(b"\n")
+            for l in done:
+                l = l.decode(errors="replace").strip("\r ")
+                if l and l != cmd:
+                    lines.append(l)
+                    if l.startswith(end_prefix):
+                        return lines
+        raise TimeoutError(f"{cmd}: no {end_prefix!r} line ({len(lines)} lines read)")
+
     def _drain(self) -> None:
         while self.port.read(256):
             pass

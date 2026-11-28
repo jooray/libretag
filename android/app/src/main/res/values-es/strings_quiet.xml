@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Malla silenciosa, app 0.14.0 (SPEC.md 3.2): ajustes, la línea de enlace, la nota del comando, avisos. Las mismas claves en los seis idiomas. -->
+<resources>
+    <!-- Ajustes del localizador, sección Informes -->
+    <string name="ts_mesh_after">Avisar por toda la malla tras</string>
+    <string name="ts_mesh_after_every">Cada informe</string>
+    <string name="ts_mesh_after_sub">Si ningún puente ni nodo cercano responde durante este tiempo, el localizador envía un informe que los repetidores llevan más lejos.</string>
+    <string name="ts_mesh_after_guard">Mientras el localizador está vigilado, cada informe va por toda la malla.</string>
+    <string name="ts_at_once">Informar al instante si se mueve</string>
+    <string name="ts_at_once_sub">Si nadie cercano responde, sale por toda la malla a los pocos segundos en vez de en la siguiente comprobación. Usa más tiempo de aire.</string>
+
+    <!-- Detalle del localizador, fila Ruta: cómo te llega ahora -->
+    <string name="link_near_node">Al alcance de tu nodo</string>
+    <string name="link_near_bridge">Al alcance de un puente</string>
+    <string name="link_routed">Llega a un puente por uno o dos repetidores</string>
+    <string name="link_far">Sin puente cerca, informa por toda la malla</string>
+
+    <!-- La nota del comando. %1$s es el comando («Pitar»), %2$s una hora como «18:40» -->
+    <string name="slip2_next_try">%1$s · próximo intento a las %2$s</string>
+    <string name="slip2_not_sent">%1$s · un puente no pudo enviarlo a las %2$s</string>
+    <string name="slip2_no_relay">%1$s · ningún relay lo ha aceptado aún, se reintentará</string>
+    <!-- %1$s es el nombre del localizador -->
+    <string name="slip2_schedule_unknown">Esperando a que %1$s informe. Ahora no se conoce su horario.</string>
+
+    <!-- Notificaciones. %1$s es el nombre del localizador -->
+    <string name="notif_lost_ended_title">Terminó el modo Perdido de %1$s</string>
+    <string name="notif_track_ended_title">Terminó el seguimiento de %1$s</string>
+    <string name="notif_mode_ended_text">Ha vuelto a sus informes normales. Abre el localizador para activarlo de nuevo.</string>
+    <!-- %1$s es el comando («Pitar»), %2$s el nombre del localizador -->
+    <string name="notif_not_delivered_title">%1$s no llegó a %2$s</string>
+    <!-- %1$s es una hora como «18:40» -->
+    <string name="notif_not_delivered_miss">Un puente no pudo enviarlo a las %1$s. Envíalo de nuevo si aún lo necesitas.</string>
+    <string name="notif_not_delivered_sent">Salió, pero el localizador nunca lo confirmó.</string>
+    <!-- %1$s es el nombre del localizador -->
+    <string name="notif_not_delivered_unheard">No se oyó a %1$s mientras el comando esperaba.</string>
+
+    <string name="notif_no_answers_title">Se oye a %1$s, pero no recibe las respuestas</string>
+
+    <!-- Filas y tarjetas del diagnóstico. %1$s es una hora como «18:40» o «ayer 18:40» -->
+    <string name="dg_row_bridge_offline">El puente que lo oye está sin conexión desde %1$s</string>
+    <!-- %1$s es el nombre del puente, %2$s una hora -->
+    <string name="dg_card_bridge_offline">Su último informe llegó por %1$s, y ese puente está sin conexión desde %2$s. El localizador puede estar bien: cuando nadie cercano le responde, informa por toda la malla.</string>
+    <string name="dg_bridge_unnamed">un puente</string>
+    <string name="dg_row_reports_limited">Informes limitados hasta %1$s</string>
+    <string name="dg_card_reports_limited">El localizador ha agotado los informes de hoy por toda la malla. Hasta %1$s solo lo oye un puente o nodo cercano.</string>
+    <string name="dg_row_node_off">Tu nodo MeshCore está apagado · toda la malla hasta %1$s</string>
+    <!-- %1$s es el nombre del localizador, %2$s una hora -->
+    <string name="dg_card_node_off">Tu nodo MeshCore está apagado. %1$s informará por toda la malla hasta %2$s.</string>
+    <string name="dg_find_no_answers">Sus informes llegan, pero parece que no recibe las respuestas.</string>
+</resources>

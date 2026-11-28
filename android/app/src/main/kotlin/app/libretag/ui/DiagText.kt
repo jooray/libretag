@@ -22,7 +22,8 @@ object DiagText {
         Cause.SCHEDULE_PENDING to "dg_row_schedule_pending", Cause.SCHEDULE_MISMATCH to "dg_row_schedule_mismatch",
         Cause.OUT_OF_RANGE to "dg_row_out_of_range", Cause.NODE_DOWN to "dg_row_node_down", Cause.MAYBE_WITH_YOU to "dg_row_maybe_with_you",
         Cause.MAYBE_QUIET_PLACE to "dg_row_maybe_quiet_place", Cause.AFTER_CABLE to "dg_row_after_cable",
-        Cause.PHONE_CLOCK to "dg_row_phone_clock", Cause.UNKNOWN to "st_not_heard",
+        Cause.PHONE_CLOCK to "dg_row_phone_clock", Cause.BRIDGE_OFFLINE to "dg_row_bridge_offline",
+        Cause.REPORTS_LIMITED to "dg_row_reports_limited", Cause.UNKNOWN to "st_not_heard",
     )
     val CARD: Map<Cause, String> = Cause.entries.associateWith { "dg_card_" + it.name.lowercase() }
 
@@ -63,7 +64,10 @@ object DiagText {
             Cause.SCHEDULE_MISMATCH -> if (f.periodS == null) ctx.getString(R.string.dg_row_schedule_unsent)
                 else ctx.getString(R.string.dg_row_schedule_mismatch, Format.every(ctx, f.periodS), Format.every(ctx, f.period2S ?: t.reportPeriodMin * 60))
             Cause.OUT_OF_RANGE -> ctx.getString(R.string.dg_row_out_of_range, silent(ctx, t, s, now))
-            Cause.NODE_DOWN -> ctx.getString(R.string.dg_row_node_down, heard)
+            Cause.NODE_DOWN -> f.deadline?.let { ctx.getString(R.string.dg_row_node_off, Format.clock(ctx, it, now)) }
+                ?: ctx.getString(R.string.dg_row_node_down, heard)
+            Cause.BRIDGE_OFFLINE -> ctx.getString(R.string.dg_row_bridge_offline, at(ctx, f.at, now))
+            Cause.REPORTS_LIMITED -> ctx.getString(R.string.dg_row_reports_limited, Format.clock(ctx, f.deadline ?: now, now))
             Cause.MAYBE_WITH_YOU -> ctx.getString(R.string.dg_row_maybe_with_you, silent(ctx, t, s, now))
             Cause.MAYBE_QUIET_PLACE -> ctx.getString(R.string.dg_row_maybe_quiet_place, silent(ctx, t, s, now), TagText.zoneLabel(ctx, f.name))
             Cause.AFTER_CABLE -> ctx.getString(R.string.dg_row_after_cable, at(ctx, f.at, now))
@@ -103,7 +107,10 @@ object DiagText {
             Cause.SCHEDULE_MISMATCH -> if (f.periodS == null) ctx.getString(R.string.dg_card_schedule_unsent)
                 else ctx.getString(R.string.dg_card_schedule_mismatch, Format.every(ctx, f.periodS), Format.every(ctx, f.period2S ?: t.reportPeriodMin * 60))
             Cause.OUT_OF_RANGE -> ctx.getString(R.string.dg_card_out_of_range, Format.every(ctx, f.periodS ?: t.reportPeriodMin * 60))
-            Cause.NODE_DOWN -> ctx.getString(R.string.dg_card_node_down, at(ctx, f.at, now))
+            Cause.NODE_DOWN -> f.deadline?.let { ctx.getString(R.string.dg_card_node_off, t.name, Format.clock(ctx, it, now)) }
+                ?: ctx.getString(R.string.dg_card_node_down, at(ctx, f.at, now))
+            Cause.BRIDGE_OFFLINE -> ctx.getString(R.string.dg_card_bridge_offline, f.name ?: ctx.getString(R.string.dg_bridge_unnamed), at(ctx, f.at, now))
+            Cause.REPORTS_LIMITED -> ctx.getString(R.string.dg_card_reports_limited, Format.clock(ctx, f.deadline ?: now, now))
             Cause.MAYBE_WITH_YOU -> if (Action.CHECK_HERE in d.actions && f.deadline != null)
                 ctx.getString(R.string.dg_card_maybe_with_you, Format.clock(ctx, f.deadline, now))
                 else ctx.getString(R.string.dg_card_maybe_with_you_plain)
@@ -143,6 +150,7 @@ object DiagText {
 
     fun finding(ctx: Context, f: Diagnosis.Found, now: Long = System.currentTimeMillis()): String = when (f.finding) {
         Diagnosis.Finding.NODE_DOWN -> ctx.getString(R.string.dg_find_node_down)
+        Diagnosis.Finding.NO_ANSWERS -> ctx.getString(R.string.dg_find_no_answers)
         Diagnosis.Finding.BATTERY_CLIFF -> ctx.getString(R.string.dg_find_battery_cliff, f.facts.count ?: 25)
         Diagnosis.Finding.NO_GPS_RUN -> ctx.getString(R.string.dg_find_no_gps_run, at(ctx, f.facts.at, now))
         Diagnosis.Finding.COUNTER_BACK -> ctx.getString(R.string.dg_find_counter_back, at(ctx, f.facts.at, now))

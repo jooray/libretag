@@ -7,7 +7,7 @@ import app.nostrmesh.bridge.LoRaPreset
 import app.nostrmesh.bridge.Route
 import app.nostrmesh.bridge.RxMeta
 import app.nostrmesh.bridge.downlinkRoute
-import app.nostrmesh.bridge.lt2CommandRoute
+import app.nostrmesh.bridge.firstHopKey
 import app.nostrmesh.mesh.meta
 import app.nostrmesh.mesh.toApi
 import app.nostrmesh.mesh.toPreset
@@ -66,7 +66,7 @@ class RadioTest {
     @Test
     fun routeChoice() {
         val all = setOf(Caps.TX_PATH_DATA, Caps.RX_PATH)
-        assertEquals(Route.ZeroHop, downlinkRoute(RxMeta(path = ByteArray(0), pathHashSize = 1, routeType = "direct"), all, false))
+        assertEquals(Route.ZeroHop, downlinkRoute(RxMeta(path = ByteArray(0), pathHashSize = 1, routeType = "flood"), all, false))
         assertEquals(Route.ZeroHop, downlinkRoute(RxMeta(hops = 0), setOf(Caps.TX_PATH_DATA), false))
         assertNull(downlinkRoute(RxMeta(hops = 0), emptySet(), false))
         assertNull(downlinkRoute(RxMeta(hops = 2, path = "0102".unhex()), setOf(Caps.TX_PATH_DATA), false))
@@ -80,11 +80,22 @@ class RadioTest {
     }
 
     @Test
-    fun lt2CommandRouteZeroHopOrFlood() {
-        val tx = setOf(Caps.TX_PATH_DATA)
-        assertEquals(Route.ZeroHop, lt2CommandRoute(0, tx))
-        assertEquals(Route.Flood, lt2CommandRoute(0, emptySet()))
-        for (h in listOf(1, 3, 4, 16, 40, null)) assertEquals(Route.Flood, lt2CommandRoute(h, tx))
+    fun hopCountOfDirectArrivalIsUnknown() {
+        val all = setOf(Caps.TX_PATH_DATA, Caps.RX_PATH)
+        // R36: a zero-hop packet and one that came along a path both arrive DIRECT with an empty path
+        for (rt in listOf("direct", "tdirect")) {
+            val m = RxMeta(routeType = rt, path = ByteArray(0), pathHashSize = 1)
+            assertNull(m.hopCount(all))
+            assertTrue(m.heardDirect(all))
+            assertEquals("direct", firstHopKey(m, all))
+            assertNull("no zero-hop answer for a DIRECT arrival", downlinkRoute(m, all, false))
+        }
+        for (rt in listOf("flood", "tflood")) {
+            assertEquals(0, RxMeta(routeType = rt, path = ByteArray(0), pathHashSize = 1).hopCount(all))
+            assertEquals(2, RxMeta(routeType = rt, hops = 2, path = "aabb".unhex(), pathHashSize = 1).hopCount(all))
+        }
+        assertFalse(RxMeta(routeType = "flood", hops = 1, path = "aa".unhex(), pathHashSize = 1).heardDirect(all))
+        assertFalse("path entries left: for the next repeater", RxMeta(routeType = "direct", path = "aa".unhex(), pathHashSize = 1).forUs)
     }
 
     @Test

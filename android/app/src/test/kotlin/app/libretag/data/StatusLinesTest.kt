@@ -25,7 +25,7 @@ class StatusLinesTest {
                     quiet: Boolean = false, reason: String? = null, checks: Boolean = false, nextInS: Long? = null,
                     approxUntil: Long? = null) =
         Position(fixTime = 0, receivedAt = now - agoMin * min, hasFix = fix, lat = 48.70, lon = 21.25, altM = 0, battery = batt,
-            mode = mode, hops = 0, snrDb = 0.0, n = n, quiet = quiet, quietReason = reason, checks = checks, nextInS = nextInS,
+            mode = mode, hops = 0, snrDb = 0.0, n = n, quiet = quiet, quietReason = reason, sync = checks, nextInS = nextInS,
             approxUntil = approxUntil)
 
     private fun tag(vararg p: Position, type: String = "thing") =
@@ -46,8 +46,8 @@ class StatusLinesTest {
             tag(pos(12)),
             tag(pos(70)),
             tag(pos(12)).copy(leftPlace = "Home", leftAt = now - 12 * min),
-            tag(q).copy(checkPlan = plan(q)),
-            tag(o).copy(checkPlan = plan(o)),
+            tag(q).copy(anchor = AnchorState(a = plan(q))),
+            tag(o).copy(anchor = AnchorState(a = plan(o))),
             tag(k),
             tag(k, type = "vehicle"),
             tag(pos(1, mode = "TRACK")).copy(modeUntil = now + 59 * min),
@@ -56,7 +56,7 @@ class StatusLinesTest {
             tag(pos(200)),
             tag(pos(5, batt = 12)),
             tag(pos(30, approxUntil = now - 20 * min)),
-            tag(ev).copy(reportEvery = 3, intervalMin = 20, checkPlan = CheckPlan(ev.n, ev.receivedAt, 20, listOf(1200L, 2400L))),
+            tag(ev).copy(reportEvery = 3, intervalMin = 20, anchor = AnchorState(a = CheckPlan(ev.n, ev.receivedAt, 20, listOf(1200L, 2400L)))),
         )
     }
 

@@ -56,20 +56,20 @@ static void report_fields(size_t i, lt_report_t *r)
 		r->has_ble = true; r->ble_devices = 17; r->ble_stable = 5; r->ble_stable_rssi = -61;
 	} else if (i == 6) {
 		r->has_fix = true; r->fix_time = 1763400000; r->lat_e7 = 487150000; r->lon_e7 = 212650000;
-		r->hacc_m = 9; r->battery = 66; r->quiet = true; r->quiet_parked = true; r->checks = true;
+		r->hacc_m = 9; r->battery = 66; r->quiet = true; r->quiet_parked = true; r->sync = true;
 		r->next_in = lt_next_in_encode(6 * 3600); r->energy = lt_energy_encode(410); r->nb_total = 2;
 		r->nb_count = 2;
 		r->nb[0].hash[0] = 0xa5; r->nb[0].hash[1] = 0xe1; r->nb[0].snr4 = 18;
 		r->nb[1].hash[0] = 0xb7; r->nb[1].hash[1] = 0xd2; r->nb[1].snr4 = -4;
 	} else if (i == 7) {
 		r->fix_time = 1763400000; r->lat_e7 = 487150000; r->lon_e7 = 212650000; r->hacc_m = 255;
-		r->battery = 65; r->quiet = true; r->quiet_owner = true; r->quiet_parked = true; r->checks = true;
+		r->battery = 65; r->quiet = true; r->quiet_owner = true; r->quiet_parked = true; r->sync = true;
 		r->next_in = lt_next_in_encode(8 * 3600); r->energy = lt_energy_encode(420); r->cmd_ack = true;
 		r->cmd_seq = 6; r->nb_total = 1; r->nb_count = 1;
 		r->nb[0].hash[0] = 0xa5; r->nb[0].hash[1] = 0xe1; r->nb[0].snr4 = 12;
 	} else if (i == 8) {
 		r->has_fix = true; r->fix_time = 1763410000; r->lat_e7 = 487005000; r->lon_e7 = 212500000;
-		r->hacc_m = 255; r->battery = 65; r->checks = true; r->next_in = lt_next_in_encode(3600);
+		r->hacc_m = 255; r->battery = 65; r->sync = true; r->next_in = lt_next_in_encode(3600);
 		r->energy = lt_energy_encode(421);
 	} else {
 		static const uint8_t seed[6] = {0x00, 0x24, 0xa5, 0x11, 0x22, 0x33}, tail[3] = {0x44, 0xaa, 0x21};
@@ -165,7 +165,7 @@ static void test_06(const lt_keys_t *k, const uint8_t chan[16])
 		r.nb[0].hash[0] = 0xa1;
 		r.nb[0].hash[1] = 0xb2;
 		r.nb[0].snr4 = 25;
-		r.checks = true;
+		r.sync = true;
 		r.next_in = lt_next_in_encode(3600);
 		CHECK(lt_wifi_select_ex(aps, na, v->n, true, &r, wpt, &with), "wifi nofix %zu select", i);
 		CHECK(r.wifi_has_seed2 && memcmp(r.wifi_seed2, v->seed2, 6) == 0 && r.wifi_seed2_rssi == v->seed2_rssi &&
@@ -206,7 +206,7 @@ static void test_06(const lt_keys_t *k, const uint8_t chan[16])
 		r.nb[0].hash[0] = 0xa1;
 		r.nb[0].hash[1] = 0xb2;
 		r.nb[0].snr4 = 25;
-		r.checks = true;
+		r.sync = true;
 		r.next_in = lt_next_in_encode(3600);
 		CHECK(lt_wifi_select(few, 2, V_WIFI_FEW_N, &r, wpt, &with) && !r.wifi_has_tail2 && r.wifi_has_tail,
 		      "wifi few select");
@@ -249,19 +249,10 @@ static void test_06(const lt_keys_t *k, const uint8_t chan[16])
 	}
 }
 
+/* 0.7.3 check window by preset (the keyed check offsets of 0.7 are gone: 0.10.0 slots, qm_test.c) */
 static void test_073(const lt_keys_t *k)
 {
-	for (size_t i = 0; i < sizeof(V_REPORT_EVERY) / sizeof(V_REPORT_EVERY[0]); i++) {
-		const struct vrepevery *v = &V_REPORT_EVERY[i];
-		lt_keys_t ke = *k;
-		lt_keys_advance(&ke, lt_epoch(v->n));
-		for (uint16_t j = 0; j < v->count; j++) {
-			uint16_t kk = (uint16_t)(j + 1);
-			CHECK(lt_check_offset(ke.cmd, v->n, kk, v->base_s) == v->offsets[j] &&
-			      lt_wake_reports(kk, v->every) == (bool)v->reports[j], "report_every n=%u k=%u", v->n, kk);
-		}
-		CHECK(lt_check_offset(ke.cmd, v->n, v->every, v->base_s) == v->next_in, "report_every next_in n=%u", v->n);
-	}
+	(void)k;
 	for (size_t i = 0; i < sizeof(V_CHECK_WINDOW) / sizeof(V_CHECK_WINDOW[0]); i++) {
 		const struct vwindow *v = &V_CHECK_WINDOW[i];
 		uint16_t w = lt_check_window_s(v->check_s, v->sf, v->bw_hz, v->cr);
@@ -271,49 +262,6 @@ static void test_073(const lt_keys_t *k)
 	/* SET_IDLE with report_every at offset 8 (args[5]) */
 	CHECK(V_SET_IDLE_REPORT_EVERY[2] == 0x03 && V_SET_IDLE_REPORT_EVERY[7] == 30 && V_SET_IDLE_REPORT_EVERY[8] == 3,
 	      "SET_IDLE report_every layout");
-}
-
-static void test_07(const lt_keys_t *k, const uint8_t chan[16])
-{
-	for (size_t i = 0; i < sizeof(V_CHECKS) / sizeof(V_CHECKS[0]); i++) {
-		const struct vcheck *v = &V_CHECKS[i];
-		lt_keys_t ke = *k;
-		lt_keys_advance(&ke, lt_epoch(v->n));
-		for (uint16_t j = 0; j < 6; j++) {
-			int32_t jit = lt_check_jitter(ke.cmd, v->n, (uint16_t)(j + 1), v->base_s);
-			uint32_t off = lt_check_offset(ke.cmd, v->n, (uint16_t)(j + 1), v->base_s);
-			CHECK(jit == v->jitter[j] && off == v->offsets[j] && lt_check_guard_ms(off) == v->guard_ms[j],
-			      "check n=%u k=%u: jitter %d offset %u", v->n, j + 1, jit, off);
-		}
-		uint16_t before = 0;
-		while (before < 64 && lt_check_offset(ke.cmd, v->n, (uint16_t)(before + 1), v->base_s) < v->heartbeat_s) {
-			before++;
-		}
-		CHECK(before == v->before_hb, "checks before heartbeat n=%u: %u", v->n, before);
-	}
-	for (size_t i = 0; i < sizeof(V_CHECK_COMMANDS) / sizeof(V_CHECK_COMMANDS[0]); i++) {
-		const struct vccmd *v = &V_CHECK_COMMANDS[i];
-		lt_keys_t ke = *k;
-		lt_keys_advance(&ke, lt_epoch(v->n));
-		uint8_t tag[4], p[29];
-		lt_command_t c;
-		lt_command_tag_k(ke.cmd, v->n, v->k, tag);
-		CHECK(memcmp(tag, v->tag, 4) == 0, "check command %zu tag", i);
-		lt_command_tag_k(ke.cmd, v->n, 0, tag);
-		CHECK(memcmp(tag, v->tag_k0, 4) == 0, "check command %zu tag k0", i);
-		CHECK(lt_open_command_k(ke.cmd, v->n, v->k, v->p, 29, &c) && c.seq == v->pt[1] && c.op == v->pt[2] &&
-		      memcmp(c.args, v->pt + 3, 14) == 0, "check command %zu open", i);
-		lt_seal_command_k(ke.cmd, v->n, v->k, &c, p);
-		CHECK(memcmp(p, v->p, 29) == 0, "check command %zu seal", i);
-		CHECK(!lt_open_command(ke.cmd, v->n, v->p, 29, &c), "check command %zu as k=0", i);
-		CHECK(!lt_open_command_k(ke.cmd, v->n, (uint16_t)(v->k + 1), v->p, 29, &c), "check command %zu k+1", i);
-		uint8_t raw[2 + 35];
-		raw[0] = LT_MC_HDR_REPORT_FLOOD;
-		raw[1] = 0;
-		memcpy(raw + 2, v->chan, 35);
-		CHECK(lt_parse_channel_command_packet_k(ke.cmd, chan, v->n, v->k, raw, sizeof(raw), &c),
-		      "check command %zu channel", i);
-	}
 }
 
 /* 0.7.7: commands over Bluetooth advertising (PROTOCOL.md 3.1) */
@@ -761,7 +709,7 @@ int main(void)
 			static const uint8_t seed[6] = {0x00, 0x24, 0xa5, 0x11, 0x22, 0x33};
 			static const uint8_t seed2[6] = {0x6c, 0x3b, 0x6b, 0x44, 0xaa, 0x21};
 			static const uint8_t tail[3] = {0x77, 0x88, 0x99};
-			r.battery = 77; r.boot_info = lt_boot_info(1, 1); r.nb_total = 1; r.checks = true;
+			r.battery = 77; r.boot_info = lt_boot_info(1, 1); r.nb_total = 1; r.sync = true;
 			r.next_in = lt_next_in_encode(3600);
 			r.has_wifi = true; memcpy(r.wifi_seed, seed, 6); r.wifi_seed_rssi = -58; r.wifi_ap_count = 3;
 			r.wifi_has_seed2 = true; memcpy(r.wifi_seed2, seed2, 6); r.wifi_seed2_rssi = -71;
@@ -800,7 +748,6 @@ int main(void)
 	}
 
 	test_06(&k, chan);
-	test_07(&k, chan);
 	test_073(&k);
 	test_076();
 	test_077_ble(&k);

@@ -219,7 +219,7 @@ void lt_report_encode(const lt_report_t *r, uint8_t pt[LT_REPORT_PT_LEN])
 	pt[1] = (uint8_t)((r->has_fix ? LT_F_HAS_FIX : 0) | (r->cmd_ack ? LT_F_CMD_ACK : 0) |
 			  (r->low_batt ? LT_F_LOW_BATT : 0) | (r->nb_discover ? LT_F_NB_DISCOVER : 0) |
 			  (r->quiet ? LT_F_QUIET : 0) | (r->quiet && r->quiet_owner ? LT_F_QUIET_OWNER : 0) |
-			  (ble ? LT_F_BLE_SUM : 0) | (r->checks ? LT_F_CHECKS : 0));
+			  (ble ? LT_F_BLE_SUM : 0) | (r->sync ? LT_F_SYNC : 0));
 	pt[2] = (uint8_t)((r->mode & LT_B2_MODE) | (r->boot ? LT_B2_BOOT : 0) |
 			  (r->quiet && r->quiet_parked && !r->quiet_owner ? LT_B2_PARKED : 0) |
 			  ((r->cmd_seq & 0x0F) << 4));
@@ -354,8 +354,8 @@ size_t lt_seal_report(const uint8_t view_e[32], const uint8_t pk_n[32], uint32_t
 	size_t el, ptl = stealth ? LT_REPORT_PT_LEN_STEALTH : LT_REPORT_PT_LEN;
 
 	lt_report_encode(r, pt);
-	if (j == LT_J_HOME || j == LT_J_BORDER) {
-		/* on air: v2 without the type byte, with the mailbox commitment */
+	if (lt_j_report_on_air(j)) {
+		/* on air (copies 0, 1, 9, 10, 11): v2 without the type byte, with the mailbox commitment */
 		return pk_n ? seal_v2(view_e, pk_n, n, j, pt + 1, ptl - 1, out) : 0;
 	}
 	/* history records (j = 2, 3) never go on air: the plain seal with the type byte */
@@ -1044,27 +1044,6 @@ void lt_command_tag_k(const uint8_t cmd_e[32], uint32_t n, uint16_t k, uint8_t t
 	cmd_kd(cmd_e, n, k, NULL, tag);
 }
 
-int32_t lt_check_jitter(const uint8_t cmd_e[32], uint32_t n, uint16_t i, uint32_t base_s)
-{
-	uint32_t span = base_s / 5;
-	uint8_t e[6], h[32];
-	if (!span) return 0;
-	put_u32(e, n);
-	e[4] = (uint8_t)i;
-	e[5] = (uint8_t)(i >> 8);
-	hlabel(cmd_e, "LT2-w", e, 6, h);
-	return (int32_t)((uint32_t)(h[0] | h[1] << 8) % span) - (int32_t)(span / 2);
-}
-
-uint32_t lt_check_offset(const uint8_t cmd_e[32], uint32_t n, uint16_t k, uint32_t base_s)
-{
-	int64_t t = 0;
-	for (uint16_t i = 1; i <= k; i++) {
-		t += (int64_t)base_s + lt_check_jitter(cmd_e, n, i, base_s);
-	}
-	return (uint32_t)t;
-}
-
 uint32_t lt_lora_quarter_symbols(uint32_t bytes, uint8_t sf, uint32_t bw_hz, uint8_t cr)
 {
 	/* low data rate optimisation when a symbol lasts more than 16 ms */
@@ -1566,4 +1545,433 @@ uint32_t lt_boot_counter(bool state_ok, uint32_t state_n_next, bool mirror_ok, u
 		}
 	}
 	return n;
+}
+
+
+/* =========================================================== quiet mesh (0.10.0) */
+
+static void put_u16(uint8_t *p, uint16_t v)
+{
+	p[0] = (uint8_t)v;
+	p[1] = (uint8_t)(v >> 8);
+}
+
+size_t lt_packet_set_zero_hop(uint8_t *pkt, size_t len, uint8_t hash_size)
+{
+	if (len < 2 || (pkt[0] & LT_MC_ROUTE_MASK) != 0x01 || (pkt[1] & 0x3F) != 0) return 0;
+	if (hash_size < 1 || hash_size > 3) hash_size = 1;
+	pkt[0] = (uint8_t)((pkt[0] & ~LT_MC_ROUTE_MASK) | LT_MC_ROUTE_DIRECT);
+	pkt[1] = (uint8_t)((hash_size - 1) << 6);
+	return len;
+}
+
+size_t lt_packet_set_path(uint8_t *pkt, size_t len, size_t cap, uint8_t hash_size, const uint8_t *hashes,
+                          uint8_t count)
+{
+	size_t pb = (size_t)hash_size * count;
+
+	if (count < 1 || count > LT_PATH_MAX || hash_size < 1 || hash_size > 3 || len + pb > cap ||
+	    !lt_packet_set_zero_hop(pkt, len, hash_size)) {
+		return 0;
+	}
+	memmove(pkt + 2 + pb, pkt + 2, len - 2);
+	memcpy(pkt + 2, hashes, pb);
+	pkt[1] = (uint8_t)(((hash_size - 1) << 6) | count);
+	return len + pb;
+}
+
+bool lt_packet_route(const uint8_t *raw, size_t len, uint8_t *route, uint8_t *path_len, const uint8_t **path)
+{
+	size_t i = 1;
+
+	if (len < 2) return false;
+	*route = raw[0] & LT_MC_ROUTE_MASK;
+	if (*route == 0x00 || *route == LT_MC_ROUTE_TRANSPORT_DIRECT) i += 4;
+	if (i >= len) return false;
+	*path_len = raw[i];
+	if (path) *path = raw + i + 1;
+	return i + 1 + (size_t)(raw[i] & 0x3F) * ((raw[i] >> 6) + 1) <= len;
+}
+
+int lt_channel_unwrap_any(const uint8_t key[16], const uint8_t *payload, size_t len, uint8_t *inner, size_t cap,
+                          uint16_t *dtype)
+{
+	int il = lt_channel_unwrap(key, LT_CHANNEL_DATA_TYPE, payload, len, inner, cap);
+
+	if (il >= 0) {
+		*dtype = LT_CHANNEL_DATA_TYPE;
+		return il;
+	}
+	il = lt_channel_unwrap(key, LT_CHANNEL_DATA_TYPE_RETRY, payload, len, inner, cap);
+	if (il >= 0) {
+		*dtype = LT_CHANNEL_DATA_TYPE_RETRY;
+	}
+	return il;
+}
+
+/* --- the ACK --- */
+
+static void ack_keys(const uint8_t cmd_e[32], uint32_t n, uint16_t k, uint8_t ka[32], uint8_t xa[LT_TAG_LEN])
+{
+	uint8_t e[6], h[32];
+
+	put_u32(e, n);
+	put_u16(e + 4, k);
+	if (ka) {
+		hlabel(cmd_e, "LT2-a", e, 6, ka);
+	}
+	hlabel(cmd_e, "LT2-ax", e, 6, h);
+	memcpy(xa, h, LT_TAG_LEN);
+}
+
+void lt_ack_tag(const uint8_t cmd_e[32], uint32_t n, uint16_t k, uint8_t xa[LT_TAG_LEN])
+{
+	ack_keys(cmd_e, n, k, NULL, xa);
+}
+
+void lt_ack_seal(const uint8_t cmd_e[32], uint32_t n, uint16_t k, uint8_t info, uint8_t out[LT_ACK_LEN])
+{
+	uint8_t ka[32], h[32];
+
+	ack_keys(cmd_e, n, k, ka, out);
+	out[4] = (uint8_t)(info ^ ka[0]);
+	lt_hmac_sha256(ka + 16, 16, out, 5, h);
+	memcpy(out + 5, h, 8);
+}
+
+size_t lt_ack_routed(const uint8_t pa[LT_ACK_LEN], uint8_t hash_size, const uint8_t *path, uint8_t count,
+                     uint8_t out[LT_ACK_ROUTED_MAX])
+{
+	if (count < 1 || count > LT_PATH_MAX || hash_size < 1 || hash_size > 3) return 0;
+	memcpy(out, pa, LT_ACK_LEN);
+	out[LT_ACK_LEN] = (uint8_t)(((hash_size - 1) << 6) | count);
+	memcpy(out + LT_ACK_LEN + 1, path, (size_t)hash_size * count);
+	return LT_ACK_LEN + 1 + (size_t)hash_size * count;
+}
+
+bool lt_ack_open(const uint8_t cmd_e[32], uint32_t n, uint16_t k, const uint8_t *dg, size_t len, bool stealth,
+                 lt_ack_t *a)
+{
+	uint8_t ka[32], xa[LT_TAG_LEN], h[32];
+
+	if (len < LT_ACK_LEN) return false;
+	ack_keys(cmd_e, n, k, NULL, xa);
+	if (!ct_eq(xa, dg, LT_TAG_LEN)) return false; /* 4 B before any other work */
+	ack_keys(cmd_e, n, k, ka, xa);
+	lt_hmac_sha256(ka + 16, 16, dg, 5, h);
+	if (!ct_eq(h, dg + 5, 8)) return false;
+	uint8_t info = (uint8_t)(dg[4] ^ ka[0]);
+	if (info & LT_ACK_RESERVED) return false;
+	memset(a, 0, sizeof(*a));
+	a->hold = info & LT_ACK_HOLD;
+	a->more = (info & LT_ACK_MORE) != 0;
+	a->routed = (info & LT_ACK_ROUTED) != 0;
+	size_t rest = len - LT_ACK_LEN;
+	if (!a->routed) {
+		return stealth ? len == LT_ACK_STEALTH_NEAR_LEN : rest == 0;
+	}
+	if (!rest) return false;
+	uint8_t pl = dg[LT_ACK_LEN], hs = (uint8_t)((pl >> 6) + 1), cnt = pl & 0x3F;
+	if (hs > 3 || cnt < 1 || cnt > LT_PATH_MAX) return false;
+	size_t need = 1 + (size_t)hs * cnt;
+	if (rest < need || (!stealth && rest != need) || (stealth && len != LT_ACK_STEALTH_ROUTED_LEN)) return false;
+	a->hash_size = hs;
+	a->count = cnt;
+	memcpy(a->path, dg + LT_ACK_LEN + 1, (size_t)hs * cnt);
+	return true;
+}
+
+uint32_t lt_hold_s(uint8_t hold, uint32_t period_s)
+{
+	uint32_t h = (uint32_t)hold * LT_HOLD_UNIT_S, m = period_s + LT_HOLD_MIN_EXTRA_S;
+
+	return hold == 0 ? 0 : h > m ? h : m;
+}
+
+/* --- slots --- */
+
+void lt_slot_key(const uint8_t cmd_e[32], uint32_t n_a, uint8_t ks[32])
+{
+	uint8_t e[4];
+
+	put_u32(e, n_a);
+	hlabel(cmd_e, "LT2-slot", e, 4, ks);
+}
+
+int32_t lt_slot_jitter(const uint8_t ks[32], uint16_t i, uint32_t base_s)
+{
+	uint32_t span = base_s / 5;
+	uint8_t e[2], h[32];
+
+	if (!span) return 0;
+	put_u16(e, i);
+	hlabel(ks, "LT2-w", e, 2, h);
+	return (int32_t)((uint32_t)(h[0] | h[1] << 8) % span) - (int32_t)(span / 2);
+}
+
+uint32_t lt_slot_offset(const uint8_t ks[32], uint16_t k, uint32_t base_s)
+{
+	int64_t t = 0;
+
+	for (uint16_t i = 1; i <= k; i++) {
+		t += (int64_t)base_s + lt_slot_jitter(ks, i, base_s);
+	}
+	return (uint32_t)t;
+}
+
+static void slot_kd(const uint8_t ks[32], uint16_t k, uint8_t kd[32], uint8_t tag[LT_TAG_LEN])
+{
+	uint8_t e[2], h[32];
+
+	put_u16(e, k);
+	if (kd) {
+		hlabel(ks, "LT2-c", e, 2, kd);
+	}
+	hlabel(ks, "LT2-cx", e, 2, h);
+	memcpy(tag, h, LT_TAG_LEN);
+}
+
+void lt_slot_command_tag(const uint8_t ks[32], uint16_t k, uint8_t tag[LT_TAG_LEN])
+{
+	slot_kd(ks, k, NULL, tag);
+}
+
+static void cmd_pt(const lt_command_t *c, uint8_t pt[LT_CMD_PT_LEN])
+{
+	pt[0] = LT_TYPE_COMMAND;
+	pt[1] = c->seq;
+	pt[2] = c->op;
+	memcpy(pt + 3, c->args, 14);
+}
+
+static bool open_kd(const uint8_t kd[32], const uint8_t tag[LT_TAG_LEN], const uint8_t *p, size_t len,
+                    lt_command_t *c)
+{
+	uint8_t pt[LT_CMD_PT_LEN];
+
+	if (len != LT_CMD_P_LEN || !ct_eq(tag, p, LT_TAG_LEN)) return false;
+	if (!open_p(kd, p, len, pt) || pt[0] != LT_TYPE_COMMAND) return false;
+	c->seq = pt[1];
+	c->op = pt[2];
+	memcpy(c->args, pt + 3, 14);
+	return true;
+}
+
+void lt_seal_slot_command(const uint8_t ks[32], uint16_t k, const lt_command_t *c, uint8_t out[LT_CMD_P_LEN])
+{
+	uint8_t kd[32], tag[LT_TAG_LEN], pt[LT_CMD_PT_LEN];
+
+	cmd_pt(c, pt);
+	slot_kd(ks, k, kd, tag);
+	seal(kd, tag, pt, LT_CMD_PT_LEN, out);
+}
+
+bool lt_open_slot_command(const uint8_t ks[32], uint16_t k, const uint8_t *p, size_t len, lt_command_t *c)
+{
+	uint8_t kd[32], tag[LT_TAG_LEN];
+
+	if (len != LT_CMD_P_LEN || k == 0) return false;
+	slot_kd(ks, k, NULL, tag);
+	if (!ct_eq(tag, p, LT_TAG_LEN)) return false;
+	slot_kd(ks, k, kd, tag);
+	return open_kd(kd, tag, p, len, c);
+}
+
+bool lt_ble_slot_command_seal(const uint8_t ks[32], uint16_t k, const lt_command_t *c, uint8_t out[LT_BLE_CMD_LEN])
+{
+	uint8_t p[LT_CMD_P_LEN];
+
+	for (size_t i = LT_BLE_CMD_CT_LEN - 2; i < sizeof(c->args); i++) {
+		if (c->args[i]) return false;
+	}
+	lt_seal_slot_command(ks, k, c, p);
+	out[0] = LT_TYPE_COMMAND;
+	memcpy(out + 1, p, LT_TAG_LEN);
+	memcpy(out + 1 + LT_TAG_LEN, p + LT_TAG_LEN + 1, LT_BLE_CMD_CT_LEN);
+	memcpy(out + 1 + LT_TAG_LEN + LT_BLE_CMD_CT_LEN, p + LT_CMD_P_LEN - LT_MAC_LEN, LT_MAC_LEN);
+	return true;
+}
+
+bool lt_ble_slot_command_open(const uint8_t ks[32], uint16_t k, const uint8_t *adv, size_t len, lt_command_t *c)
+{
+	uint8_t kd[32], tag[LT_TAG_LEN], ks16[LT_CMD_PT_LEN] = {0}, p[LT_CMD_P_LEN];
+	const uint8_t *mac;
+
+	if (len != LT_BLE_CMD_LEN || adv[0] != LT_TYPE_COMMAND || k == 0) return false;
+	slot_kd(ks, k, NULL, tag);
+	if (!ct_eq(tag, adv + 1, LT_TAG_LEN)) return false;
+	slot_kd(ks, k, kd, tag);
+	mac = adv + 1 + LT_TAG_LEN + LT_BLE_CMD_CT_LEN;
+	aes_ctr(kd, mac, ks16, sizeof(ks16));
+	memcpy(p, adv + 1, LT_TAG_LEN);
+	p[LT_TAG_LEN] = (uint8_t)(LT_TYPE_COMMAND ^ ks16[0]);
+	memcpy(p + LT_TAG_LEN + 1, adv + 1 + LT_TAG_LEN, LT_BLE_CMD_CT_LEN);
+	memcpy(p + LT_TAG_LEN + 1 + LT_BLE_CMD_CT_LEN, ks16 + 1 + LT_BLE_CMD_CT_LEN, LT_CMD_PT_LEN - 1 - LT_BLE_CMD_CT_LEN);
+	memcpy(p + LT_CMD_P_LEN - LT_MAC_LEN, mac, LT_MAC_LEN);
+	return open_kd(kd, tag, p, sizeof(p), c);
+}
+
+/* --- the tag's anchor --- */
+
+void lt_sched_on_flood_sent(lt_sched_t *s, uint32_t n, int64_t t_flood, bool has_first, int64_t t_first)
+{
+	if (s->anchor.valid && s->anchor.n == n) {
+		return; /* copy 10 or copy 1 of the same report */
+	}
+	uint8_t early = 0;
+
+	if (has_first && t_flood > t_first) {
+		int64_t d = (t_flood - t_first + 999) / 1000;
+
+		early = (uint8_t)(d > 255 ? 255 : d);
+	}
+	if (s->anchor.valid) {
+		s->prev = s->anchor;
+		s->prev_slots_left = LT_PREV_GRID_SLOTS;
+	}
+	s->anchor.valid = true;
+	s->anchor.n = n;
+	s->anchor.t0_ms = t_flood;
+	s->anchor.early_s = early;
+}
+
+void lt_sched_on_window_ack(lt_sched_t *s, uint32_t n, int64_t t_first)
+{
+	if (!s->anchor.valid || s->anchor.n != n) {
+		s->anchor.valid = true;
+		s->anchor.n = n;
+		s->anchor.t0_ms = t_first;
+		s->anchor.early_s = 0;
+	}
+	memset(&s->prev, 0, sizeof(s->prev));
+	s->prev_slots_left = 0;
+}
+
+void lt_sched_on_prev_slot(lt_sched_t *s)
+{
+	if (s->prev.valid) {
+		if (s->prev_slots_left) s->prev_slots_left--;
+		if (!s->prev_slots_left) memset(&s->prev, 0, sizeof(s->prev));
+	}
+}
+
+void lt_sched_on_reboot(lt_sched_t *s)
+{
+	memset(s, 0, sizeof(*s));
+}
+
+/* --- areas and the ladder --- */
+
+/* 0.10.0: the first bridge's city, 25 km (SPEC 3.2): a public point, the old town centre */
+const lt_area_t lt_areas_baked[] = {
+	{481440000, 171080000, 25, "sk-ba", "sk"},
+};
+const size_t lt_areas_baked_n = sizeof(lt_areas_baked) / sizeof(lt_areas_baked[0]);
+
+static bool net_eq(const char *a, const char *b)
+{
+	for (int i = 0; i < 2; i++) {
+		char x = a[i], y = b[i];
+
+		if (x >= 'A' && x <= 'Z') x = (char)(x - 'A' + 'a');
+		if (y >= 'A' && y <= 'Z') y = (char)(y - 'A' + 'a');
+		if (x != y) return false;
+		if (!x) return true;
+	}
+	return true;
+}
+
+const lt_area_t *lt_area_at(bool has_fix, int32_t lat_e7, int32_t lon_e7, const lt_area_t *rows, size_t n,
+                            const char *home_net)
+{
+	if (!has_fix || !home_net) return NULL;
+	for (size_t i = 0; i < n; i++) {
+		const lt_area_t *a = &rows[i];
+
+		if (a->scope[0] && a->radius_km && net_eq(a->net, home_net) &&
+		    lt_distance_m(a->lat_e7, a->lon_e7, lat_e7, lon_e7) <= a->radius_km * 1000.0) {
+			return a;
+		}
+	}
+	return NULL;
+}
+
+size_t lt_levels(const char *area_scope, const char *country_scope, bool same_radio_border,
+                 const char *out[LT_LEVELS_MAX])
+{
+	size_t n = 0;
+
+	if (area_scope && area_scope[0]) out[n++] = area_scope;
+	if (country_scope && country_scope[0] && !same_radio_border && !(n && !strcmp(out[0], country_scope))) {
+		out[n++] = country_scope;
+	}
+	out[n++] = NULL;
+	return n;
+}
+
+static int32_t get_i24(const uint8_t *p)
+{
+	int32_t v = (int32_t)(p[0] | p[1] << 8 | p[2] << 16);
+
+	return v & 0x800000 ? v - 0x1000000 : v;
+}
+
+int lt_set_area_decode(const uint8_t args[14], lt_area_t *row)
+{
+	uint8_t slot = args[0];
+
+	memset(row, 0, sizeof(*row));
+	if ((slot & 0x7F) >= LT_AREA_ROWS) return -1;
+	if (slot & 0x80) return slot;
+	row->lat_e7 = (int32_t)((int64_t)get_i24(args + 1) * 900000000LL / (1 << 23));
+	row->lon_e7 = (int32_t)((int64_t)get_i24(args + 4) * 1800000000LL / (1 << 23));
+	row->radius_km = args[7];
+	/* the same checks as the app's encoder (LibreTag.kt setArea): 1 to 6 of [a-z0-9_-], zero padded,
+	 * radius 1 to 255 km */
+	bool end = false;
+
+	for (int i = 0; i < LT_AREA_SCOPE_MAX; i++) {
+		char ch = (char)args[8 + i];
+
+		if (!ch) {
+			end = true;
+			continue;
+		}
+		if (end) return -1;
+		if (!((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_')) return -1;
+		row->scope[i] = ch;
+	}
+	if (!row->scope[0] || !row->radius_km) return -1;
+	return slot;
+}
+
+void lt_set_area_encode(uint8_t slot, const lt_area_t *row, uint8_t args[14])
+{
+	memset(args, 0, 14);
+	args[0] = slot;
+	if (slot & 0x80) return;
+	put_u24(args + 1, scale24(row->lat_e7, 900000000LL));
+	put_u24(args + 4, scale24(row->lon_e7, 1800000000LL));
+	args[7] = row->radius_km;
+	for (int i = 0; i < LT_AREA_SCOPE_MAX && row->scope[i]; i++) {
+		args[8 + i] = (uint8_t)row->scope[i];
+	}
+}
+
+int lt_ladder_after_flood(lt_ladder_t *lad, uint8_t n_levels, bool evidence, bool important, uint32_t now_s)
+{
+	if (evidence || !n_levels) return -1;
+	uint8_t wider = (uint8_t)(lad->lvl + 1 < n_levels ? lad->lvl + 1 : n_levels - 1);
+	if (wider == lad->lvl) return -1;
+	lad->lvl = wider;
+	lad->widened = true;
+	lad->widened_at_s = now_s;
+	return important ? wider : -1;
+}
+
+void lt_ladder_reset(lt_ladder_t *lad, uint32_t now_s, bool ack, bool area_changed)
+{
+	if (ack || area_changed || (lad->widened && now_s - lad->widened_at_s >= 86400U)) {
+		memset(lad, 0, sizeof(*lad));
+	}
 }

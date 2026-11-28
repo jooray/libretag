@@ -70,9 +70,8 @@ class Slot:
 
 def plan_until_s(rep: Report, base_s: int, every: int) -> int | None:
     """Horizon of the checks after a report (LibreTagApp.checkPlanFor): next_in, else the default
-    period. None when the report announces no checks the app could use."""
-    if not rep.checks:
-        return None
+    period. None when the report gives no checks the app could use (every tag listens at its checks
+    since 0.10.0; flags bit 7 is SYNC now)."""
     between = not rep.quiet and rep.mode == Mode.IDLE and every > 1
     if not rep.quiet and not between:
         return None
@@ -260,7 +259,7 @@ class Latest:
 
 
 def report_flags(r: Report) -> dict:
-    return {"quiet": r.quiet, "quiet_owner": r.quiet_owner, "parked": r.quiet_parked, "checks": r.checks,
+    return {"quiet": r.quiet, "quiet_owner": r.quiet_owner, "parked": r.quiet_parked, "sync": r.sync,
             "cmd_ack": r.cmd_ack, "cmd_seq_nibble": r.cmd_seq, "mode": r.mode.name, "next_in_s": r.next_in_s,
             "battery": r.battery_pct, "has_fix": r.has_fix}
 
@@ -363,9 +362,9 @@ class Probe:
         from libretag.wake import report_next_in
         expect = report_next_in(ce, n, self.a.interval_min * 60, self.a.report_every) if self.a.report_every > 1 else None
         consistent = None if r.quiet or expect is None or r.next_in_s is None else abs(r.next_in_s - expect) <= 30
-        log.info("report n=%d j=%d recv=%s (bridge %s) quiet=%s owner=%s parked=%s checks=%s ack=%s seq&15=%d "
+        log.info("report n=%d j=%d recv=%s (bridge %s) quiet=%s owner=%s parked=%s sync=%s ack=%s seq&15=%d "
                  "next_in=%s report_every_ok=%s checks_planned=%d", n, j, _hm(recv), _hm(created_at), r.quiet,
-                 r.quiet_owner, r.quiet_parked, r.checks, r.cmd_ack, r.cmd_seq, r.next_in_s, consistent, len(self.plan))
+                 r.quiet_owner, r.quiet_parked, r.sync, r.cmd_ack, r.cmd_seq, r.next_in_s, consistent, len(self.plan))
         self.record("report", n=n, j=j, recv=round(recv, 3), created_at=created_at, flags=report_flags(r),
                     next_in_matches_report_every=consistent,
                     plan=[{"k": s.k, "t_k": round(s.t_k), "at": s.at, "report_wakeup": s.report_wakeup}
@@ -632,7 +631,7 @@ def print_plan(pr: Probe, hours: float) -> None:
     f = L.flags
     print(f"Latest report n={L.n} received {dt.datetime.fromtimestamp(L.recv):%Y-%m-%d %H:%M:%S} "
           f"(bridge created_at {dt.datetime.fromtimestamp(L.created_at):%H:%M:%S}), mode={f['mode']} quiet={f['quiet']} "
-          f"owner={f['quiet_owner']} parked={f['parked']} checks={f['checks']} cmd_ack={f['cmd_ack']} "
+          f"owner={f['quiet_owner']} parked={f['parked']} sync={f['sync']} cmd_ack={f['cmd_ack']} "
           f"seq&15={f['cmd_seq_nibble']} next_in={f['next_in_s']} s")
     until = plan_until_s(pr.latest_report, pr.a.interval_min * 60, pr.a.report_every)
     if until:

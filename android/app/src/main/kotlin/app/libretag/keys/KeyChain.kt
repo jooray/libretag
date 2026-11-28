@@ -3,6 +3,7 @@ package app.libretag.keys
 import app.libretag.data.Tracker
 import app.libretag.proto.Keys
 import app.libretag.proto.LibreTag
+import app.libretag.proto.QuietMesh
 
 /**
  * The epoch keys of one tag. The owner derives them from K0; someone the owner shared the tag with
@@ -56,12 +57,16 @@ class SharedChain(override val fromEpoch: Long, viewE: ByteArray, cmdE: ByteArra
 
 /**
  * Which report counters to try for a tag (same rules as ReportWindow in LibreTag.kt, over any
- * [KeyChain]): a wide window ahead, a short one behind, both copies j = 0, 1; [seen] counters
- * are never reopened. The history copy j = 2 is opened directly by [openHistory].
+ * [KeyChain]): a wide window ahead, a short one behind, every copy on air (j = 0, 1, 9, 10, 11);
+ * [seen] counters are never reopened, except that the other copies of a counter just opened stay
+ * open for [SECOND_MS] as a second sighting (P8, [trySecond]). The history copy j = 2 is opened
+ * directly by [openHistory].
  */
 class TagWindow(private val chain: KeyChain, var lastN: Long, seen: Collection<Long> = emptyList()) {
     private val seen = java.util.TreeSet(seen)
     private var table: Map<String, Pair<Long, Int>> = build()
+    /** x -> (n, j, until ms): copies of counters opened in the last [SECOND_MS] */
+    private val second = HashMap<String, Triple<Long, Int, Long>>()
 
     private fun firstN(): Long = chain.fromEpoch * LibreTag.EPOCH_REPORTS
 
@@ -72,14 +77,14 @@ class TagWindow(private val chain: KeyChain, var lastN: Long, seen: Collection<L
         for (n in from until to) {
             if (n in seen) continue
             val v = chain.view(LibreTag.epoch(n)) ?: continue
-            for (j in 0..1) m[LibreTag.bytesToHex(LibreTag.reportTag(v, n, j))] = n to j
+            for (j in QuietMesh.J_ON_AIR) m[LibreTag.bytesToHex(LibreTag.reportTag(v, n, j))] = n to j
         }
         return m
     }
 
     @Synchronized
     fun tagsAhead(count: Int): List<String> = table.entries.filter { it.value.first > lastN }
-        .sortedBy { it.value.first }.take(2 * count).map { it.key }
+        .sortedBy { it.value.first }.take(QuietMesh.J_ON_AIR.size * count).map { it.key }
 
     /** The packet's tag is in the window (cheap; [tryOpen] still checks the MAC). */
     @Synchronized
@@ -95,7 +100,13 @@ class TagWindow(private val chain: KeyChain, var lastN: Long, seen: Collection<L
         val (n, j) = table[LibreTag.bytesToHex(p.copyOf(LibreTag.TAG_LEN))] ?: return null
         val v = chain.view(LibreTag.epoch(n)) ?: return null
         val r = LibreTag.openReport(v, n, j, p) ?: return null
-        if (!keep) seen.add(n)
+        if (!keep) {
+            seen.add(n)
+            // the other copies of n stay open for a while: a second sighting (P8)
+            val until = now() + SECOND_MS
+            second.entries.removeIf { it.value.third < now() }
+            for (jj in QuietMesh.J_ON_AIR) second[LibreTag.bytesToHex(LibreTag.reportTag(v, n, jj))] = Triple(n, jj, until)
+        }
         if (n > lastN) {
             lastN = n
             while (seen.isNotEmpty() && seen.first() < lastN - BACK) seen.pollFirst()
@@ -105,6 +116,23 @@ class TagWindow(private val chain: KeyChain, var lastN: Long, seen: Collection<L
         }
         return Triple(n, j, r)
     }
+
+    /**
+     * A copy of a counter opened less than [SECOND_MS] ago (another j, or the same copy by another
+     * path): (n, j, report), checked like a first copy. The caller treats it as a second sighting.
+     */
+    @Synchronized
+    fun trySecond(p: ByteArray): Triple<Long, Int, app.libretag.proto.Report>? {
+        if (p.size < LibreTag.TAG_LEN) return null
+        val (n, j, until) = second[LibreTag.bytesToHex(p.copyOf(LibreTag.TAG_LEN))] ?: return null
+        if (until < now()) return null
+        val v = chain.view(LibreTag.epoch(n)) ?: return null
+        val r = LibreTag.openReport(v, n, j, p) ?: return null
+        return Triple(n, j, r)
+    }
+
+    /** clock for [SECOND_MS] (tests replace it) */
+    var now: () -> Long = { System.currentTimeMillis() }
 
     /** BLE and Wi-Fi packets follow a report within seconds: only near the newest report. */
     @Synchronized
@@ -136,7 +164,7 @@ class TagWindow(private val chain: KeyChain, var lastN: Long, seen: Collection<L
             val to = minOf(end, from + block)
             for (n in from until to) {
                 val v = chain.view(LibreTag.epoch(n)) ?: continue
-                for (j in 0..1) {
+                for (j in QuietMesh.J_ON_AIR) {
                     val x = LibreTag.bytesToHex(LibreTag.reportTag(v, n, j))
                     if (has(x)) return Triple(n, j, x)
                 }
@@ -149,7 +177,7 @@ class TagWindow(private val chain: KeyChain, var lastN: Long, seen: Collection<L
     /** Tags of one forward block (for a relay query when the app runs the window query). */
     fun blockTags(from: Long, count: Long): List<String> = (from until from + count).flatMap { n ->
         val v = chain.view(LibreTag.epoch(n)) ?: return@flatMap emptyList()
-        (0..1).map { j -> LibreTag.bytesToHex(LibreTag.reportTag(v, n, j)) }
+        QuietMesh.J_ON_AIR.map { j -> LibreTag.bytesToHex(LibreTag.reportTag(v, n, j)) }
     }
 
     /** Open [p] as report n copy j found by [searchForward]; moves the window there. */
@@ -177,6 +205,8 @@ class TagWindow(private val chain: KeyChain, var lastN: Long, seen: Collection<L
         /** resync searches at most this far past the last report */
         const val RESYNC_CAP = 65_536L
         const val HISTORY_J = 2
+        /** a second copy of a report within this long adds its path (P8) */
+        const val SECOND_MS = 120_000L
     }
 }
 

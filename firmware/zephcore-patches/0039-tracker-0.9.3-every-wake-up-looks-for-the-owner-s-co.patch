@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Thu, 19 Nov 2026 08:45:29 +0100
-Subject: [PATCH 39/42] tracker 0.9.3: every wake-up looks for the owner's
+Subject: [PATCH 39/50] tracker 0.9.3: every wake-up looks for the owner's
  command advert: a wake-up with no presence or LOST scan (listen-only between
  reports, a check or report without known devices, TRACK) runs a 1.5 s passive
  scan for it alongside the LoRa window or the GPS search; a match at a

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Wed, 18 Nov 2026 14:53:27 +0100
-Subject: [PATCH 35/42] tracker 0.8.0: console over Bluetooth for 3 minutes
+Subject: [PATCH 35/50] tracker 0.8.0: console over Bluetooth for 3 minutes
  after a boot (blecon; GATT service with sealed frames keyed with usb_key,
  private address, deny list, window rules, blepair exclusion, ESP32 sleep
  lock; CONFIG_BT_PRIVACY, no DIS)

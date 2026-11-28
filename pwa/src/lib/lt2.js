@@ -26,7 +26,10 @@ export const WINDOW_AHEAD = 2048;
 export const FIRST_SYNC = 4096;
 
 export const F_HAS_FIX = 0x01, F_CMD_ACK = 0x02, F_LOW_BATT = 0x04, F_NB_DISCOVER = 0x08,
-  F_QUIET = 0x10, F_QUIET_OWNER = 0x20, F_BLE_SUM = 0x40, F_CHECKS = 0x80;
+  F_QUIET = 0x10, F_QUIET_OWNER = 0x20, F_BLE_SUM = 0x40, F_SYNC = 0x80;
+/** copies on air (0.10.0): 0, 1 floods, 9 zero-hop hello, 10 a wider flood, 11 along a path */
+export const J_ON_AIR = [0, 1, 9, 10, 11];
+export const J_FLOODS = [0, 1, 10];
 export const B2_PARKED = 0x08;
 // 0.9.4: byte 2 bits 0..1 are the mode, bit 2 BOOT (the first report since a boot)
 export const B2_MODE = 0x03, B2_BOOT = 0x04;
@@ -207,7 +210,7 @@ export function decodeReport(pt) {
     neighbours,
     quiet,
     quietReason: !quiet ? null : owner ? 'owner' : parked ? 'parked' : 'zone',
-    checks: !!(flags & F_CHECKS),
+    sync: !!(flags & F_SYNC),
     nextInS: nextInDecode(pt[31]),
     energyMah: energyDecode(pt[32]),
     bleDevices: bleLayout ? pt[28] : null,
@@ -216,9 +219,9 @@ export function decodeReport(pt) {
   };
 }
 
-const onAir = (j) => j === 0 || j === 1;
+const onAir = (j) => J_ON_AIR.includes(j);
 
-/** j = 0, 1 (on air): sealing v2, needs pk = pk_n (32 B); j = 2, 3 (history): the plain seal. */
+/** j = 0, 1, 9, 10, 11 (on air): sealing v2, needs pk = pk_n (32 B); j = 2, 3 (history): the plain seal. */
 export async function sealReport(viewE, n, j, pt, stealth = false, pk = null) {
   const body = stealth ? concatBytes(pt, new Uint8Array(6)) : pt;
   if (!onAir(j)) return seal(reportKd(viewE, n, j), reportTag(viewE, n, j), body);
@@ -283,30 +286,9 @@ export async function openCommand(cmdE, n, p, k = 0) {
   return pt && decodeCommand(pt);
 }
 
-// ------------------------------------------------------------------ checks (0.7)
-
-/** jit_i = (u16_le(HMAC(C_e(n), "LT2-w" || u32(n) || u16(i))[0:2]) mod span) - span/2, span = base/5 */
-export function checkJitter(cmdE, n, i, baseS) {
-  const span = Math.floor(baseS / 5);
-  if (span === 0) return 0;
-  const h = hm(cmdE, ascii('LT2-w'), u32(n), u16(i));
-  return ((h[0] | (h[1] << 8)) % span) - Math.floor(span / 2);
-}
-
-/** t_k - t0 for checks k = 1.. after report n; only those strictly before untilS (the heartbeat). */
-export function checkOffsets(cmdE, n, baseS, count, untilS = null) {
-  const out = [];
-  let t = 0;
-  for (let k = 1; k <= count; k++) {
-    t += baseS + checkJitter(cmdE, n, k, baseS);
-    if (untilS != null && t >= untilS) break;
-    out.push(t);
-  }
-  return out;
-}
-
 export const checkGuardMs = (offsetS) => 2000 + Math.floor(offsetS / 10);
-export const SEND_AFTER_S = 3;
+/** senders transmit at t_k + 1 s (0.10.0) */
+export const SEND_AFTER_S = 1;
 
 // ------------------------------------------------------------------ receiver window (PROTOCOL.md 2)
 
@@ -327,7 +309,7 @@ export class ReportWindow {
     for (let n = lo; n < hi; n++) {
       if (this.seen.has(n)) continue;
       const v = this.chain.view(epoch(n));
-      for (const j of [0, 1]) this.table.set(bytesToHex(reportTag(v, n, j)), [n, j]);
+      for (const j of J_ON_AIR) this.table.set(bytesToHex(reportTag(v, n, j)), [n, j]);
     }
   }
 
@@ -339,12 +321,12 @@ export class ReportWindow {
     return items.slice(0, count).map(([t]) => t);
   }
 
-  /** every hex tag of counters lo..hi (inclusive), both on-air copies; `seen` ones too */
+  /** every hex tag of counters lo..hi (inclusive), every copy on air; `seen` ones too */
   tagsRange(lo, hi) {
     const out = [];
     for (let n = Math.max(this.chain.minEpoch * EPOCH_REPORTS, lo); n <= hi; n++) {
       const v = this.chain.view(epoch(n));
-      for (const j of [0, 1]) out.push(bytesToHex(reportTag(v, n, j)));
+      for (const j of J_ON_AIR) out.push(bytesToHex(reportTag(v, n, j)));
     }
     return out;
   }
@@ -367,7 +349,7 @@ export class ReportWindow {
       this.seen = new Set([...this.seen].filter((s) => s >= this.lastN - WINDOW_BACK));
       if (slide) this._build();
     } else if (!keep) {
-      for (const jj of [0, 1]) this.table.delete(bytesToHex(reportTag(this.chain.view(epoch(n)), n, jj)));
+      for (const jj of J_ON_AIR) this.table.delete(bytesToHex(reportTag(this.chain.view(epoch(n)), n, jj)));
     }
     return { n, j, report };
   }

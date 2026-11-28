@@ -40,6 +40,10 @@ class BridgeTargetsTest {
         assertNull(BridgeTargets.parseReceipt(NostrEvent.sign(key(1), now, 4245, listOf(listOf("hops", "0")), ""), now))
         // an unknown hops class counts as "?"
         assertEquals("?", BridgeTargets.parseReceipt(receipt(1, y(3), hops = "7"), now)!!.hops)
+        // 0.10.0: route direct without hops is a direct hearing, ranked as 0 hops
+        val direct = NostrEvent.sign(key(1), now - 600, BridgeTargets.RECEIPT_KIND,
+            listOf(listOf("y", y(3)), listOf("route", "direct"), listOf("expiration", (now + 3600).toString())), "")
+        assertEquals("0", BridgeTargets.parseReceipt(direct, now)!!.hops)
     }
 
     @Test fun parseAnnouncement() {
@@ -110,7 +114,7 @@ class BridgeTargetsTest {
     @Test fun recentYs() {
         val m = BridgeTargets.recentYs(12, 20, { n, j -> "$n.$j" })
         assertEquals((3L..12L).toList() + 20L, m.values.distinct())
-        assertEquals(22, m.size)
+        assertEquals(11 * 5, m.size)
         assertTrue(BridgeTargets.recentYs(-1, null, { n, j -> "$n.$j" }).isEmpty())
     }
 

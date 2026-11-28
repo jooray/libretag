@@ -1,8 +1,8 @@
 # LibreTag
 
-An open tracker on top of a MeshCore LoRa network: once an hour it sends an encrypted position and listens for commands for a short time. It has no permanent MeshCore identity, and only the owner can see the content.
+An open tracker on top of a MeshCore LoRa network. It sends encrypted positions, mostly as a quiet zero-hop hello to the nearest bridge or your own node, and listens for commands for a short time. Anyone can run a bridge. It has no permanent MeshCore identity, and only the owner can see the content.
 
-Current versions (first public release, a preview): tracker firmware 0.9.6 (runs on the Wio Tracker L1; an ESP32-S3 build without GPS runs on the bench), LibreTag app 0.13.3, web app 0.4.0 (`pwa/`), Android bridge 0.5.0, Python bridge 0.6.0, protocol LT2. Changes: `CHANGELOG.md`. What is done and what is open: SPEC.md, "Prototype status". Licences of bundled code: `THIRD_PARTY_NOTICES.md`.
+Current versions (a preview): tracker firmware 0.10.2 (runs on the Wio Tracker L1; an ESP32-S3 build without GPS runs on the bench), LibreTag app 0.14.2, web app 0.5.0 (`pwa/`), Android bridge 0.6.0, Python bridge 0.7.0, protocol LT2 with the quiet mesh. Changes: `CHANGELOG.md`. What is done and what is open: SPEC.md, "Prototype status". Licences of bundled code: `THIRD_PARTY_NOTICES.md`.
 
 ## Install
 
@@ -83,7 +83,7 @@ make -C ../firmware/lt_core/test test   # lt_core + lt_nostr (libsecp256k1 is in
 
 ## Tracker firmware (ZephCore, Wio Tracker L1 / L1 Pro)
 
-Version 0.9.6. Release files: the UF2 (drive) and the serial DFU package, see "Install" above. Changes per version are in `firmware/README.md`.
+Version 0.10.2. Release files: the UF2 (drive) and the serial DFU package, see "Install" above. Changes per version are in `firmware/README.md`.
 
 Build (workspace `firmware/zephcore`; the changes against ZephCore are a series of patches in `firmware/zephcore-patches/`, the base is pinned in `firmware/zephcore.lock`; how the base changes and what to check after each change is in `firmware/README.md`):
 
@@ -123,7 +123,7 @@ The same role builds for the Heltec Wireless Stick Lite V3 (ESP32-S3, SX1262, no
 
 ## Android app
 
-Version 0.13.3, signed with the certificate SHA-256 `79750fb49349ec3729be5a3e825507a15e47c6d987e854ae91d5d50a20b3a24d` (see "Install"). Procedure:
+Version 0.14.2, signed with the certificate SHA-256 `79750fb49349ec3729be5a3e825507a15e47c6d987e854ae91d5d50a20b3a24d` (see "Install"). Procedure:
 
 1. In MeshCore Open (the jooray/meshcore-open fork with the Local API) turn on the Local API and connect to your companion node.
 2. Open LibreTag. MeshCore Open asks whether to allow it (the fingerprint is in the LibreTag menu), then whether to add the `#libretag` channel.
@@ -139,6 +139,8 @@ Version 0.13.3, signed with the certificate SHA-256 `79750fb49349ec3729be5a3e825
 The web app (`pwa/`, published at `cypherpunk.today/libretag/app/`) works over Nostr only: it restores tags from the backup, shows them on a map and sends or cancels commands. It has no USB, no area estimate and no Wi-Fi lookup.
 
 Build: `cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew lint testDebugUnitTest assembleRelease`
+
+Both Android projects use the Kotlin client of [MeshCore Local API](https://github.com/jooray/meshcore-local-api) at one commit, `meshcoreLocalApi.commit` in `gradle.properties`. With a clone of that repository next to this one (`../meshcore-local-api`, or `-PmeshcoreLocalApi.dir=<path>`), Gradle builds the library from the clone (a composite build, no network, nothing published to a Maven repository). The clone has to be at the pinned commit with a clean `kotlin/` tree, otherwise the build stops; `-PmeshcoreLocalApi.unpinned=true` lets a development build use another state, never a release. Without a clone the same commit comes from JitPack (once it is pushed), so a release APK is built from the same library source either way. To move to another library version, change the commit in both `gradle.properties` files.
 
 ### Privacy and security
 
@@ -167,13 +169,13 @@ uv run nostrmesh decode <hex>    # / encode event.json / vectors
 
 ### Android app "Nostr bridge" (`android-bridge/`)
 
-Version 0.5.0. It does what the Python bridge does: LT2 reports and BLE packets go up as kind 4243, the command mailbox handles timed entries (0.7 checks) and cancelling, low-battery DMs (`dm4x`) go up from any tracker, and DMs also reach the recipient's inbox relays. Since 0.3.2 it also keeps unpublished events in an outbox across restarts, reconnects the radio after 30 min of silence, writes an hourly heartbeat (`status.json`) and limits `#libretag` uplink per first hop (10 per minute). The bridge runs directly on the phone through MeshCore Open (the radio stays in MeshCore Open, chat keeps working):
+Version 0.6.0. It does what the Python bridge does: LT2 reports and BLE packets go up as kind 4243, the command mailbox handles timed entries (0.7 checks) and cancelling, low-battery DMs (`dm4x`) go up from any tracker, and DMs also reach the recipient's inbox relays. Since 0.3.2 it also keeps unpublished events in an outbox across restarts, reconnects the radio after 30 min of silence, writes an hourly heartbeat (`status.json`) and limits `#libretag` uplink per first hop (10 per minute). The bridge runs directly on the phone through MeshCore Open (the radio stays in MeshCore Open, chat keeps working):
 
 1. In MeshCore Open turn on the Local API, open the Nostr bridge and turn on the switch. MeshCore Open asks whether to allow it and whether to add `#nostr` (and `#roadstr`).
 2. Radio → Nostr works right away: Roadstr reports, messages from registered devices, and LibreTag reports from `#libretag`, which the bridge publishes as kind 4243 (it decrypts nothing and does not know the tracker's key; it signs with a random key and does not publish what is already on the relays).
 3. Nostr → radio: commands from kind 4244 for trackers (sent once after a report is caught, and the bridge closest to the tracker transmits) and DMs for registered devices (off by default; in Settings add a device: the tracker's npub and your npub).
 
-Build: `cd android-bridge && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew lint testDebugUnitTest assembleRelease`
+Build: `cd android-bridge && JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./gradlew lint testDebugUnitTest assembleRelease` (the MeshCore Local API library as for the app above)
 
 Python bridge through MeshCore Open (e.g. on a PC with `adb forward tcp:8787 tcp:8787`):
 
@@ -195,6 +197,6 @@ The tracker console (`help` shows everything), Nostr settings:
 | `nostr` | the tracker's npub, owner, settings |
 | `owner <npub>` | owner: the tracker accepts DMs only from them and sends alerts only to them |
 
-Every wake-up sends **one packet**: an encrypted report on `#libretag` (near a border possibly also a copy to the neighbouring network). The public report in the firmware was removed: LT2 reports are published by bridges as kind 4243 (`PROTOCOL.md` 4). The tracker wakes once an hour (±10 %), waits for GPS at most 90 s, and listens for 60 s after sending (`listen`). While quiet (home zone, owner nearby, parked) it reports nothing, but every wake-up is a check: it listens for a command for 30 s (`check`, 0–180), longer on slower radio presets and for as long as the GPS searches. With `report every <n>` it reports only at every n-th wake-up and only listens at the others, without GPS, which saves battery and mesh traffic while a command still gets through within one interval. On low battery the app sends the DM to the owner, below 10 % the tracker does it itself (`PROTOCOL.md` 5).
+Every report is **one packet**: an encrypted report on `#libretag` (near a border possibly also a copy to the neighbouring network). The public report in the firmware was removed: LT2 reports are published by bridges as kind 4243 (`PROTOCOL.md` 4). The tracker wakes on a schedule with a random offset of ±10 %, waits for GPS at most 90 s, and listens for 60 s after sending (`listen`). A report goes out first as a zero-hop hello that no repeater forwards. The owner's app confirms it through a bridge or the owner's own node. The tracker floods the report through the repeaters, narrowest region first, only when nobody confirmed it and it moved or was silent too long, or on an event such as a command answer, low battery or a restart. While quiet (home zone, owner nearby, parked) it sends at most a hello and a rare heartbeat, and every wake-up is a check: it listens for a command for 30 s (`check`, 0–180), longer on slower radio presets and for as long as the GPS searches. With `report every <n>` it reports only at every n-th wake-up and only listens at the others, without GPS, which saves battery and mesh traffic while a command still gets through within one interval, by default about an hour. On low battery the app sends the DM to the owner, below 10 % the tracker does it itself (`PROTOCOL.md` 5).
 
 The tracker does not accept DMs: it is controlled from the app (commands go after its report from the app's own radio and through the Nostr mailbox, PROTOCOL.md 4). It sends a DM itself only when the battery is below 10 %; at 25 % the app sends it.

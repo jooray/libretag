@@ -50,7 +50,7 @@ F_NB_DISCOVER = 0x08
 F_QUIET = 0x10        # the last report before a quiet stretch (zone or owner present)
 F_QUIET_OWNER = 0x20  # with QUIET: the reason is the owner's device nearby (else a home zone)
 F_BLE_SUM = 0x40      # bytes 28..30 carry a BLE summary instead of the 5th repeater
-F_CHECKS = 0x80       # 0.7: while quiet the tracker listens at checks; its IDLE interval is the configured one
+F_SYNC = 0x80         # 0.10.0: the tag's schedule anchor is the report before this one (was CHECKS)
 
 MODE_MASK = 0x03      # byte 2 bits 0..1: mode (0.9.4; values 0..3 only, bit 2 was always 0)
 B2_BOOT = 0x04        # 0.9.4: byte 2 bit 2, the first report since a boot
@@ -85,7 +85,10 @@ J_HIST = 2          # history record of a sent report: never on air
 J_HIST_SILENT = 3   # history record of a wake-up without a report: never on air
 J_WIFI = 4          # Wi-Fi packet after report n (LOST / on command)
 J_BLE = 5           # BLE packets k = 0..3 after report n: j = 5 + k
-J_ON_AIR = (J_HOME, J_BORDER)
+J_NEAR = 9          # 0.10.0: zero-hop copy (the hello)
+J_WIDE = 10         # 0.10.0: flood one scope level wider than copy 0 of the same report
+J_ROUTED = 11       # 0.10.0: DIRECT along the tag's stored path to a bridge
+J_ON_AIR = (J_HOME, J_BORDER, J_NEAR, J_WIDE, J_ROUTED)  # report copies on air: sealing v2
 J_EXTRA = (J_WIFI,) + tuple(J_BLE + k for k in range(BLE_MAX_PACKETS))
 EXTRA_BACK = 8      # extra copies are looked for only near the newest report
 EXTRA_AHEAD = 64
@@ -352,7 +355,7 @@ class Report:
     quiet: bool = False
     quiet_owner: bool = False        # with quiet: owner present (else zone, or parked)
     quiet_parked: bool = False       # 0.7, with quiet and not quiet_owner: parked (byte 2 bit 3)
-    checks: bool = False             # 0.7: listens at checks while quiet (flags bit 7)
+    sync: bool = False               # 0.10.0: the schedule anchor is report n - 1 (flags bit 7, SYNC)
     next_in_s: int | None = None     # coded in 30 s / 15 min steps (next_in_encode)
     energy_mah: float | None = None  # coded in 10 mAh steps (energy_encode)
     ble: BleSummary | None = None    # at most 4 repeaters then
@@ -371,7 +374,7 @@ class Report:
         flags = (F_HAS_FIX if self.has_fix else 0) | (F_CMD_ACK if self.cmd_ack else 0) \
             | (F_LOW_BATT if self.low_batt else 0) | (F_NB_DISCOVER if self.nb_discover else 0) \
             | (F_QUIET if self.quiet else 0) | (F_QUIET_OWNER if self.quiet and self.quiet_owner else 0) \
-            | (F_BLE_SUM if self.ble is not None and self.wifi is None else 0) | (F_CHECKS if self.checks else 0)
+            | (F_BLE_SUM if self.ble is not None and self.wifi is None else 0) | (F_SYNC if self.sync else 0)
         parked = self.quiet and self.quiet_parked and not self.quiet_owner
         max_nb = (0 if self.wifi.tail2 is not None else 1) if self.wifi is not None else 4 if flags & F_BLE_SUM else MAX_NB
         nbs = self.neighbours[:max_nb]
@@ -460,14 +463,14 @@ class Report:
             nb_total=counts & 0x0F, nb_discover=bool(flags & F_NB_DISCOVER), neighbours=nbs,
             quiet=bool(flags & F_QUIET), quiet_owner=bool(flags & F_QUIET_OWNER),
             quiet_parked=bool(flags & F_QUIET) and not flags & F_QUIET_OWNER and bool(mode_b & B2_PARKED),
-            checks=bool(flags & F_CHECKS),
+            sync=bool(flags & F_SYNC),
             next_in_s=next_in_decode(pt[31]), energy_mah=energy_decode(pt[32]), ble=ble, wifi=wifi,
         )
 
 
 def seal_report(view_e: bytes, n: int, j: int, report: Report, stealth: bool = False,
                 pk: bytes | None = None) -> bytes:
-    """j = 0, 1 (on air): v2 sealing with the commitment to pk = pk_n (required).
+    """j in J_ON_AIR (0, 1, 9, 10, 11, on air): v2 sealing with the commitment to pk = pk_n (required).
     j = 2, 3 (history records, never on air): the plain seal with the type byte and an 8 B mac."""
     pt = report.encode() + (b"\0" * 6 if stealth else b"")
     if j in J_ON_AIR:
@@ -1237,7 +1240,7 @@ def vector_boot_reports(keys: "Keys") -> list[dict]:
                         mode=Mode.TRACK, boot=True, boot_cause="crash", boot_resets=40, next_in_s=120)),
         # Wi-Fi seed2 layout (no fix time): byte 14 is the second BSSID's RSSI, the bit only
         (310, 0, Report(has_fix=False, fix_time=0, battery_pct=77, boot=True, boot_cause="pin", boot_resets=1,
-                        nb_total=1, checks=True, next_in_s=3600, wifi=seed2)),
+                        nb_total=1, sync=True, next_in_s=3600, wifi=seed2)),
     ]
     out = []
     for n, j, r in cases:
@@ -1301,15 +1304,15 @@ def vectors() -> dict:
             "p": seal_report_keys(keys, n, j, r).hex(), "p_stealth": seal_report_keys(keys, n, j, r, stealth=True).hex(),
             "channel_payload": channel_wrap(seal_report_keys(keys, n, j, r)).hex(),
         })
-    # 0.7: CHECKS flag, parked (byte 2 bit 3)
+    # 0.7: flags bit 7 (CHECKS then, SYNC since 0.10.0), parked (byte 2 bit 3)
     reports += [
         (203, 0, Report(has_fix=True, fix_time=1763400000, lat=48.715000, lon=21.265000, hacc_m=9, battery_pct=66,
-                        quiet=True, quiet_parked=True, checks=True, next_in_s=6 * 3600, energy_mah=410, nb_total=2,
+                        quiet=True, quiet_parked=True, sync=True, next_in_s=6 * 3600, energy_mah=410, nb_total=2,
                         neighbours=[(bytes.fromhex("a5e1"), 4.5), (bytes.fromhex("b7d2"), -1.0)])),
         (204, 0, Report(has_fix=False, fix_time=1763400000, lat=48.715000, lon=21.265000, battery_pct=65,
-                        quiet=True, quiet_owner=True, checks=True, next_in_s=8 * 3600, energy_mah=420, cmd_ack=True,
+                        quiet=True, quiet_owner=True, sync=True, next_in_s=8 * 3600, energy_mah=420, cmd_ack=True,
                         cmd_seq=6, nb_total=1, neighbours=[(bytes.fromhex("a5e1"), 3.0)])),
-        (205, 0, Report(has_fix=True, fix_time=1763410000, lat=48.700500, lon=21.250000, battery_pct=65, checks=True,
+        (205, 0, Report(has_fix=True, fix_time=1763410000, lat=48.700500, lon=21.250000, battery_pct=65, sync=True,
                         next_in_s=3600, energy_mah=421, nb_total=0)),
     ]
     for n, j, r in reports[6:]:
@@ -1376,7 +1379,7 @@ def vectors() -> dict:
     for n in (300, 301):
         f, _ = wifi_select(aps, n, seed2_in_report=True)
         rep = Report(has_fix=False, fix_time=0, hacc_m=255, battery_pct=77, mode=Mode.IDLE, nb_total=2,
-                     neighbours=[(bytes.fromhex("a1b2"), 6.25)], checks=True, next_in_s=3600, wifi=f)
+                     neighbours=[(bytes.fromhex("a1b2"), 6.25)], sync=True, next_in_s=3600, wifi=f)
         out["wifi_nofix"].append({"n": n, "seed": f.seed.hex(), "seed2": f.seed2.hex(), "seed2_rssi": f.seed2_rssi,
                                   "tail": f.tail.hex() if f.tail else "", "tail_rssi": f.tail_rssi,
                                   "tail2": f.tail2.hex() if f.tail2 else "", "tail2_rssi": f.tail2_rssi,
@@ -1387,7 +1390,7 @@ def vectors() -> dict:
     few = [aps[0], aps[2]]
     f, _ = wifi_select(few, 303)
     rep = Report(has_fix=False, fix_time=0, hacc_m=255, battery_pct=77, mode=Mode.IDLE, nb_total=2,
-                 neighbours=[(bytes.fromhex("a1b2"), 6.25)], checks=True, next_in_s=3600, wifi=f)
+                 neighbours=[(bytes.fromhex("a1b2"), 6.25)], sync=True, next_in_s=3600, wifi=f)
     out["wifi_few"] = {"n": 303, "aps": [[a.bssid.hex(), a.rssi, a.ssid] for a in few], "tail": f.tail.hex(),
                        "tail_rssi": f.tail_rssi, "pt": rep.encode().hex(),
                        "pk": mailbox_pk(keys.cmd(epoch(303)), 303).hex(),

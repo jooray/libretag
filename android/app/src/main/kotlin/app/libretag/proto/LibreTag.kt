@@ -60,8 +60,8 @@ object LibreTag {
     const val F_BLE_SUM = 0x40
     /** byte 15 bit 7: Wi-Fi layout of bytes 16..30 */
     const val NB_WIFI = 0x80
-    /** 0.7: while quiet the tag listens at checks; its IDLE interval is the configured one */
-    const val F_CHECKS = 0x80
+    /** 0.10.0, flags bit 7: the tag's schedule anchor is report n - 1 (PROTOCOL.md 2.6) */
+    const val F_SYNC = 0x80
     /** 0.7, byte 2 bit 3: with F_QUIET and without F_QUIET_OWNER, the reason is "parked" (STILL) */
     const val M_PARKED = 0x08
     /** mode values in byte 2 (bits 0..1; 0.9.4, bit 2 was always 0 before) */
@@ -94,6 +94,14 @@ object LibreTag {
     }
 
     // ---------------------------------------------------------------- SIV
+
+    /** The SIV seal of commands and plain-sealed packets with key material [kd] and tag [tag]. */
+    fun sealWith(kd: ByteArray, tag: ByteArray, pt: ByteArray): ByteArray = seal(kd, tag, pt)
+
+    fun openWith(kd: ByteArray, p: ByteArray): ByteArray? = open(kd, p)
+
+    /** Copies sealed v2 and sent on air (0, 1, 9, 10, 11). */
+    fun onAir(j: Int): Boolean = j == J_HOME || j == J_BORDER || j == QuietMesh.J_NEAR || j == QuietMesh.J_WIDE || j == QuietMesh.J_ROUTED
 
     private fun seal(kd: ByteArray, tag: ByteArray, pt: ByteArray): ByteArray {
         val mac = hmac(kd.copyOfRange(16, 32), tag, pt).copyOf(MAC_LEN)
@@ -143,10 +151,10 @@ object LibreTag {
         digest().copyOf(COMMIT_LEN)
     }
 
-    /** Copies 0 and 1 (on air): v2 sealing, pt is the 33 B plaintext (its type byte is not sent), pk = pk_n.
+    /** Copies on air (0, 1, 9, 10, 11): v2 sealing, pt is the 33 B plaintext (its type byte is not sent), pk = pk_n.
      *  History records (j = 2, 3): the plain seal, pk unused. */
     fun sealReport(viewE: ByteArray, n: Long, j: Int, pt: ByteArray, pk: ByteArray? = null): ByteArray {
-        if (j != J_HOME && j != J_BORDER) return seal(reportKd(viewE, n, j), reportTag(viewE, n, j), pt)
+        if (!onAir(j)) return seal(reportKd(viewE, n, j), reportTag(viewE, n, j), pt)
         requireNotNull(pk) { "a report on air needs pk_n" }
         val kd = reportKd2(viewE, n, j)
         val x = reportTag(viewE, n, j)
@@ -159,7 +167,7 @@ object LibreTag {
     fun openReport(viewE: ByteArray, n: Long, j: Int, p: ByteArray): Report? {
         if (p.size != REPORT_P_LEN && p.size != REPORT_P_LEN_STEALTH) return null
         if (!MessageDigest.isEqual(p.copyOf(TAG_LEN), reportTag(viewE, n, j))) return null
-        if (j != J_HOME && j != J_BORDER) return open(reportKd(viewE, n, j), p)?.let { Report.decode(it) }
+        if (!onAir(j)) return open(reportKd(viewE, n, j), p)?.let { Report.decode(it) }
         val kd = reportKd2(viewE, n, j)
         val mac = p.copyOfRange(p.size - RMAC_LEN, p.size)
         val pt1 = ctr(kd.copyOf(16), mac, p.copyOfRange(COMMIT_OFF + COMMIT_LEN, p.size - RMAC_LEN))
@@ -222,7 +230,9 @@ object LibreTag {
         return MessageDigest.isEqual(r.copyOfRange(13, 16), addr.copyOfRange(3, 6))
     }
 
-    /** k = 0: the window right after report n (0.6); k >= 1: check k after it (0.7, u16(k) appended). */
+    /** k = 0: the window right after report n; k = 0xFFFF: the Bluetooth advert for "the next wake-up after
+     *  report n" (3.1, u16(k) appended). Slot commands (k >= 1 of an anchor's grid) are sealed from the
+     *  slot key instead ([QuietMesh.sealSlotCommand]). */
     private fun cmdSuffix(n: Long, k: Int): ByteArray = if (k == 0) u32(n) else u32(n) + u16(k)
 
     fun commandTag(cmdE: ByteArray, n: Long, k: Int = 0): ByteArray =
@@ -236,37 +246,6 @@ object LibreTag {
     fun openCommand(cmdE: ByteArray, n: Long, p: ByteArray, k: Int = 0): Command? {
         if (p.size != CMD_P_LEN || !MessageDigest.isEqual(p.copyOf(TAG_LEN), commandTag(cmdE, n, k))) return null
         return open(commandKd(cmdE, n, k), p)?.let { Command.decode(it) }
-    }
-
-    /**
-     * Jitter of check i after report n, in seconds (0.7 "Schedule"): the low two bytes of
-     * HMAC(C_e(n), "LT2-w" || u32(n) || u16(i)) mod span, minus span / 2; span = base / 5.
-     */
-    fun checkJitter(cmdE: ByteArray, n: Long, i: Int, baseS: Long): Long {
-        val span = baseS / 5
-        if (span <= 0) return 0
-        val h = hmac(cmdE, "LT2-w".toByteArray(), u32(n), u16(i))
-        val v = (h[0].toInt() and 0xFF) or ((h[1].toInt() and 0xFF) shl 8)
-        return (v % span) - span / 2
-    }
-
-    /**
-     * Offsets of checks k = 1, 2, … after report n (seconds from its transmission), at most [max]
-     * and only before the heartbeat [untilS] (a check at or after it is not made).
-     */
-    fun checkOffsets(cmdE: ByteArray, n: Long, intervalMin: Int, untilS: Long, max: Int = 200): List<Long> {
-        val base = intervalMin * 60L
-        if (base <= 0) return emptyList()
-        val out = ArrayList<Long>()
-        var t = 0L
-        var i = 1
-        while (out.size < max) {
-            t += base + checkJitter(cmdE, n, i, base)
-            if (t >= untilS) break
-            out += t
-            i++
-        }
-        return out
     }
 
     fun usbAuth(usbKey: ByteArray, challenge: ByteArray): ByteArray =
@@ -293,7 +272,7 @@ class Keys(val k0: ByteArray) {
     /** What the tag does: seal report n, copy j, with the view key and (on air) pk_n. */
     fun sealReport(n: Long, j: Int, pt: ByteArray): ByteArray {
         val e = LibreTag.epoch(n)
-        val pk = if (j == LibreTag.J_HOME || j == LibreTag.J_BORDER) LibreTag.mailboxPk(cmd(e), n) else null
+        val pk = if (LibreTag.onAir(j)) LibreTag.mailboxPk(cmd(e), n) else null
         return LibreTag.sealReport(view(e), n, j, pt, pk)
     }
     private val view0 = LibreTag.hmac(k0, "LT2-view".toByteArray())
@@ -350,8 +329,8 @@ data class Report(
     val quietOwner: Boolean = false,
     /** 0.7: with [quiet] and not [quietOwner], the tag is parked (has not moved for a few reports) */
     val parked: Boolean = false,
-    /** 0.7 (CHECKS): while quiet the tag listens at checks on its configured IDLE interval */
-    val checks: Boolean = false,
+    /** 0.10.0 (SYNC): the tag's schedule anchor when it built this report was report n - 1 */
+    val sync: Boolean = false,
     /** seconds to the next wake-up that transmits (30 s / 15 min steps), null = not stated */
     val nextInS: Long? = null,
     /** charge used since the last full charge, lower bound in mAh (10 mAh steps), null = not counted */
@@ -434,7 +413,7 @@ data class Report(
                 quiet = flags and LibreTag.F_QUIET != 0,
                 quietOwner = flags and LibreTag.F_QUIET_OWNER != 0,
                 parked = modeB and LibreTag.M_PARKED != 0,
-                checks = flags and LibreTag.F_CHECKS != 0,
+                sync = flags and LibreTag.F_SYNC != 0,
                 nextInS = LibreTag.nextInDecode(u(31)),
                 energyMah = LibreTag.energyDecode(u(32)),
                 ble = ble,
@@ -459,6 +438,8 @@ data class Command(val seq: Int, val op: Int, val args: ByteArray = ByteArray(0)
         const val OP_BLE_SCAN = 5
         /** 0.9.2: open the Bluetooth console window (PROTOCOL.md 3, 6.2) */
         const val OP_BLE_CONSOLE = 6
+        /** 0.10.0: a row of the tag's bridge-area table (PROTOCOL.md 2.7) */
+        const val OP_SET_AREA = 7
 
         private fun le16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
 
@@ -473,11 +454,44 @@ data class Command(val seq: Int, val op: Int, val args: ByteArray = ByteArray(0)
         /** SET_IDLE check_s: no listening at checks (0 keeps the value) */
         const val CHECK_OFF = 0xFF
 
-        /** 0 keeps the current value; [checkS] (0.7, offset 7): listening at checks 1..180 s (0.7.2; older firmware clamps to 60), [CHECK_OFF] turns it off */
-        fun setIdle(seq: Int, intervalMin: Int, listenS: Int = 0, checkS: Int = 0, reportEvery: Int = 0) =
+        /**
+         * 0 keeps the current value; [checkS] (offset 7): listening at checks 1..180 s, [CHECK_OFF] turns it
+         * off; [reportEvery] (offset 8) 1..24; [ackPatience] (0.10.0, offset 9): 1 = a moved IDLE tag waits
+         * for the next check before it floods, 2 = it decides 12 s after the hello. With offset 9 set the
+         * command has no Bluetooth form.
+         */
+        fun setIdle(seq: Int, intervalMin: Int, listenS: Int = 0, checkS: Int = 0, reportEvery: Int = 0, ackPatience: Int = 0) =
             Command(seq, OP_SET_IDLE, le16(intervalMin) + le16(listenS) +
                 byteArrayOf((if (checkS == CHECK_OFF) CHECK_OFF else checkS.coerceIn(0, 180)).toByte(),
-                    reportEvery.coerceIn(0, 24).toByte()))
+                    reportEvery.coerceIn(0, 24).toByte(), ackPatience.coerceIn(0, 2).toByte()))
+
+        /** ack_patience of a SET_IDLE command (offset 9), null when it keeps the value */
+        fun idleAckPatience(c: Command): Int? = if (c.op != OP_SET_IDLE || c.args.size < 7) null
+            else (c.args[6].toInt() and 0xFF).takeIf { it > 0 }
+
+        /**
+         * 0.10.0 `SET_AREA` (PROTOCOL.md 2.7, 3): row [slot] 0..3 of the tag's area table (bit 7 deletes it),
+         * the centre in the report encoding, the radius in km and the scope name (at most 6 B, zero padded).
+         * Refuses (IllegalArgumentException) exactly what the firmware's `lt_set_area_decode` refuses: a slot
+         * outside 0..3, and for a row that is not deleted a radius outside 1..255 km or a scope name that is not
+         * 1 to 6 of `a-z 0-9 - _`; also a centre outside the report encoding (lat -90..<90, lon -180..<180).
+         */
+        fun setArea(seq: Int, slot: Int, lat: Double, lon: Double, radiusKm: Int, scope: String, delete: Boolean = false): Command {
+            require(slot in 0..3) { "SET_AREA: slot $slot, must be 0..3" }
+            if (delete) return Command(seq, OP_SET_AREA, byteArrayOf((slot or 0x80).toByte()) + ByteArray(13))
+            require(radiusKm in 1..255) { "SET_AREA: radius $radiusKm km, must be 1..255" }
+            require(scope.length in 1..6 && scope.all { it in 'a'..'z' || it in '0'..'9' || it == '-' || it == '_' }) {
+                "SET_AREA: scope name \"$scope\" must be 1 to 6 of a-z 0-9 - _"
+            }
+            fun s24(v: Long) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte(), ((v shr 16) and 0xFF).toByte())
+            val la = Math.round(lat * (1 shl 23) / 90.0)
+            val lo = Math.round(lon * (1 shl 23) / 180.0)
+            require(la in -(1L shl 23) until (1L shl 23) && lo in -(1L shl 23) until (1L shl 23)) {
+                "SET_AREA: centre $lat, $lon outside the report encoding"
+            }
+            return Command(seq, OP_SET_AREA, byteArrayOf(slot.toByte()) + s24(la) + s24(lo) +
+                byteArrayOf(radiusKm.toByte()) + scope.toByteArray(Charsets.US_ASCII).copyOf(6))
+        }
 
         /** report_every of a SET_IDLE command (0.7.3, offset 8), null when it keeps the value */
         fun idleReportEvery(c: Command): Int? = if (c.op != OP_SET_IDLE || c.args.size < 6) null
@@ -519,7 +533,7 @@ data class Command(val seq: Int, val op: Int, val args: ByteArray = ByteArray(0)
  * Which report counters to try for a tracker, as a table of 4-byte tags (PROTOCOL.md 2): a wide
  * window ahead (reboots skip 16, TRACK burns 30 an hour, the phone may be away for days) and a
  * short one behind, so a report that arrives late (relay copy, a bridge's backlog) still lands in
- * the history. Both copies j = 0, 1 (home and border network). [seen] counters are never reopened.
+ * the history. Every copy on air (j = 0, 1, 9, 10, 11). [seen] counters are never reopened.
  */
 class ReportWindow(private val keys: Keys, var lastN: Long, seen: Collection<Long> = emptyList()) {
     private val seen = java.util.TreeSet(seen)
@@ -545,14 +559,14 @@ class ReportWindow(private val keys: Keys, var lastN: Long, seen: Collection<Lon
         for (n in from until to) {
             if (n in seen) continue
             val v = keys.view(LibreTag.epoch(n))
-            for (j in 0..1) m[LibreTag.bytesToHex(LibreTag.reportTag(v, n, j))] = n to j
+            for (j in QuietMesh.J_ON_AIR) m[LibreTag.bytesToHex(LibreTag.reportTag(v, n, j))] = n to j
         }
         return m
     }
 
-    /** Tags of the next [count] counters (both copies), for a relay filter. */
+    /** Tags of the next [count] counters (every copy), for a relay filter. */
     fun tagsAhead(count: Int): List<String> = table.entries.filter { it.value.first > lastN }
-        .sortedBy { it.value.first }.take(2 * count).map { it.key }
+        .sortedBy { it.value.first }.take(QuietMesh.J_ON_AIR.size * count).map { it.key }
 
     fun tryOpen(p: ByteArray): Triple<Long, Int, Report>? {
         if (p.size < LibreTag.TAG_LEN) return null

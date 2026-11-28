@@ -54,15 +54,17 @@ class Lt2TimedTest {
         val m = FakeMesh(caps)
         val r = FakeRelays()
         val clock = { t0 + testScheduler.currentTime }
+        m.clock = clock
         return Rig(Bridge(this, m, r, cfg.legacyTiming(), emptyList(), clock = clock, random = Random(7), newKey = keySource()), m, r, clock)
     }
 
     private fun Rig.nowS() = clock() / 1000
 
-    private fun command(nowS: Long, ys: List<String> = listOf(x), at: Long? = null, via: String? = null, key: Int = 50, flood: Boolean = false) =
+    private fun command(nowS: Long, ys: List<String> = listOf(x), at: Long? = null, via: String? = null, key: Int = 50, flood: Boolean = false,
+                        g: String? = null) =
         ownerEntry(nowS,
             ys.map { listOf("y", it) } + listOf(listOf("route", if (flood) "flood" else "near"), listOf("expiration", "${nowS + 48 * 3600}")) +
-                listOfNotNull(at?.let { listOf("at", "$it") }, via?.let { listOf("via", it) }),
+                listOfNotNull(at?.let { listOf("at", "$it") }, via?.let { listOf("via", it) }, g?.let { listOf("g", it) }),
             Base64.getEncoder().encodeToString(pc), if (key == 50) null else testKey(key))
 
     /** key 50: the owner (sk_n of the vector report, which every owner entry here belongs to). */
@@ -103,7 +105,7 @@ class Lt2TimedTest {
         g.b.hear(p, twoHops)
         advanceUntilIdle()
         val at = g.nowS() + 30
-        g.b.onRelayEvent(command(g.nowS(), ys = listOf(cmdY), at = at, via = x).toJson())
+        g.b.onRelayEvent(command(g.nowS(), ys = listOf(cmdY), at = at, via = x, g = "00112233445566ff").toJson())
         assertEquals(1, g.b.mailbox.size)
         g.b.timedTick()
         runCurrent()
@@ -116,14 +118,19 @@ class Lt2TimedTest {
         advanceTimeBy(4_000)
         assertEquals("waits for at", 0, g.m.sent.size)
         advanceUntilIdle()
-        val s = g.m.sent.single()
-        assertTrue(g.clock() >= at * 1000)
-        assertEquals(pc.hex(), s.payload.hex())
-        assertEquals("the tracker may have moved: flood", Route.Flood, s.route)
+        // a standing tag two repeaters away: along the reversed path of via, then the 0xFF6C flood 12 s later
+        val (first, fallback) = g.m.sent
+        assertEquals(at * 1000, first.atMs)
+        assertEquals(pc.hex(), first.payload.hex())
+        assertEquals("bbaa", ((first.route as Route.Direct).path.hex()))
+        assertEquals(Frames.DATA_TYPE_LIBRETAG, first.dataType)
+        assertEquals(Route.Flood, fallback.route)
+        assertEquals(0xFF6C, fallback.dataType)
+        assertEquals(at * 1000 + 12_000, fallback.atMs)
         // once only
         g.b.timedTick()
         advanceUntilIdle()
-        assertEquals(1, g.m.sent.size)
+        assertEquals(2, g.m.sent.size)
     }
 
     @Test
@@ -250,7 +257,7 @@ class Lt2TimedTest {
         val ev = command(g.nowS())
         g.b.onRelayEvent(ev.toJson())
         advanceTimeBy(1000)
-        g.b.hear(p, direct0) // taken, claim published, waiting 1.5 s
+        g.b.hear(p, twoHops) // a path send: taken, claim published, waiting 1.5 s (zero-hop has no claim round)
         runCurrent()
         assertEquals(1, g.r.ofKind(Lt2.KIND_CLAIM).size)
         g.b.onRelayEvent(deletion(listOf(ev.id), g.nowS()).toJson())

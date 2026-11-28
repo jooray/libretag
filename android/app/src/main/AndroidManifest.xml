@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- mining mailbox entries (NIP-13) and the backup silent-tag check run with the screen off -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 0.14.0: own-node sends at the tag's listening slots, at t_k + 1 s (SlotAlarm); inexact without it -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
@@ -149,6 +151,8 @@
 
         <!-- backup for the silent-tag alarm when the system killed the process -->
         <receiver android:name=".SilenceAlarmReceiver" android:exported="false" />
+        <receiver android:name=".SlotAlarmReceiver" android:exported="false" />
+        <receiver android:name=".ReportAlarmReceiver" android:exported="false" />
         <!-- switches the advertised command to the next check, also in Doze -->
         <receiver android:name=".ble.BleBeaconAlarm" android:exported="false" />
         <!-- 0.12: matches of the background filtered scan for the tags' Bluetooth adverts -->

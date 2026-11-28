@@ -66,19 +66,22 @@ import java.util.Base64
 
 /** The four commands of the brief, the Bluetooth scan, and the report interval (PROTOCOL.md 3). */
 enum class CommandKind { LOST, TRACK, BEEP, NORMAL, BLE_SCAN, INTERVAL, BLE_CONSOLE;
-    /** [arg]: TRACK interval in seconds, INTERVAL minutes (0 = the default); [durationMin]: how long TRACK runs (0 = 1 h) */
-    fun build(seq: Int, arg: Int = 0, checkS: Int = 0, reportEvery: Int = 0, durationMin: Int = 0): Command = when (this) {
+    /**
+     * [arg]: TRACK interval in seconds, INTERVAL minutes (0 = the default); [durationMin]: how long TRACK
+     * runs (0 = 1 h); [ackPatience] (INTERVAL, 0.10.0): 1 or 2, 0 keeps the tag's value
+     */
+    fun build(seq: Int, arg: Int = 0, checkS: Int = 0, reportEvery: Int = 0, durationMin: Int = 0, ackPatience: Int = 0): Command = when (this) {
         LOST -> Command.setMode(seq, Mode.LOST, Status.LOST_INTERVAL_S, LOST_MIN)
         TRACK -> Command.setMode(seq, Mode.TRACK, if (arg > 0) arg else Status.TRACK_INTERVAL_S, if (durationMin > 0) durationMin else TRACK_MIN)
         BEEP -> Command.buzz(seq, 10)
         NORMAL -> Command.setMode(seq, Mode.IDLE)
         BLE_SCAN -> Command.bleScan(seq, 0, false, 2)
-        INTERVAL -> Command.setIdle(seq, if (arg > 0) arg else 60, 0, checkS, reportEvery)
+        INTERVAL -> Command.setIdle(seq, if (arg > 0) arg else 60, 0, checkS, reportEvery, ackPatience)
         BLE_CONSOLE -> Command.bleConsole(seq, arg)
     }
     /**
-     * mailbox expiry (SPEC 11 decisions): Beep 1 h, Track and Normal 12 h, Lost and the interval 48 h;
-     * opening Bluetooth 4 h (the owner waits next to the tag; three hourly wake-ups and some)
+     * The command's lifetime (SPEC.md 3.2): Beep 1 h, Bluetooth 4 h, Track, Normal and scan 12 h, Lost and
+     * settings 48 h. Its mailbox entries expire with it, and at its end the owner is told (R7).
      */
     val mailboxTtlS: Long get() = when (this) { BEEP -> 3600L; BLE_CONSOLE -> 4 * 3600L; LOST, INTERVAL -> 48 * 3600L; else -> 12 * 3600L }
     companion object {
@@ -148,6 +151,8 @@ class LibreTagApp : Application() {
     val pathLog = app.libretag.data.PathLog()
     /** the phone's clock against reports' fix times and relay event times (ms), null = no evidence */
     val clockSkewMs = MutableStateFlow<Long?>(null)
+    /** 0.14.0 (R13): the bridge that heard the tag is offline (announcement older than 2 h, or radio down), by tag id */
+    val bridgeDown = MutableStateFlow<Map<String, app.libretag.data.BridgeDownSeen>>(emptyMap())
     /** bridge receipts for counters above the newest opened one, by tag id (4.4) */
     val receipts = MutableStateFlow<Map<String, app.libretag.data.ReceiptSeen>>(emptyMap())
     /** what is on the USB cable, app-wide (4.2) */
@@ -184,12 +189,14 @@ class LibreTagApp : Application() {
         cable.start()
         watchNetwork()
         scope.launch { mesh.datagrams.collect { onDatagram(it) } }
+        scope.launch { mesh.state.collect { st -> onNodeState(st) } }
         // Reports any bridge published (kind 4243) and our own command mailbox (kind 4244).
         relays = RelayPool(scope) { ev, _ -> onNostrEvent(ev) }
         relays.setRelays(store.relays, store.relays)
-        scope.launch { store.trackers.collect { resubscribe(it); SilenceAlarm.schedule(this@LibreTagApp, it) } }
+        scope.launch { store.trackers.collect { resubscribe(it); SilenceAlarm.schedule(this@LibreTagApp, it); ReportAlarm.schedule(this@LibreTagApp, it) } }
         scope.launch { watchSilence() }
-        scope.launch { watchChecks() }
+        scope.launch { watchSlots() }
+        scope.launch { watchCommands() }
         scope.launch { bleBeacon.run() } // 0.7.7: pending commands in this phone's Bluetooth advertising
         scope.launch { bleWake.run() }
         scope.launch { watchReach() }
@@ -285,6 +292,7 @@ class LibreTagApp : Application() {
             blindFrom = pathLog.blindFrom, backfillAt = pathLog.backfillAt,
             cable = app.libretag.usb.CableClassify.cableFor(t, cs.raw, cs.espDownload, session, cableTagId(now)),
             receipt = receipts.value[t.id], clockSkewMs = clockSkewMs.value, minFirmware = MIN_FIRMWARE,
+            bridgeDown = bridgeDown.value[t.id],
             bluetooth = bluetoothReady(),
         )
     }
@@ -444,6 +452,7 @@ class LibreTagApp : Application() {
         if (ev.kind == 4) { onTagDm(ev); return }
         if (ev.kind != LibreTag.NOSTR_REPORT_KIND) return
         if (!windowMode() && liveRate.add(System.currentTimeMillis()) > app.libretag.nostr.ReportSync.LIVE_MAX_PER_HOUR) toWindowMode()
+        if (ev.tags.none { it.size >= 2 && it[0] == "approx" }) noteRelayClock(ev.createdAt)
         onReportEvent(ev)
     }
 
@@ -460,11 +469,23 @@ class LibreTagApp : Application() {
             if (!w.knows(p)) continue
             if (!ev.verify()) return
             val (at, approxUntil) = app.libretag.nostr.ReportSync.reportTimeMs(ev)
-            val (n, _, r) = w.tryOpen(p, keep = approxUntil != null) ?: return
-            DiagLog.i(TAG, "${t.name}: report n=$n from a relay" + if (approxUntil != null) " (approximate time)" else "")
+            val (n, jj, r) = w.tryOpen(p, keep = approxUntil != null) ?: return
+            DiagLog.i(TAG, "${t.name}: report n=$n j=$jj from a relay" + if (approxUntil != null) " (approximate time)" else "")
+            DiagLog.ev("open", "tag" to t.id, "via" to "relay", "n" to n, "j" to jj, "x" to p.copyOf(4), "id" to ev.id,
+                "pubkey" to ev.pubkey, "created_at" to ev.createdAt, "approx_until_ms" to approxUntil)
             bridgeReports.value = (bridgeReports.value + System.currentTimeMillis()).takeLast(500)
             handleReport(t, n, r, hops = null, snrDb = 0.0, via = "nostr", receivedAtMs = at,
-                approxUntilMs = approxUntil)
+                approxUntilMs = approxUntil, j = jj, x = LibreTag.bytesToHex(p.copyOf(4)))
+            return
+        }
+        // P8: another copy of a report opened in the last 120 s (the own node had it first, or another j)
+        for (t in store.trackers.value) {
+            val w = windowFor(t) ?: continue
+            val (n, jj, r) = w.trySecond(p) ?: continue
+            if (!ev.verify()) return
+            val (at, approxUntil) = app.libretag.nostr.ReportSync.reportTimeMs(ev)
+            secondSighting(t, n, jj, r, via = "nostr", receivedAtMs = at, approx = approxUntil != null,
+                x = LibreTag.bytesToHex(p.copyOf(4)), nodeDirect = false)
             return
         }
         if (ev.verify()) app.libretag.nostr.ReportSync.reportTimeMs(ev).let { (at, until) -> rememberUnmatched(p, at, "nostr", until) }
@@ -700,26 +721,122 @@ class LibreTagApp : Application() {
 
     // ---------------------------------------------------------------- mesh
 
+    /** when the own node's session last became connected and last went away (ms), for R11 */
+    @Volatile private var nodeUpAt = 0L
+    @Volatile private var nodeDownAt = 0L
+
+    private fun onNodeState(st: SessionState) {
+        val now = System.currentTimeMillis()
+        if (st is SessionState.Connected) { if (nodeUpAt <= nodeDownAt || nodeUpAt == 0L) nodeUpAt = now }
+        else if (nodeUpAt > nodeDownAt) nodeDownAt = now
+        DiagLog.ev("node_state", "state" to st.javaClass.simpleName, "caps" to mesh.session.capabilities.toList().sorted())
+    }
+
+    /** the node's server lists `rx_meta`: received packets carry their route type (needed for a node ACK) */
+    val nodeRxMeta: Boolean get() = io.github.jooray.meshcore.localapi.Capabilities.RX_META in mesh.session.capabilities
+
+    /** last x values decided on, for the one log line per datagram (P2) */
+    private val datagramSeen = object : LinkedHashMap<String, String>(128, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?) = size > 64
+    }
+
     private suspend fun onDatagram(d: MeshEvent.ChannelData) {
-        lastMeshPacket.value = System.currentTimeMillis()
-        val at = d.receivedAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
-            ?: System.currentTimeMillis()
-        DiagLog.i(TAG, "mesh datagram ${d.payload.size} B hops=${d.hops} snr=${d.snrDb}")
+        val now = System.currentTimeMillis()
+        lastMeshPacket.value = now
+        val at = d.receivedAt?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() } ?: now
+        val x = LibreTag.bytesToHex(d.payload.copyOf(minOf(4, d.payload.size)))
+        val path = d.path?.let { LibreTag.bytesToHex(it) }
+        DiagLog.ev("mesh_rx", "size" to d.payload.size, "x" to x, "rx_ms" to at, "received_at" to d.receivedAt, "hops" to d.hops,
+            "route" to d.routeType, "path" to path, "phs" to d.pathHashSize, "snr" to d.snrDb, "rssi" to d.rssiDbm,
+            "channel" to d.channel, "dt" to d.dataType)
         if (d.payload.size == LibreTag.REPORT_P_LEN && store.trackers.value.any { windowFor(it)?.tryOpenExtra(d.payload) != null }) {
             onExtra(d.payload); return
         }
         if (d.payload.size == LibreTag.BLE_P_LEN) { onExtra(d.payload); return }
         if (d.payload.size != LibreTag.REPORT_P_LEN) return
+        // R11: a frame the radio held in its offline queue has the drain time, so it is approximate (no ACK,
+        // anchor or command). The server says so with `queued` (rx_queued); one without rx_queued is read by
+        // the old rule: every frame in the first 20 s after the node connected
+        val queued = if (MeshLink.RX_QUEUED in mesh.session.capabilities) d.queued
+            else nodeUpAt > 0 && at - nodeUpAt in 0 until NODE_QUEUED_MS
+        val earliest = if (queued) (if (nodeDownAt in 1 until at) nodeDownAt else at - NODE_QUEUED_GUESS_MS) else at
+        val flood = d.routeType == "flood" || d.routeType == "tflood"
+        val direct = d.routeType == "direct" || d.routeType == "tdirect"
         for (t in store.trackers.value) {
             val w = windowFor(t) ?: continue
-            val (n, j, r) = w.tryOpen(d.payload) ?: run {
-                DiagLog.i(TAG, "${t.name}: not opened: another tracker, already seen, or outside the window (lastN=${t.lastN})"); null
-            } ?: continue
-            DiagLog.i(TAG, "${t.name}: report n=$n j=$j fix=${r.hasFix} batt=${r.batteryPct}")
-            handleReport(t, n, r, d.hops, d.snrDb ?: 0.0, "mesh", at)
+            val (n, j, r) = w.tryOpen(d.payload, keep = queued) ?: continue
+            // heard directly: a hello (only ever sent zero-hop) on a DIRECT route, or a flood with 0 hops (R36)
+            val nodeDirect = (direct && j == app.libretag.proto.QuietMesh.J_NEAR) || (flood && (d.path == null || d.path!!.isEmpty()) && d.hops == 0)
+            logDatagram(x, "opened by ${t.name} n=$n j=$j")
+            DiagLog.ev("open", "tag" to t.id, "via" to "node", "n" to n, "j" to j, "x" to x,
+                "rx_ms" to at, "hops" to d.hops, "route" to d.routeType, "path" to path, "snr" to d.snrDb, "rssi" to d.rssiDbm,
+                "queued" to queued, "node_direct" to nodeDirect)
+            handleReport(t, n, r, d.hops, d.snrDb ?: 0.0, "mesh", if (queued) earliest else at,
+                approxUntilMs = if (queued) at else null, j = j, x = x, route = d.routeType, nodeDirect = nodeDirect)
             return
         }
+        for (t in store.trackers.value) {
+            val w = windowFor(t) ?: continue
+            val (n, j, r) = w.trySecond(d.payload) ?: continue
+            val nodeDirect = (direct && j == app.libretag.proto.QuietMesh.J_NEAR) || (flood && (d.path == null || d.path!!.isEmpty()) && d.hops == 0)
+            logDatagram(x, "duplicate of ${t.name} n=$n j=$j")
+            secondSighting(t, n, j, r, via = "mesh", receivedAtMs = at, approx = queued, x = x, nodeDirect = nodeDirect,
+                route = d.routeType, hops = d.hops)
+            return
+        }
+        logDatagram(x, "unknown x=$x, kept for resync")
+        DiagLog.ev("open_fail", "via" to "node", "size" to d.payload.size, "x" to x)
         rememberUnmatched(d.payload, at, "mesh")
+    }
+
+    /** P2: one line per datagram, decided once after trying every tag; a repeat of the same x is not logged again. */
+    private fun logDatagram(x: String, what: String) {
+        val again = synchronized(datagramSeen) { datagramSeen.put(x, what) == what }
+        if (!again) DiagLog.i(TAG, "mesh datagram: $what")
+    }
+
+    /**
+     * P8: a second copy of report [n] within 120 s (another path or another j): it adds its path to
+     * the stored position, and does what the first copy could not (an ACK from the own node or for
+     * the bridge that heard it, the own node's command), never a second notification.
+     */
+    private suspend fun secondSighting(t0: Tracker, n: Long, j: Int, r: Report, via: String, receivedAtMs: Long, approx: Boolean,
+                                       x: String, nodeDirect: Boolean, route: String? = null, hops: Int? = null) {
+        val t = store.get(t0.id) ?: return
+        val pos = t.positions.lastOrNull { it.n == n && it.via != VIA_USB_QUIET } ?: return
+        DiagLog.ev("report", "tag" to t.id, "n" to n, "j" to j, "x" to x, "via" to if (via == "mesh") "node" else "relay",
+            "rx_time" to receivedAtMs, "age_ms" to System.currentTimeMillis() - receivedAtMs, "approx" to approx,
+            "is_new" to false, "second_sighting" to true, "hops" to hops, "route" to route, "sync" to r.sync)
+        val newest = n == t.lastN
+        store.updateTracker(t.id) { cur ->
+            cur.copy(positions = cur.positions.map { p ->
+                if (p.n != n || p.via == VIA_USB_QUIET) p
+                else p.copy(alsoVia = if (p.via != via) via else p.alsoVia, nodeDirect = p.nodeDirect || nodeDirect,
+                    hops = p.hops ?: hops, route = p.route ?: route)
+            }, anchor = if (newest && !approx && !pos.approx) app.libretag.data.QuietPlan.anchorAfter(cur.anchor, n, j, gridTime(via, receivedAtMs), r.sync,
+                liveAck = false, still = true, dueInGap = false, x = x) { gn, gt -> gridFor(cur, gn, gt) } else cur.anchor)
+        }
+        val now = store.get(t.id) ?: return
+        if (!newest || approx || pos.approx) return
+        val fresh = System.currentTimeMillis() - receivedAtMs < CMD_FRESH_MS
+        // the ACK the first copy could not get
+        val ack = now.lastAck?.takeIf { it.n == n }
+        val needNode = via == "mesh" && nodeDirect && ack?.path != "node"
+        val needNostr = via == "nostr" && ack == null
+        if (needNode || needNostr) {
+            ackReport(now, n, j, now.last ?: pos, receivedAtMs, viaNode = via == "mesh", nodeDirect = nodeDirect, x = x)
+            // a live ACK went out now: the tag anchors on n, so n is a candidate grid (PROTOCOL.md 2.6)
+            val sent = store.get(t.id)?.lastAck?.let { it.n == n && !it.timed } == true
+            if (sent && ack?.let { !it.timed } != true) store.updateTracker(t.id) { cur ->
+                val before = cur.anchor
+                val after = app.libretag.data.QuietPlan.liveAckOnSecond(before, n, j, gridTime(via, receivedAtMs), r.sync) { gn, gt -> gridFor(cur, gn, gt) }
+                if (after != before) logAnchor(cur.id, after, 0, "live_ack_second")
+                cur.copy(anchor = after)
+            }
+        }
+        // the own node's command the first copy could not send (P8: once)
+        val p = now.pending
+        if (via == "mesh" && nodeDirect && fresh && p != null && p.sentForN != n) sendCommand(now.id, n, p)
     }
 
     /** A BLE surroundings packet or a Wi-Fi packet that belongs to a recent report. */
@@ -802,7 +919,8 @@ class LibreTagApp : Application() {
         }
     }
 
-    private fun positionOf(n: Long, r: Report, hops: Int?, snrDb: Double, via: String, receivedAtMs: Long, approxUntilMs: Long? = null): Position {
+    private fun positionOf(n: Long, r: Report, hops: Int?, snrDb: Double, via: String, receivedAtMs: Long, approxUntilMs: Long? = null,
+                           j: Int = -1, route: String? = null, nodeDirect: Boolean = false): Position {
         val x = ReportExtras.of(r)
         return Position(
             fixTime = r.fixTime, receivedAt = receivedAtMs, hasFix = r.hasFix,
@@ -812,11 +930,12 @@ class LibreTagApp : Application() {
             neighbours = r.neighbours.map { NeighbourRec(it.hash, it.snrDb) },
             nbTotal = r.nbTotal, nbFromDiscover = r.nbDiscover, haccM = r.haccM,
             cmdAck = r.cmdAck, cmdSeq = r.cmdSeq, lowBatt = r.lowBatt,
-            nextInS = x.nextInS, quiet = x.quiet, quietReason = x.quietReason, checks = x.checks,
+            nextInS = x.nextInS, quiet = x.quiet, quietReason = x.quietReason, sync = r.sync,
             energyMah = x.energyMah, bleDevices = x.bleDevices, bleStable = x.bleStable,
             wifi = app.libretag.data.WifiMerge.ofReport(x),
             approxUntil = approxUntilMs?.coerceAtLeast(receivedAtMs),
             boot = r.boot, bootCause = r.bootCause, bootResets = r.bootResets,
+            j = j, route = route, nodeDirect = nodeDirect,
         )
     }
 
@@ -835,18 +954,33 @@ class LibreTagApp : Application() {
         receivedAtMs: Long = System.currentTimeMillis(),
         /** 0.8.1: a bridge drained the report late (tag `approx`), the time lies in [receivedAtMs, approxUntilMs] */
         approxUntilMs: Long? = null,
+        /** 0.14.0: the copy opened, its x, the node's route type, and whether the node heard it directly */
+        j: Int = -1, x: String? = null, route: String? = null, nodeDirect: Boolean = false,
     ) {
         // a report on air is sealed v2, which only firmware 0.9.0 and newer sends; an unknown version
         // stays unknown (0.9.0 is below MIN_FIRMWARE and would read as too old)
         if (t.firmware != null) noteFirmwareAtLeast(t.id, REPORT_V2_FIRMWARE)
-        val pos = positionOf(n, r, hops, snrDb, via, receivedAtMs, approxUntilMs)
+        val pos = positionOf(n, r, hops, snrDb, via, receivedAtMs, approxUntilMs, j, route, nodeDirect)
+        val isNew = n > t.lastN
+        DiagLog.ev("report", "tag" to t.id, "n" to n, "j" to j, "x" to x, "via" to if (via == "mesh") "node" else "relay",
+            "rx_time" to receivedAtMs, "age_ms" to System.currentTimeMillis() - receivedAtMs, "approx" to (approxUntilMs != null),
+            "approx_until_ms" to approxUntilMs, "is_new" to isNew, "second_sighting" to false, "hops" to hops, "route" to route,
+            "node_direct" to nodeDirect, "sync" to r.sync, "boot" to r.boot, "low" to r.lowBatt, "fix" to r.hasFix,
+            "lat" to if (r.hasFix) r.lat else null, "lon" to if (r.hasFix) r.lon else null, "hacc_m" to r.haccM,
+            "fix_time" to r.fixTime.takeIf { r.hasFix && it > 0 }, "batt" to r.batteryPct, "mode" to r.mode.name,
+            "cmd_ack" to r.cmdAck, "cmd_seq" to r.cmdSeq, "quiet" to r.quiet, "parked" to r.parked, "next_in_s" to r.nextInS, "nb" to r.nbTotal)
         // an approximate copy of a report we already have exactly adds nothing
         if (app.libretag.data.ReportMerge.redundant((store.get(t.id) ?: t).positions, pos)) return
-        val isNew = n > t.lastN
         // 0.12: the counter went back (tag-diagnosis 4.3); a boot report; the phone's clock (4.6)
         val back = !isNew && app.libretag.data.CounterGaps.counterBack((store.get(t.id) ?: t).positions, pos)
         if (via == "mesh" && r.hasFix && r.fixTime > 0 && System.currentTimeMillis() - receivedAtMs < 60_000L) noteClock(receivedAtMs - r.fixTime * 1000 - 5_000L)
-        // the first exact copy of the newest report: anchor its checks now
+        val prevPos = (store.get(t.id) ?: t).last
+        // the ACK decision comes first: the anchor needs to know whether a live ACK goes out (R1)
+        val ageMs = reportAgeMs(via, receivedAtMs)
+        val standing = app.libretag.data.QuietPlan.still(prevPos, pos)
+        val choice = app.libretag.data.QuietPlan.ackChoice(isNew, pos.approx, t.canCommand && chainFor(t)?.canCommand == true, j,
+            via == "mesh", nodeDirect, nodeRxMeta, mesh.canZeroHop, ageMs, standing)
+        val liveAck = choice.way == app.libretag.data.QuietPlan.AckWay.NODE || choice.way == app.libretag.data.QuietPlan.AckWay.NOSTR
         var upgrade = false
         val batt = r.batteryPct
         val low = r.lowBatt || (batt != null && batt <= LOW_BATT_PCT)
@@ -858,7 +992,9 @@ class LibreTagApp : Application() {
         var zoneArrived: String? = null
         var confirmedKind: CommandKind? = null
         var ackedSeq: Int? = null
+        var ackedPending: PendingCommand? = null
         var lostReport = false
+        var notConfirmedLog: Int? = null
         store.updateTracker(t.id) { cur ->
             var pending = cur.pending
             var lastCommand = cur.lastCommand
@@ -866,9 +1002,10 @@ class LibreTagApp : Application() {
             var modeIntervalS = cur.modeIntervalS
             var intervalMin = cur.intervalMin
             var reportEvery = cur.reportEvery
-            val sentFor = pending?.sentForN
-            if (pending != null && r.cmdAck && (sentFor == null || n > sentFor) && (pending.seq and 0x0F) == r.cmdSeq) {
-                // acknowledged: CMD_ACK in a report after the one the command answered
+            var reportAtOnce = cur.reportAtOnce
+            var anchor = cur.anchor
+            if (pending != null && app.libretag.data.QuietPlan.confirms(pending, n, isNew, r.cmdAck, r.cmdSeq, r.mode.name)) {
+                // R5: CMD_ACK with the command's bits in a report newer than the one it was queued after
                 val kind = CommandKind.of(pending.kind)
                 confirmedKind = kind
                 lastCommand = CommandResult(pending.kind, pending.seq, receivedAtMs, pending.sentAt)
@@ -881,19 +1018,28 @@ class LibreTagApp : Application() {
                     CommandKind.INTERVAL -> body?.let { b ->
                         Command.idleIntervalMin(b)?.let { intervalMin = it }
                         Command.idleReportEvery(b)?.let { reportEvery = it }
+                        Command.idleAckPatience(b)?.let { reportAtOnce = it == 2 }
                     }
                     else -> {}
                 }
-                ackedSeq = pending.seq
+                // the send it answered was on one of the grids: that grid is the tag's (R32)
+                val q = pending
+                val g = q.sentForN
+                if (g != null && q.sentForCheck != null) anchor = app.libretag.data.QuietPlan.confirmed(anchor, g)
+                ackedSeq = q.seq
+                ackedPending = q
                 pending = null
-            } else if (pending != null && sentFor != null && isNew && n > sentFor) {
+            } else if (pending != null && isNew && r.cmdAck && (pending.seq and 0x0F) == r.cmdSeq) {
+                notConfirmedLog = pending.seq // the bits match but the counter or the mode does not (R5)
+            } else if (pending != null && isNew && n > (pending.sentForN ?: Long.MAX_VALUE)) {
                 pending = pending.copy(notConfirmed = true) // retried with this report
             }
             if (r.mode == Mode.IDLE && isNew && confirmedKind == null) { modeUntil = null; modeIntervalS = null }
             notifyLow = low && !cur.lowBattNotified && cur.alerts.lowBattery && isNew
             sendLowDm = low && !cur.lowBattDmSent && isNew && !cur.isShared
-            val moved = cur.guardLat != null && cur.guardLon != null && r.hasFix &&
-                Geo.distanceM(cur.guardLat, cur.guardLon, r.lat, r.lon) > GUARD_M
+            // R16: the guard moves at max(300 m, 3 x accuracy), on exact reports only (the tag's own rule)
+            val moved = cur.guardLat != null && cur.guardLon != null && r.hasFix && !pos.approx &&
+                Geo.distanceM(cur.guardLat, cur.guardLon, r.lat, r.lon) > app.libretag.proto.QuietMesh.moveM(r.haccM)
             guardAlarm = moved && !cur.guardAlerted && isNew
             // zones: "left Home" when a fix lands outside after being inside
             var inZone = cur.inZone
@@ -933,9 +1079,25 @@ class LibreTagApp : Application() {
             if (guardAlarm) alarm = app.libretag.data.Places.guardAlarm(receivedAtMs)
             lostReport = r.mode == Mode.LOST && isNew
             upgrade = app.libretag.data.ReportMerge.upgrades(cur, pos)
-            // never anchor the checks on an approximate time (PROTOCOL.md 4): heartbeat only then
-            val plan = if (isNew || upgrade) { if (pos.approx) null else checkPlanFor(cur, n, r, receivedAtMs, intervalMin, reportEvery) }
-                else cur.checkPlan
+            // the anchor (PROTOCOL.md 2.6): never on an approximate time, never from an older report (R8)
+            if ((isNew || upgrade) && !pos.approx) {
+                val gap = prevPos?.let { receivedAtMs - it.receivedAt } ?: 0L
+                val before = anchor
+                anchor = app.libretag.data.QuietPlan.anchorAfter(anchor, n, j, gridTime(via, receivedAtMs), r.sync, liveAck,
+                    still = standing, dueInGap = app.libretag.data.QuietPlan.dueInGap(gap, cur.holdNow, cur.reportPeriodMin * 60L), x = x) { gn, gt ->
+                    gridFor(cur.copy(intervalMin = intervalMin), gn, gt)
+                }
+                if (anchor != before) logAnchor(cur.id, anchor, n - cur.lastN, if (r.sync) "sync" else if (pos.flood) "flood" else if (liveAck) "live_ack" else "report")
+            }
+            // the last ACK: settled by SYNC in the next report, or by a note and a hello (A2)
+            val lastAck = cur.lastAck?.let { a ->
+                if (!isNew || a.settled != null || n != a.n + 1) a
+                else if (r.sync) a.copy(settled = "sync")
+                else if (a.noteAt != null && j == app.libretag.proto.QuietMesh.J_NEAR) a.copy(settled = "next_zero_hop")
+                else a.copy(settled = "no")
+            }
+            val acksNoNote = if (!isNew) cur.acksNoNote else cur.lastAck?.let { a ->
+                if (a.path == "nostr" && !a.timed && a.noteAt == null) cur.acksNoNote + 1 else 0 } ?: cur.acksNoNote
             // never "recovered" while the tag still flags LOW_BATT (its threshold is configurable, up to 100 %)
             val recovered = !low && batt != null && batt > LOW_BATT_RESET_PCT
             val crit = app.libretag.data.CritBattery.onReport(cur, batt, isNew, receivedAtMs)
@@ -949,11 +1111,18 @@ class LibreTagApp : Application() {
                 modeIntervalS = modeIntervalS,
                 intervalMin = intervalMin,
                 reportEvery = reportEvery,
-                checkPlan = plan,
+                reportAtOnce = reportAtOnce,
+                anchor = if (intervalMin != cur.intervalMin) regrid(cur.copy(intervalMin = intervalMin), anchor) else anchor,
+                lastAck = lastAck,
+                acksNoNote = acksNoNote,
+                // a copy that is not 11 means the tag dropped its path (or never had one)
+                routedVia = if (isNew && j >= 0 && j != app.libretag.proto.QuietMesh.J_ROUTED && !(pos.flood && standing)) null else cur.routedVia,
+                routedBridge = if (isNew && j >= 0 && j != app.libretag.proto.QuietMesh.J_ROUTED && !(pos.flood && standing)) null else cur.routedBridge,
                 lowBattNotified = if (low || crit.notify) true else if (recovered) false else cur.lowBattNotified,
                 lowBattDmSent = if (sendLowDm) true else if (recovered) false else cur.lowBattDmSent,
                 guardAlerted = cur.guardAlerted || guardAlarm,
-                silentAlerted = false,
+                // R8: an older report does not clear the silent latch
+                silentAlerted = if (isNew) false else cur.silentAlerted,
                 counterBackAt = if (back) receivedAtMs else cur.counterBackAt,
                 bootRecs = bootRecsAfter(cur, pos),
                 hereAskAt = if (isNew) null else cur.hereAskAt,
@@ -969,6 +1138,7 @@ class LibreTagApp : Application() {
                 positions = app.libretag.data.ReportMerge.merge(cur.positions, pos, TrackerStore.MAX_HISTORY),
             )
         }
+        notConfirmedLog?.let { DiagLog.ev("cmd_not_confirmed", "tag" to t.id, "seq" to it, "n" to n, "mode" to r.mode.name) }
         val now = store.get(t.id) ?: return
         val name = now.name
         // 0.9: per tag (Tag settings), no global switches; Android's channels are the global control
@@ -985,20 +1155,30 @@ class LibreTagApp : Application() {
         if (lostReport) notify(t.id, KIND_LOST, getString(R.string.notif_lost_title, name),
             getString(R.string.notif_lost_text, posSummary(pos), nextSummary(now)), channel = CH_LOST, onlyOnce = true)
         confirmedKind?.let { _confirmed.tryEmit(t.id to it) }
+        ackedPending?.let { q ->
+            DiagLog.ev("cmd_confirmed", "tag" to t.id, "kind" to q.kind, "seq" to q.seq, "n" to n, "via" to via, "rx_ms" to receivedAtMs,
+                "since_queued_ms" to receivedAtMs - q.queuedAt, "since_send_ms" to q.sentAt?.let { receivedAtMs - it }, "tries" to q.tries)
+        }
         // acknowledged: the rest of its mailbox entries would only repeat it on air (at the next
         // reports and at their check times), so they are deleted, not just forgotten
         ackedSeq?.let { seq -> scope.launch { deleteMailbox(t.id, seq) } }
         // Wi-Fi lookup by itself, as Settings say (never a report quiet at one of its places)
         app.libretag.ui.WifiPositioning.autoAfterReport(now, pos, isNew)
-        cancel(t.id, KIND_SILENT)
+        if (isNew) cancel(t.id, KIND_SILENT)
         receipts.value[t.id]?.let { if (it.n <= n) dropReceipt(t.id) }
+        bridgeDown.value[t.id]?.let { if (isNew) { bridgeDown.value = bridgeDown.value - t.id } }
         diagContextVersion.value++
 
         if (!pos.hasFix && pos.neighbours.isNotEmpty()) scope.launch { ensureEstimates(t.id) }
+        if (!isNew && !upgrade) return
 
-        // Only for a fresh, new report heard on our own radio: a relay copy or a replayed datagram
-        // after a reconnect arrives long after the RX window closed. Bridges cover the rest
-        // through the mailbox.
+        // timed ACK entries for older reports are useless once a newer one is in (R28)
+        if (isNew) mailboxKeys.obsolete(t.id, ACK_SEQ, n).takeIf { it.isNotEmpty() }?.let { old -> scope.launch { publishDeletions(old) } }
+        // the ACK sender (SPEC.md 3.2): own node, relay entry, or timed for the next slots
+        if (choice.way == app.libretag.data.QuietPlan.AckWay.SKIP) DiagLog.ev("ack", "tag" to t.id, "n" to n, "skip" to choice.why)
+
+        // Only for a fresh, new report the own node heard directly: zero-hop is the only way it sends
+        // (SPEC.md 3.2). Bridges cover the rest through the mailbox.
         val fresh = System.currentTimeMillis() - receivedAtMs < CMD_FRESH_MS
         val p = now.pending?.let { q -> if (isNew) mailboxFallback(now, q, receivedAtMs) else q }
         // entries sealed for an older report can no longer reach the tag (its counter moved on,
@@ -1009,31 +1189,56 @@ class LibreTagApp : Application() {
                 DiagLog.i(TAG, "${now.name}: report n=$n, ${done.size}/${old.size} older mailbox entries deleted")
             }
         }
-        if (via == "mesh" && isNew && fresh && p != null) sendCommand(t.id, n, p)
-        val settle = if (fresh) receivedAtMs + RECEIPT_SETTLE_MS else 0L
-        if (p != null && isNew && n + 1 >= (mailboxUpTo[t.id] ?: 0)) scope.launch { publishMailbox(now, p, settle) }
-        else if (p != null && (isNew || upgrade) && Status.checkPlan(now) != null) scope.launch {
-            val chain = chainFor(now) ?: return@launch
-            val cmd = LibreTag.hexToBytes(p.body)?.let { Command.decode(it) } ?: return@launch
-            publishCheckSlots(now, chain, cmd, p.seq, settle)
+        if (via == "mesh" && isNew && fresh && !pos.approx && nodeDirect && p != null) scope.launch {
+            // the ACK leaves first (MORE is set while a command waits), the command 300 ms later
+            delay(ACK_BEFORE_CMD_MS); sendCommand(t.id, n, p)
         }
-        if (p != null && (isNew || upgrade)) checksChanged.trySend(Unit)
-        // anchors for the next reports (PROTOCOL.md 4.2), renewed as reports arrive
-        if (isNew) scope.launch { maintainAnchors(now, settle) }
+        // P9: in this order, 150 ms apart: the ACK, the command's entries, then the anchors (PROTOCOL.md 4.3)
+        scope.launch {
+            if (choice.way != app.libretag.data.QuietPlan.AckWay.SKIP)
+                ackReport(now, n, j, pos, receivedAtMs, viaNode = via == "mesh", nodeDirect = nodeDirect, x = x, choice = choice)
+            if (p != null) publishMailbox(now, p, timedOnly = !isNew)
+            // anchors for the next reports (PROTOCOL.md 4.2), renewed as reports arrive
+            if (isNew) maintainAnchors(now)
+        }
+        if (p != null) checksChanged.trySend(Unit)
     }
 
+    /** The age of a report by its radio time (R17): a relay's created_at is in the bridge's clock, corrected by the offset measured against the relays. */
+    private fun reportAgeMs(via: String, receivedAtMs: Long): Long {
+        val now = System.currentTimeMillis()
+        val off = if (via == "nostr") clockOffMs() else 0L
+        return now - off - receivedAtMs
+    }
+
+    /** The phone's clock minus the bridges' as applied (R17): the measured offset when above 2 s, else 0. */
+    private fun clockOffMs(): Long = relayOffsetMs.takeIf { kotlin.math.abs(it) > CLOCK_APPLY_MS } ?: 0L
+
     /**
-     * The checks after a quiet report with CHECKS (0.7), or after a normal IDLE report when the tag
-     * reports only every n-th wake-up (0.7.3: it listens at the ones in between), when the app
-     * knows the interval and has C_e(n). Checks at or after the next report are not made.
+     * A report's time on the bridges' clock, which grids keep (SPEC.md 3.2): a timed entry's `at` is read by a
+     * bridge's clock, and a relay copy's created_at is already on it. A time the own node gave (phone clock)
+     * moves by the measured offset; own-node slot sends move back by it ([watchSlots]).
      */
-    private fun checkPlanFor(t: Tracker, n: Long, r: Report, receivedAtMs: Long, intervalMin: Int, reportEvery: Int): app.libretag.data.CheckPlan? {
-        if (!r.checks || !t.intervalKnown) return null
-        val between = !r.quiet && r.mode == Mode.IDLE && reportEvery > 1
-        if (!r.quiet && !between) return null
+    private fun gridTime(via: String, receivedAtMs: Long): Long = if (via == "mesh") receivedAtMs - clockOffMs() else receivedAtMs
+
+    /** One grid of slots anchored on report [n] at [t0] (ms): needs the command chain at n's epoch. */
+    fun gridFor(t: Tracker, n: Long, t0: Long): app.libretag.data.CheckPlan? {
+        if (n < 0 || t.intervalMin <= 0) return null
         val ce = chainFor(t)?.cmd(LibreTag.epoch(n)) ?: return null
-        val hbS = r.nextInS ?: if (between) intervalMin * 60L * reportEvery else (Status.HEARTBEAT_MS / 1000)
-        return app.libretag.data.CheckPlan(n, receivedAtMs, intervalMin, LibreTag.checkOffsets(ce, n, intervalMin, hbS))
+        val ks = app.libretag.proto.QuietMesh.slotKey(ce, n)
+        val offs = app.libretag.proto.QuietMesh.slotOffsets(ks, t.intervalMin * 60L, app.libretag.data.QuietPlan.slotCount(t.intervalMin))
+        return app.libretag.data.CheckPlan(n, t0, t.intervalMin, offs)
+    }
+
+    /** The grids again at a new IDLE interval (a confirmed SET_IDLE): the tag counts its slots with the new base. */
+    private fun regrid(t: Tracker, a: app.libretag.data.AnchorState): app.libretag.data.AnchorState {
+        fun g(p: app.libretag.data.CheckPlan) = gridFor(t, p.n, p.t0)?.copy(vias = p.vias)
+        return a.copy(a = a.a?.let { g(it) }, cands = a.cands.mapNotNull { g(it) })
+    }
+
+    private fun logAnchor(id: String, a: app.libretag.data.AnchorState, gap: Long, reason: String) {
+        DiagLog.ev("anchor", "tag" to id, "a" to a.a?.let { listOf(it.n, it.t0) }, "cands" to a.cands.map { listOf(it.n, it.t0) },
+            "gap" to gap, "reason" to reason, "known" to a.known)
     }
 
     private fun posSummary(p: Position): String = when {
@@ -1089,8 +1294,6 @@ class LibreTagApp : Application() {
 
     // ---------------------------------------------------------------- commands
 
-    private val mailboxUpTo = mutableMapOf<String, Long>()
-
     /**
      * 0.11.3: a command meant to go only by the phone's advert or zero-hop missed the wake-up it was
      * expected at (the phone was not near): from this report on the mailbox carries it
@@ -1107,33 +1310,32 @@ class LibreTagApp : Application() {
     }
 
     /**
-     * Seal the pending command for report n (check k, 0 = right after the report) and send it from our radio.
-     * The owner's own node (PROTOCOL.md 4.1): Pc goes straight to the radio over MeshCore Open's Local API,
-     * no Nostr event is made, so no proof of work is mined and no bridge is involved.
+     * Seal the pending command for report n's listen window (k = 0) or slot k of the grid of anchor
+     * [n] (sealed from its slot key) and send it from the owner's own node, zero-hop only (SPEC.md
+     * 3.2): Pc goes straight to the radio over the Local API, no Nostr event, no bridge. True when the
+     * radio took it.
      */
-    private suspend fun sendCommand(id: String, n: Long, p: PendingCommand, k: Int = 0) {
-        val t = store.get(id) ?: return
-        val chain = chainFor(t) ?: return
-        val ce = chain.cmd(LibreTag.epoch(n)) ?: return
-        val cmd = Command.decode(LibreTag.hexToBytes(p.body) ?: return) ?: return
-        // opening Bluetooth is for a tag next to the owner: zero-hop or nothing, never a flood
-        val local = app.libretag.mesh.CommandRoute.local(CommandKind.of(p.kind), mesh.canZeroHop)
-        if (local == app.libretag.mesh.CommandRoute.Local.NONE) {
+    private suspend fun sendCommand(id: String, n: Long, p: PendingCommand, k: Int = 0, atMs: Long? = null): Boolean {
+        val t = store.get(id) ?: return false
+        val chain = chainFor(t) ?: return false
+        val ce = chain.cmd(LibreTag.epoch(n)) ?: return false
+        val cmd = Command.decode(LibreTag.hexToBytes(p.body) ?: return false) ?: return false
+        if (!mesh.canZeroHop) {
             DiagLog.i(TAG, "${t.name}: ${p.kind} not sent from our radio (no zero-hop on this Local API server)")
-            return
+            return false
         }
-        val zeroHop = local == app.libretag.mesh.CommandRoute.Local.ZERO_HOP
-        if (mesh.sendChannelData(LibreTag.sealCommand(ce, n, cmd, k), zeroHop = zeroHop)) {
-            store.updateTracker(id) { it.copy(pending = it.pending?.copy(sentForN = n, sentAt = System.currentTimeMillis(),
-                sentForCheck = k.takeIf { k > 0 })) }
-            DiagLog.i(TAG, "${t.name}: sent ${p.kind} for n=$n" + (if (k > 0) " check $k" else "") + if (zeroHop) " (zero-hop)" else "")
+        val pc = if (k == 0) LibreTag.sealCommand(ce, n, cmd) else app.libretag.proto.QuietMesh.sealSlotCommand(app.libretag.proto.QuietMesh.slotKey(ce, n), k, cmd)
+        val r = mesh.sendZeroHopNow(pc)
+        DiagLog.ev("cmd_sent", "tag" to t.id, "path" to "node", "route" to "zero-hop", "kind" to p.kind, "seq" to p.seq, "n" to n, "k" to k,
+            "xc" to pc.copyOf(4), "at" to atMs, "request_ms" to r.requestMs, "sent_at" to r.sentAtMs, "ok" to r.ok, "error" to r.error)
+        if (r.ok) {
+            store.updateTracker(id) { it.copy(pending = it.pending?.copy(sentForN = n, sentAt = r.sentAtMs ?: System.currentTimeMillis(),
+                sentForCheck = k.takeIf { k > 0 }, tries = (it.pending?.tries ?: 0) + 1)) }
+            DiagLog.i(TAG, "${t.name}: sent ${p.kind} for n=$n" + (if (k > 0) " slot $k" else "") + " (zero-hop)")
         }
+        return r.ok
     }
 
-    /**
-     * The ways a command of [kind] takes now ([app.libretag.mesh.CommandRoute.plan]): this phone's
-     * Bluetooth advert, our node, the Nostr mailbox, and when the tag should take it.
-     */
     /** When the tag should take a command going by [via]: its next wake-up that scans for BLE, else its next listening one. */
     fun expectedAt(t: Tracker, via: app.libretag.mesh.CommandRoute.Via?, now: Long = System.currentTimeMillis()): Long? {
         val nextReport = Status.nextAt(t, now)
@@ -1142,74 +1344,117 @@ class LibreTagApp : Application() {
         else Status.of(t, now).nextCheckAt ?: nextReport
     }
 
+    /** The own node heard the tag's last report directly and is connected: a zero-hop send reaches it. */
+    fun nodeReaches(t: Tracker): Boolean = mesh.state.value is SessionState.Connected && mesh.canZeroHop &&
+        t.last?.let { it.nodeDirect && !it.approx } == true
+
     fun commandRoute(t: Tracker, kind: CommandKind, now: Long = System.currentTimeMillis()): app.libretag.mesh.CommandRoute.Plan {
         val beaconOk = app.libretag.ble.BleBeaconPlan.eligible(t) && app.libretag.ble.BleCommandBeacon.canAdvertise(this)
         val s = Status.of(t, now)
         val nextReport = Status.nextAt(t, now)
         val window = s.nextCheckAt ?: nextReport
         val scan = app.libretag.mesh.CommandRoute.nextScanAt(Status.checkPlan(t), nextReport, now)
-        val near = app.libretag.mesh.CommandRoute.isNear(t.knownDevices.size, t.last?.quietReason)
-        return app.libretag.mesh.CommandRoute.plan(kind, beaconOk, mesh.canZeroHop, window, scan, near)
+        val near = app.libretag.mesh.CommandRoute.isNear(t.bleSight?.at, t.last?.quietReason,
+            t.lastAck?.let { it.path == "node" && it.n == t.lastN } == true, now)
+        return app.libretag.mesh.CommandRoute.plan(kind, beaconOk, nodeReaches(t), window, scan, near)
     }
 
-    /** a command was queued or a new report changed the checks: the scheduler looks again */
+    /** a command was queued or a new report changed the slots: the scheduler looks again */
     private val checksChanged = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
 
+    /** Wakes [watchSlots] (the slot alarm, SlotAlarm). */
+    fun pokeSlots() { checksChanged.trySend(Unit) }
+
+    /** own-node timed ACKs for a report opened late: tag id -> (report n, grid n, slot k, at ms) */
+    private val nodeSlotAcks = java.util.concurrent.ConcurrentHashMap<String, List<NodeSlotAck>>()
+    private data class NodeSlotAck(val n: Long, val gridN: Long, val k: Int, val atMs: Long, val hold: Int, val more: Boolean)
+    /** (tag id, grid n, k) already sent from the own node */
+    private val slotDone = java.util.Collections.synchronizedSet(mutableSetOf<Triple<String, Long, Int>>())
+
     /**
-     * 0.7 checks: a quiet tag with CHECKS listens at computable times. While a command waits, send
-     * it at t_k + 3 s from our own radio (when MeshCore Open is connected and the process is
-     * awake; TrackerService keeps it alive, but the phone may doze through a check). Bridges cover
-     * the rest from the timed mailbox entries ([publishMailbox]).
+     * Own-node slot sends (R9, P7): while a command waits for a tag the own node heard directly,
+     * send it at t_k + 1 s of each grid's next slot; on not_connected or rate_limited retry every 3 s
+     * until t_k + 20 s. Timed ACKs through the node the same way. An alarm ([SlotAlarm]) 5 s ahead
+     * wakes this loop while the phone dozes. Bridges cover the rest from the timed entries.
      */
-    private suspend fun watchChecks() {
+    private suspend fun watchSlots() {
         while (true) {
             val now = System.currentTimeMillis()
+            // grids are on the bridges' clock: the own node sends at t_k + 1 s of the phone's (R17)
+            val off = clockOffMs()
             var wakeAt = now + CHECK_IDLE_POLL_MS
             for (t in store.trackers.value) {
-                val p = t.pending ?: continue
                 if (!t.canCommand) continue
-                val plan = Status.checkPlan(t) ?: continue
-                for ((i, off) in plan.offsetsS.withIndex()) {
-                    val k = i + 1
-                    val sendAt = plan.t0 + off * 1000 + CHECK_SEND_DELAY_MS
-                    if (sendAt < now - CHECK_LATE_MS) continue
-                    if (p.sentForN == plan.n && p.sentForCheck == k) continue
-                    if (sendAt <= now) {
-                        if (mesh.state.value is SessionState.Connected) sendCommand(t.id, plan.n, p, k)
-                        else DiagLog.i(TAG, "${t.name}: check $k, MeshCore Open not connected, bridges only")
-                    } else wakeAt = minOf(wakeAt, sendAt)
-                    break
+                val p = t.pending
+                if (p != null) for (g in Status.sendGrids(t, now)) {
+                    for ((i, o) in g.offsetsS.withIndex()) {
+                        val k = i + 1
+                        val tk = g.t0 + o * 1000 + off
+                        val sendAt = tk + app.libretag.proto.QuietMesh.SLOT_SEND_AFTER_S * 1000
+                        if (tk + SLOT_RETRY_UNTIL_MS < now) continue
+                        val key = Triple(t.id, g.n, k)
+                        if (key in slotDone) continue
+                        if (sendAt <= now) {
+                            if (nodeReaches(t)) {
+                                if (sendCommand(t.id, g.n, p, k, sendAt)) slotDone += key
+                                else wakeAt = minOf(wakeAt, now + SLOT_RETRY_MS)
+                            } else { slotDone += key; DiagLog.ev("tx_skip", "tag" to t.id, "what" to "cmd", "k" to k, "grid" to g.n, "reason" to "node_not_near") }
+                        } else wakeAt = minOf(wakeAt, sendAt)
+                        break
+                    }
+                }
+                nodeSlotAcks[t.id]?.let { list ->
+                    val left = mutableListOf<NodeSlotAck>()
+                    for (a in list) {
+                        if (store.get(t.id)?.lastN != a.n) continue // a newer report: none after it (R28)
+                        val atLocal = a.atMs + off
+                        if (atLocal - 1000 + SLOT_RETRY_UNTIL_MS < now) continue
+                        if (atLocal > now) { left += a; wakeAt = minOf(wakeAt, atLocal); continue }
+                        // MORE as it stands now: a command queued after the ACK was planned keeps the slot open
+                        if (!sendNodeAck(t, a.n, a.k, a.hold, a.more || moreFor(t), timed = true, atMs = a.atMs)) { left += a; wakeAt = minOf(wakeAt, now + SLOT_RETRY_MS) }
+                    }
+                    if (left.isEmpty()) nodeSlotAcks.remove(t.id) else nodeSlotAcks[t.id] = left
                 }
             }
+            if (slotDone.size > 500) synchronized(slotDone) { slotDone.clear() }
+            SlotAlarm.schedule(this, wakeAt)
             val wait = (wakeAt - System.currentTimeMillis()).coerceIn(200L, CHECK_IDLE_POLL_MS)
             kotlinx.coroutines.withTimeoutOrNull(wait) { checksChanged.receive() }
         }
     }
 
     /**
-     * Queue a command. It goes out (1) from our own radio right after the tag's next report,
-     * and (2) through the Nostr mailbox: sealed for the next few reports, any bridge that hears
-     * one of them delivers it (PROTOCOL.md 4). LOST commands may be flooded.
+     * Queue a command. It goes out (1) from the own node zero-hop right after the tag's next report
+     * or at its slots, when the node hears the tag directly, and (2) through the Nostr mailbox:
+     * untimed for the next counters, a late entry for the report that just came, and timed for the
+     * next slots on every grid the app holds (PROTOCOL.md 4, 4.3). [blind]: Lost behind the owner's
+     * confirmation, also flooded blind by a named bridge (4.3).
      */
-    fun queueCommand(id: String, kind: CommandKind, arg: Int = 0, checkS: Int = 0, reportEvery: Int = 0, durationMin: Int = 0) {
+    fun queueCommand(id: String, kind: CommandKind, arg: Int = 0, checkS: Int = 0, reportEvery: Int = 0, durationMin: Int = 0,
+                     ackPatience: Int = 0, blind: Boolean = false) {
         var queued: PendingCommand? = null
         var replaced: PendingCommand? = null
+        val now = System.currentTimeMillis()
         store.updateTracker(id) { t ->
             replaced = t.pending
-            val seq = ((t.cmdSeq % 255) + 1) // 1..255, 0 is "none" on the tracker
-            val route = commandRoute(t, kind)
-            val p = PendingCommand(seq, kind.name.lowercase(), LibreTag.bytesToHex(kind.build(seq, arg, checkS, reportEvery, durationMin).encode()),
-                kind = kind.name, queuedAt = System.currentTimeMillis(), group = app.libretag.nostr.MailboxPlan.newGroup(random),
+            // R6: random, its low bits unlike the tag's last executed command and our own previous one
+            val seq = app.libretag.data.QuietPlan.pickSeq(t.last?.cmdSeq, t.cmdSeq) { random.nextInt(it) }
+            val route = commandRoute(t, kind, now)
+            val p = PendingCommand(seq, kind.name.lowercase(), LibreTag.bytesToHex(kind.build(seq, arg, checkS, reportEvery, durationMin, ackPatience).encode()),
+                kind = kind.name, queuedAt = now, group = app.libretag.nostr.MailboxPlan.newGroup(random),
                 mailbox = route.mailbox, via = if (app.libretag.mesh.CommandRoute.quietLocally(kind)) route.via.name else "",
-                expectAt = route.at ?: 0L)
+                expectAt = route.at ?: 0L, queuedAtN = t.lastN, expiresAt = now + kind.mailboxTtlS * 1000)
             queued = p
             t.copy(cmdSeq = seq, pending = p)
         }
         val p = queued ?: return
+        DiagLog.ev("cmd_queued", "tag" to id, "kind" to p.kind, "seq" to p.seq, "queued_at_n" to p.queuedAtN, "lifetime_s" to kind.mailboxTtlS,
+            "mailbox" to p.mailbox, "local_via" to p.via, "expect_at" to p.expectAt.takeIf { it > 0 }, "replaced" to replaced?.seq, "blind" to blind)
+        replaced?.let { old -> DiagLog.ev("cmd_ended", "tag" to id, "seq" to old.seq, "why" to "replaced", "tries" to old.tries) }
         // the new command replaces the old one: bridges must not deliver the old one any more
         replaced?.let { old -> scope.launch { deleteMailbox(id, old.seq) } }
         val t = store.get(id) ?: return
-        scope.launch { publishMailbox(t, p); maintainAnchors(t) }
+        scope.launch { publishMailbox(t, p, blind = blind); maintainAnchors(t); timedAcksWithMore(id) }
         checksChanged.trySend(Unit)
     }
 
@@ -1221,7 +1466,56 @@ class LibreTagApp : Application() {
     fun cancelCommand(id: String) {
         var old: PendingCommand? = null
         store.updateTracker(id) { old = it.pending; it.copy(pending = null) }
-        old?.let { p -> scope.launch { deleteMailbox(id, p.seq) } }
+        old?.let { p ->
+            DiagLog.ev("cmd_ended", "tag" to id, "seq" to p.seq, "why" to "cancelled", "tries" to p.tries)
+            scope.launch { deleteMailbox(id, p.seq) }
+        }
+    }
+
+    /**
+     * Every 30 s: a command whose lifetime ran out ends with a notice (R7); one no relay accepted
+     * yet goes out again (R10); Lost or Track that ran out is told once (R15).
+     */
+    private suspend fun watchCommands() {
+        var first = true
+        var lastTick = System.currentTimeMillis()
+        var lastClock = 0L
+        while (true) {
+            delay(if (first) 5_000 else COMMAND_LOOP_MS)
+            val now = System.currentTimeMillis()
+            if (now - lastTick > DOZE_GAP_MS) DiagLog.ev("doze", "gap_ms" to now - lastTick)
+            lastTick = now
+            if (now - lastClock > 3600_000L) { lastClock = now; DiagLog.ev("clock", "offset_ms" to relayOffsetMs.takeIf { relaySamples.isNotEmpty() }) }
+            for (t in store.trackers.value) {
+                val p = t.pending
+                if (p != null && app.libretag.data.QuietPlan.expired(p, now)) { expireCommand(t, p); continue }
+                // R10: republished at start, and every 30 s while no relay took any of its entries
+                if (p != null && p.mailbox && t.canCommand && relays.connected.value.first > 0 && (first || p.accepted == 0)) publishMailbox(t, p)
+                app.libretag.data.QuietPlan.modeEnded(t, now)?.let { until ->
+                    store.updateTracker(t.id) { it.copy(modeEndNotified = until) }
+                    val k = if (t.last?.mode == "LOST") R.string.notif_lost_ended_title else R.string.notif_track_ended_title
+                    noteNotify(t.id)
+                    notify(t.id, KIND_MODE_END, getString(k, t.name), getString(R.string.notif_mode_ended_text), alarm = false)
+                    DiagLog.ev("notify", "tag" to t.id, "kind" to "mode_ended", "value" to until)
+                }
+            }
+            first = false
+        }
+    }
+
+    /** R7: the command's lifetime is over: delete its entries and tell the owner once. */
+    private suspend fun expireCommand(t: Tracker, p: PendingCommand) {
+        store.updateTracker(t.id) { cur -> if (cur.pending?.seq == p.seq) cur.copy(pending = null, expiredNotified = p.seq) else cur }
+        DiagLog.ev("cmd_ended", "tag" to t.id, "seq" to p.seq, "why" to "expired", "tries" to p.tries, "sent" to (p.sentAt != null))
+        deleteMailbox(t.id, p.seq)
+        val k = CommandKind.of(p.kind) ?: return
+        val why = when {
+            p.missAt != null -> getString(R.string.notif_not_delivered_miss, Format.clock(this, p.missAt))
+            p.sentAt != null -> getString(R.string.notif_not_delivered_sent)
+            else -> getString(R.string.notif_not_delivered_unheard, t.name)
+        }
+        notify(t.id, KIND_NOT_DELIVERED, getString(R.string.notif_not_delivered_title, app.libretag.ui.TagText.cmdName(this, k), t.name), why, alarm = false)
+        DiagLog.ev("notify", "tag" to t.id, "kind" to "not_delivered", "value" to p.seq)
     }
 
     /** Publish the deletions of command (id, seq); keys whose deletion no relay took stay for [retryDeletions]. */
@@ -1283,22 +1577,25 @@ class LibreTagApp : Application() {
     private val anchorLock = Mutex()
 
     /**
-     * Keep anchors (PROTOCOL.md 4.2) published for the next reports of a tag we can command, whether
-     * a command waits or not: a bridge sends an entry for report n only when it had an event of sk_n
-     * a minute before n went on air. Missing ones and those past half their life go out, named for
-     * the bridges that heard the tag (open when none is known), created_at spread over 5 minutes.
+     * Keep anchors (PROTOCOL.md 4.2, 4.3) published for the next reports of a tag we can command,
+     * whether a command waits or not: 16 ahead in IDLE, 24 in TRACK and LOST, the two counters a
+     * reboot lands on and the next epoch, five y each, expiring with them (up to 50 h). Missing ones
+     * and those past half their life go out, named for the bridges that heard the tag (open when
+     * none is known), created_at spread over 5 minutes, 150 ms apart (P9).
      */
-    private suspend fun maintainAnchors(tIn: Tracker, settleUntilMs: Long = 0) = anchorLock.withLock {
+    private suspend fun maintainAnchors(tIn: Tracker) = anchorLock.withLock {
         val t = store.get(tIn.id) ?: return@withLock
         if (!t.canCommand || relays.connected.value.first == 0) return@withLock
         val chain = chainFor(t) ?: return@withLock
         val nowS = System.currentTimeMillis() / 1000
-        val ttl = app.libretag.nostr.AnchorPlan.ttlS(t.last?.nextInS)
-        val due = app.libretag.nostr.AnchorPlan.due(app.libretag.nostr.AnchorPlan.wanted(t.lastN),
+        val moving = Status.modeNow(t, nowS * 1000) != "IDLE"
+        val ahead = if (moving) app.libretag.nostr.AnchorPlan.AHEAD_MOVING else app.libretag.nostr.AnchorPlan.AHEAD
+        val period = if (moving) Status.intervalS(t, t.last, nowS * 1000).toLong() else t.reportPeriodMin * 60L
+        val ttl = app.libretag.nostr.AnchorPlan.ttlS(period, ahead)
+        val due = app.libretag.nostr.AnchorPlan.due(app.libretag.nostr.AnchorPlan.wanted(t.lastN, moving),
             anchorBook.published(t.id, nowS), nowS, ttl)
         if (due.isEmpty()) return@withLock
-        val targets = runCatching { bridgeView(t, chain, null, settleUntilMs).untimed(nowS) }
-            .getOrDefault(app.libretag.nostr.Targets.OPEN)
+        val targets = runCatching { bridgeView(t, chain, null).untimed(nowS) }.getOrDefault(app.libretag.nostr.Targets.OPEN)
         var ok = 0
         for (n in due) {
             val e = LibreTag.epoch(n)
@@ -1307,36 +1604,51 @@ class LibreTagApp : Application() {
             val exp = nowS + ttl
             val ev = app.libretag.nostr.AnchorPlan.event(ce, ve, n, nowS - random.nextInt(app.libretag.nostr.AnchorPlan.SPREAD_S), exp, targets)
             if (relays.publish(ev.toJson())) { anchorBook.record(t.id, n, exp, nowS); ok++ }
+            delay(PUBLISH_GAP_MS)
         }
         DiagLog.i(TAG, "${t.name}: $ok/${due.size} anchors published (n ${due.first()}..${due.last()}, ${ttl / 3600} h)")
     }
 
     private var claimYs: Set<String> = emptySet()
+    private var claimGs: Set<String> = emptySet()
 
-    /** Bridge claims (kind 24244) for the tags of our pending mailbox events. */
+    /** Bridge claims and notes (kind 24244) for the tags of our pending entries, and miss notes by group. */
     @Synchronized
     private fun subscribeClaims() {
         val nowS = System.currentTimeMillis() / 1000
         val ys = mailboxKeys.pendingYs(nowS)
-        if (ys.isEmpty() || ys == claimYs) return
+        val gs = store.trackers.value.mapNotNull { it.pending?.group?.takeIf { g -> g.isNotEmpty() } }.toSet()
+        if ((ys.isEmpty() && gs.isEmpty()) || (ys == claimYs && gs == claimGs)) return
         claimYs = ys
-        relays.subscribe("lt-claims", listOf(buildJsonObject {
-            put("kinds", buildJsonArray { add(JsonPrimitive(app.libretag.nostr.MailboxKeys.KIND_CLAIM)) })
-            put("#y", buildJsonArray { ys.forEach { add(JsonPrimitive(it)) } })
-            put("since", nowS - 60)
-        }))
+        claimGs = gs
+        relays.subscribe("lt-claims", listOfNotNull(
+            ys.takeIf { it.isNotEmpty() }?.let { y -> buildJsonObject {
+                put("kinds", buildJsonArray { add(JsonPrimitive(app.libretag.nostr.MailboxKeys.KIND_CLAIM)) })
+                put("#y", buildJsonArray { y.forEach { add(JsonPrimitive(it)) } })
+                put("since", nowS - 60)
+            } },
+            gs.takeIf { it.isNotEmpty() }?.let { g -> buildJsonObject {
+                put("kinds", buildJsonArray { add(JsonPrimitive(app.libretag.nostr.MailboxKeys.KIND_CLAIM)) })
+                put("#g", buildJsonArray { g.forEach { add(JsonPrimitive(it)) } })
+                put("since", nowS - 60)
+            } },
+        ))
     }
 
     /**
-     * A bridge claimed one of our pending commands (PROTOCOL.md 4): it is about to transmit it, so
-     * the command counts as sent and can no longer be cancelled, as when our own radio sent it.
+     * Kind 24244 from a bridge (PROTOCOL.md 4, 4.3): a claim for one of our pending commands (it is
+     * about to transmit it: shown as sent), an "ack sent" note for one of our ACK entries, or a miss
+     * note for a timed entry it could not send ("Not sent at hh:mm").
      */
     private fun onClaim(ev: NostrEvent) {
         val nowS = System.currentTimeMillis() / 1000
         if (kotlin.math.abs(nowS - ev.createdAt) > CLAIM_MAX_AGE_S) return
-        val y = ev.tags.firstOrNull { it.size >= 2 && it[0] == "y" }?.get(1) ?: return
+        fun tag(k: String) = ev.tags.firstOrNull { it.size >= 2 && it[0] == k }?.get(1)
+        tag("miss")?.let { why -> onMissNote(ev, why); return }
+        val y = tag("y") ?: return
         val (id, seq) = mailboxKeys.commandFor(y) ?: return
         if (!ev.verify()) return
+        if (tag("ack") != null || seq == ACK_SEQ) { if (tag("ack") != null) scope.launch { if (bridges.isBridge(ev.pubkey)) onAckNote(id, ev, y, tag("ack")!!) }; return }
         // 4.1: only a claim signed by an announced bridge key counts (random keys are anyone's)
         scope.launch { if (bridges.isBridge(ev.pubkey)) markClaimed(id, seq, ev, nowS) }
     }
@@ -1346,17 +1658,50 @@ class LibreTagApp : Application() {
         store.updateTracker(id) { t ->
             val p = t.pending
             if (p == null || p.seq != seq || p.sentAt != null) t
-            else { marked = true; t.copy(pending = p.copy(sentAt = minOf(ev.createdAt, nowS) * 1000)) }
+            else { marked = true; t.copy(pending = p.copy(sentAt = minOf(ev.createdAt, nowS) * 1000, tries = p.tries + 1)) }
         }
         if (marked) DiagLog.i(TAG, "bridge claim for seq=$seq: shown as sent")
+        DiagLog.ev("claim_seen", "tag" to id, "seq" to seq, "id" to ev.id, "pubkey" to ev.pubkey, "created_at" to ev.createdAt,
+            "hops" to ev.tags.firstOrNull { it.size >= 2 && it[0] == "hops" }?.get(1), "first" to marked)
+    }
+
+    /** "ack sent" (PROTOCOL.md 4.3): the bridge transmitted our ACK; an ["ack","2"] author is the p of the next routed entries. */
+    private fun onAckNote(id: String, ev: NostrEvent, y: String, form: String) {
+        // a routed note names the path record it used (["via", x], PROTOCOL.md 4.3): the next routed entries name it.
+        // Its y is no path record for a timed ACK (y is the xa there), so only via counts
+        val via = ev.tags.firstOrNull { it.size >= 2 && it[0] == "via" }?.get(1)?.takeIf { app.libretag.nostr.isLowerHex(it, 4) }
+        store.updateTracker(id) { t ->
+            val a = t.lastAck
+            t.copy(lastAck = a?.let { if (it.noteAt == null) it.copy(noteAt = ev.createdAt * 1000) else it }, acksNoNote = 0,
+                routedVia = if (form == "2" && via != null) via else t.routedVia, routedBridge = if (form == "2") ev.pubkey else t.routedBridge)
+        }
+        DiagLog.ev("ack_note", "tag" to id, "y" to y, "ack" to form, "via" to via, "pubkey" to ev.pubkey, "at" to ev.tags.firstOrNull { it.size >= 2 && it[0] == "at" }?.get(1),
+            "note_ms" to store.get(id)?.lastAck?.let { ev.createdAt * 1000 - it.at })
+    }
+
+    /** A miss note: a bridge could not send a timed entry of one of our commands (R20). */
+    private fun onMissNote(ev: NostrEvent, why: String) {
+        val e = ev.tags.firstOrNull { it.size >= 2 && it[0] == "e" }?.get(1) ?: return
+        val key = mailboxKeys.all().firstOrNull { it.id == e } ?: return
+        if (!ev.verify()) return
+        val atS = ev.tags.firstOrNull { it.size >= 2 && it[0] == "at" }?.get(1)?.toLongOrNull() ?: ev.createdAt
+        scope.launch {
+            if (!bridges.isBridge(ev.pubkey)) return@launch
+            store.updateTracker(key.tracker) { t ->
+                val p = t.pending
+                if (p == null || p.seq != key.seq) t else t.copy(pending = p.copy(missAt = atS * 1000, missWhy = why.take(16)))
+            }
+            DiagLog.ev("miss_seen", "tag" to key.tracker, "seq" to key.seq, "id" to e, "pubkey" to ev.pubkey, "at" to atS, "reason" to why)
+        }
     }
 
     /**
      * One mailbox entry: untimed ([atS] null, waits for report n), late (untimed for report n that
-     * already came, PROTOCOL.md 4.2) or timed (check k after report n). Signed with sk_n.
+     * already came, PROTOCOL.md 4.2) or timed (slot k of the grid of anchor n). Signed with sk_n.
      */
     private class MailboxEntry(val n: Long, val tags: List<List<String>>, val pc: ByteArray, val atS: Long?, val ttlS: Long,
-        val targets: app.libretag.nostr.Targets = app.libretag.nostr.Targets.OPEN, val late: Boolean = false)
+        val targets: app.libretag.nostr.Targets = app.libretag.nostr.Targets.OPEN, val late: Boolean = false, val ack: Boolean = false,
+        val k: Int = 0, val grid: Boolean = false)
 
     /** Receipts and announcements (PROTOCOL.md 4.1): which bridges to name in format 2 entries. */
     private val bridges by lazy { app.libretag.nostr.BridgeLookup({ f, ms -> relays.query(f, ms) }) }
@@ -1437,104 +1782,127 @@ class LibreTagApp : Application() {
     }
 
     /** The bridges that heard the tag's last reports (and report [extraN]); empty (open entries) on any failure. */
-    private suspend fun bridgeView(t: Tracker, chain: KeyChain, extraN: Long?, settleUntilMs: Long): app.libretag.nostr.BridgeLookup.View {
-        // receipts follow a report by 2-5 s: give the one that just came time to reach the relays
-        (settleUntilMs - System.currentTimeMillis()).takeIf { it > 0 }?.let { delay(it) }
+    private suspend fun bridgeView(t: Tracker, chain: KeyChain, extraN: Long?, timeoutMs: Long = app.libretag.nostr.BridgeLookup.QUERY_TIMEOUT_MS): app.libretag.nostr.BridgeLookup.View {
         val recent = app.libretag.nostr.BridgeTargets.recentYs(t.lastN, extraN, { n, j ->
             chain.view(LibreTag.epoch(n))?.let { LibreTag.bytesToHex(LibreTag.reportTag(it, n, j)) }
         })
-        return bridges.view(recent)
+        return bridges.view(recent, timeoutMs)
     }
 
     /** one command's entries at a time */
     private val publishLock = Mutex()
 
+    /** The route a command entry asks for (PROTOCOL.md 4.3): `both` for Lost and Track, else `flood`. */
+    private fun routeOf(kind: CommandKind?, later: Boolean = false): String =
+        if (kind == CommandKind.LOST || kind == CommandKind.TRACK || later) "both" else "flood"
+
     /**
-     * Queue the whole command into the mailbox: sealed for the next [MAILBOX_AHEAD] reports
-     * (untimed), for the report that just came while the tag still listens (a late entry,
-     * PROTOCOL.md 4.2), and for the upcoming checks of a quiet stretch (timed, [timedEntries]).
+     * Queue the whole command into the mailbox (PROTOCOL.md 4, 4.3): a late entry for the report
+     * that just came while the tag still listens (under 40 s, P6: no receipt wait), untimed entries
+     * for the next [QuietMesh.UNTIMED_AHEAD] counters (five y each), and timed entries for the next
+     * slots on every grid the app holds ([timedEntries]). A ROUTED tag gets `via` on every entry.
      */
-    private suspend fun publishMailbox(t: Tracker, p: PendingCommand, settleUntilMs: Long = 0) {
+    private suspend fun publishMailbox(t0: Tracker, p: PendingCommand, timedOnly: Boolean = false, blind: Boolean = false) {
         if (!p.mailbox) return // only local ways (CommandRoute): nothing for the bridges to flood
+        val t = store.get(t0.id) ?: t0
         val chain = chainFor(t) ?: return
         val cmd = Command.decode(LibreTag.hexToBytes(p.body) ?: return) ?: return
         val kind = CommandKind.of(p.kind)
         val lost = kind == CommandKind.LOST
-        val ttl = kind?.mailboxTtlS ?: (48 * 3600L)
-        val view = bridgeView(t, chain, Status.checkPlan(t)?.n, settleUntilMs)
+        val ttl = ((if (p.expiresAt > 0) p.expiresAt else p.queuedAt + (kind?.mailboxTtlS ?: 172_800L) * 1000) - System.currentTimeMillis()) / 1000
+        if (ttl <= 0) return
+        val entries = mutableListOf<MailboxEntry>()
+        val routed = t.routedVia?.takeIf { app.libretag.data.QuietPlan.link(t) == app.libretag.data.QuietPlan.Link.ROUTED }
+        val last = t.last
+        fun ysOf(n: Long): List<List<String>>? {
+            val ve = chain.view(LibreTag.epoch(n)) ?: return null
+            return app.libretag.proto.QuietMesh.J_ON_AIR.map { j -> listOf("y", LibreTag.bytesToHex(LibreTag.reportTag(ve, n, j))) }
+        }
+        // a late entry: the tag still listens after its last report, a bridge that heard it sends at once
+        val lateOk = t.lastN >= 0 && last != null && last.n == t.lastN && !last.approx &&
+            app.libretag.nostr.MailboxPlan.lateOk(reportAgeMs(last.via, last.receivedAt) / 1000)
+        val quick = if (lost) app.libretag.nostr.Targets.OPEN
+            else bridges.cachedView()?.untimed(System.currentTimeMillis() / 1000) ?: app.libretag.nostr.Targets.OPEN
+        if (!timedOnly && lateOk) {
+            val n = t.lastN
+            val ce = chain.cmd(LibreTag.epoch(n))
+            val ys = ysOf(n)
+            if (ce != null && ys != null) entries += MailboxEntry(n, ys + app.libretag.nostr.BridgeTargets.entryTags(quick, routeOf(kind)) +
+                listOfNotNull(routed?.let { listOf("via", it) }), LibreTag.sealCommand(ce, n, cmd), null, ttl, quick, late = true)
+        }
+        if (entries.isNotEmpty()) publishEntries(t, p.seq, entries.toList())
+        entries.clear()
+        val view = bridgeView(t, chain, Status.checkPlan(t)?.n)
         // 4.1: name the bridges that heard the tag; a lost tag may be anywhere, so its entries stay open
         val untimed = if (lost) app.libretag.nostr.Targets.OPEN else view.untimed(System.currentTimeMillis() / 1000)
-        val entries = mutableListOf<MailboxEntry>()
-        var upTo = 0L
-        // a late entry: the tag still listens after its last report, a bridge that heard it sends at once
-        val last = t.last
-        if (t.lastN >= 0 && last != null && last.n == t.lastN && !last.approx &&
-            app.libretag.nostr.MailboxPlan.lateOk((System.currentTimeMillis() - last.receivedAt) / 1000)) {
-            val n = t.lastN
-            val e = LibreTag.epoch(n)
-            val ce = chain.cmd(e)
-            val ve = chain.view(e)
-            if (ce != null && ve != null) {
-                val tags = (0..1).map { j -> listOf("y", LibreTag.bytesToHex(LibreTag.reportTag(ve, n, j))) } +
-                    app.libretag.nostr.BridgeTargets.entryTags(untimed)
-                entries += MailboxEntry(n, tags, LibreTag.sealCommand(ce, n, cmd), null, ttl, untimed, late = true)
-            }
-        }
-        for (k in 1..MAILBOX_AHEAD) {
+        if (!timedOnly) for (k in 1..app.libretag.proto.QuietMesh.UNTIMED_AHEAD) {
             val n = maxOf(t.lastN, -1) + k
             if (n < 0) continue
-            val e = LibreTag.epoch(n)
-            val ce = chain.cmd(e) ?: continue
-            val ve = chain.view(e) ?: continue
-            val tags = (0..1).map { j -> listOf("y", LibreTag.bytesToHex(LibreTag.reportTag(ve, n, j))) } +
-                app.libretag.nostr.BridgeTargets.entryTags(untimed)
-            entries += MailboxEntry(n, tags, LibreTag.sealCommand(ce, n, cmd), null, ttl, untimed)
-            upTo = n
+            val ce = chain.cmd(LibreTag.epoch(n)) ?: continue
+            val ys = ysOf(n) ?: continue
+            entries += MailboxEntry(n, ys + app.libretag.nostr.BridgeTargets.entryTags(untimed, routeOf(kind)) +
+                listOfNotNull(routed?.let { listOf("via", it) }), LibreTag.sealCommand(ce, n, cmd), null, ttl, untimed)
         }
-        synchronized(mailboxUpTo) { mailboxUpTo[t.id] = upTo }
-        entries += timedEntries(t, chain, cmd, view, System.currentTimeMillis() / 1000)
+        entries += timedEntries(t, chain, cmd, kind, view, System.currentTimeMillis() / 1000, p.expiresAt / 1000, blind)
         publishEntries(t, p.seq, entries)
     }
 
     /**
-     * 0.7 timed mailbox entries: one per upcoming check of the current quiet stretch (at most
-     * [MAILBOX_CHECKS], none at or after the heartbeat), each sealed for its own (n, k), with
-     * ["at", t_k + 3 s] and ["via", x of report n, j = 0]; y is the command's own tag, so bridges
-     * claim each slot separately. A bridge that caught report n sends it along that path at `at`.
-     * 4.1: named for the bridges with a receipt for report `via`; open when none is known (a quiet
-     * tag transmits nothing more for this).
+     * Timed entries (PROTOCOL.md 2.6, 4): for every grid the app holds, the next 3 slots, then every
+     * 3rd until the command's lifetime (LOST every slot for its first 6 h), at most 12 per grid; each
+     * sealed for its own (n_a, k) from the slot key, with ["at", t_k + 1], a ["via"] per copy of
+     * the anchor the app has, the first slot `flood` and the later ones `both` (a slot that came
+     * unconfirmed), and ["fb", "0"] on all but the latest grid's send of the same try except for
+     * Lost and Track (R3, R35). [blind]: Lost also as blind entries for the named bridge (4.3).
      */
-    private fun timedEntries(t: Tracker, chain: KeyChain, cmd: Command, view: app.libretag.nostr.BridgeLookup.View, nowS: Long): List<MailboxEntry> {
-        val plan = Status.checkPlan(t) ?: return emptyList()
-        val n = plan.n
-        val e = LibreTag.epoch(n)
-        val ce = chain.cmd(e) ?: return emptyList()
-        val ve = chain.view(e) ?: return emptyList()
-        val via = LibreTag.bytesToHex(LibreTag.reportTag(ve, n, LibreTag.J_HOME))
-        val targets = view.timed(via, nowS)
+    private fun timedEntries(t: Tracker, chain: KeyChain, cmd: Command, kind: CommandKind?, view: app.libretag.nostr.BridgeLookup.View,
+                             nowS: Long, untilS: Long, blind: Boolean): List<MailboxEntry> {
+        val grids = Status.sendGrids(t, nowS * 1000)
+        if (grids.isEmpty()) return emptyList()
+        val lostOrTrack = kind == CommandKind.LOST || kind == CommandKind.TRACK
+        val perGrid = grids.map { g ->
+            val offs = g.offsetsS
+            val fromK = offs.indexOfFirst { g.t0 / 1000 + it + 1 > nowS + 5 } + 1
+            if (fromK <= 0) g to emptyList() else g to app.libretag.proto.QuietMesh.commandSlots(offs, fromK, untilS - g.t0 / 1000,
+                kind == CommandKind.LOST, max = MAILBOX_CHECKS)
+        }
         val out = mutableListOf<MailboxEntry>()
-        for ((i, off) in plan.offsetsS.withIndex()) {
-            if (out.size >= MAILBOX_CHECKS) break
-            val atS = (plan.t0 + off * 1000 + CHECK_SEND_DELAY_MS) / 1000
-            if (atS <= nowS + 5) continue
-            val k = i + 1
-            val tags = listOf(
-                listOf("y", LibreTag.bytesToHex(LibreTag.commandTag(ce, n, k))),
-            ) + app.libretag.nostr.BridgeTargets.entryTags(targets) + listOf(
-                listOf("at", atS.toString()),
-                listOf("via", via),
-            )
-            out += MailboxEntry(n, tags, LibreTag.sealCommand(ce, n, cmd, k), atS, CHECK_SLOT_TTL_S, targets)
+        val tries = perGrid.maxOf { it.second.size }
+        for (i in 0 until tries) {
+            val sends = perGrid.mapNotNull { (g, ks) -> ks.getOrNull(i)?.let { g to it } }
+            val fbs = app.libretag.proto.QuietMesh.pairFallback(sends.map { (g, k) -> g.t0 / 1000 + g.offsetsS[k - 1] }, lostOrTrack)
+            sends.forEachIndexed { si, (g, k) ->
+                val ce = chain.cmd(LibreTag.epoch(g.n)) ?: return@forEachIndexed
+                val ks = app.libretag.proto.QuietMesh.slotKey(ce, g.n)
+                val atS = app.libretag.proto.QuietMesh.slotSendAt(g.t0 / 1000, g.offsetsS[k - 1])
+                val vias = g.vias.ifEmpty { listOfNotNull(chain.view(LibreTag.epoch(g.n))?.let { LibreTag.bytesToHex(LibreTag.reportTag(it, g.n, LibreTag.J_HOME)) }) }
+                val targets = if (kind == CommandKind.LOST) app.libretag.nostr.Targets.OPEN else vias.firstOrNull()?.let { view.timed(it, nowS) } ?: app.libretag.nostr.Targets.OPEN
+                val tags = listOf(listOf("y", LibreTag.bytesToHex(app.libretag.proto.QuietMesh.slotCommandTag(ks, k)))) +
+                    app.libretag.nostr.BridgeTargets.entryTags(targets, routeOf(kind, later = i > 0)) +
+                    listOf(listOf("at", atS.toString())) + vias.map { listOf("via", it) } +
+                    listOfNotNull(listOf("fb", "0").takeIf { !fbs[si] })
+                out += MailboxEntry(g.n, tags, app.libretag.proto.QuietMesh.sealSlotCommand(ks, k, cmd), atS, CHECK_SLOT_TTL_S, targets, k = k, grid = true)
+            }
+        }
+        // blind Lost (behind the owner's confirmation): a named bridge floods it at three slots without having heard via
+        if (blind && kind == CommandKind.LOST) {
+            val bridge = bridges.anyKnownBridge()
+            val g = grids.first()
+            if (bridge != null) {
+                val ce = chain.cmd(LibreTag.epoch(g.n))
+                if (ce != null) {
+                    val ks = app.libretag.proto.QuietMesh.slotKey(ce, g.n)
+                    g.offsetsS.withIndex().filter { g.t0 / 1000 + it.value + 1 > nowS + 5 }.take(BLIND_TRIES).forEach { (i, off) ->
+                        val k = i + 1
+                        val atS = app.libretag.proto.QuietMesh.slotSendAt(g.t0 / 1000, off)
+                        val tags = listOf(listOf("y", LibreTag.bytesToHex(app.libretag.proto.QuietMesh.slotCommandTag(ks, k))),
+                            listOf("v", "2"), listOf("route", "flood"), listOf("p", bridge), listOf("blind", "1"), listOf("at", atS.toString()))
+                        out += MailboxEntry(g.n, tags, app.libretag.proto.QuietMesh.sealSlotCommand(ks, k, cmd), atS, CHECK_SLOT_TTL_S, k = k, grid = true)
+                    }
+                }
+            } else DiagLog.i(TAG, "${t.name}: blind Lost asked, but no bridge is known to name")
         }
         return out
-    }
-
-    /** A new report started a quiet stretch while a command waits: timed entries for its checks. */
-    private suspend fun publishCheckSlots(t: Tracker, chain: KeyChain, cmd: Command, seq: Int, settleUntilMs: Long) {
-        if (Status.checkPlan(t) == null || t.pending?.takeIf { it.seq == seq }?.mailbox == false) return
-        val view = bridgeView(t, chain, Status.checkPlan(t)?.n, settleUntilMs)
-        val entries = timedEntries(t, chain, cmd, view, System.currentTimeMillis() / 1000)
-        if (entries.isNotEmpty()) publishEntries(t, seq, entries)
     }
 
     /** The command's group tag (16 lowercase hex, random per command), made once and kept with it. */
@@ -1550,9 +1918,10 @@ class LibreTagApp : Application() {
     }
 
     /**
-     * Sign and publish entries one by one: the late one and the untimed ones first, then timed in
-     * ascending `at`. Every entry for report n is signed with sk_n (PROTOCOL.md 4.2), the key that
-     * report commits to, and carries the command's ["g", group]. No proof of work.
+     * Sign and publish entries one by one, 150 ms apart (P9): the late one and the untimed ones
+     * first, then timed in ascending `at`. Every entry for report n is signed with sk_n (PROTOCOL.md
+     * 4.2), the key that report commits to, and carries the command's ["g", group]. The relays that
+     * accepted are counted into the command (R10).
      */
     private suspend fun publishEntries(t: Tracker, seq: Int, entries: List<MailboxEntry>) {
         if (entries.isEmpty()) return
@@ -1561,29 +1930,210 @@ class LibreTagApp : Application() {
         val ordered = app.libretag.nostr.MailboxPlan.order(entries, { it.atS }, { it.n })
         publishLock.withLock {
             var sent = 0
+            var accepted = 0
+            val plan = mutableListOf<Map<String, Any?>>()
             for (en in ordered) {
                 if (!stillPending(t.id, seq)) return
                 val nowS = System.currentTimeMillis() / 1000
                 val exp = (en.atS ?: nowS) + en.ttlS
-                if (en.atS != null && en.atS <= nowS + 5) continue // its check has come
+                if (en.atS != null && en.atS <= nowS + 5) continue // its slot has come
                 // a newer report came meanwhile (the command was queued just before it arrived)
-                if (app.libretag.nostr.MailboxPlan.stale(en.n, en.atS != null, store.get(t.id)?.lastN ?: -1, en.late)) continue
+                if (!en.grid && app.libretag.nostr.MailboxPlan.stale(en.n, en.atS != null, store.get(t.id)?.lastN ?: -1, en.late)) continue
                 val ce = chain.cmd(LibreTag.epoch(en.n)) ?: continue
                 val tags = app.libretag.nostr.MailboxPlan.tags(en.tags, exp, group)
                 val ev = NostrEvent.sign(LibreTag.mailboxSk(ce, en.n), nowS, LibreTag.NOSTR_COMMAND_KIND, tags,
                     Base64.getEncoder().encodeToString(en.pc))
                 keepKey(t, seq, ev, exp, nowS, en.n)
-                // don't wait for slow relays (retries take minutes)
-                scope.launch { relays.publish(ev.toJson()) }
+                val ok = relays.publishCount(ev.toJson())
+                accepted = maxOf(accepted, ok)
+                fun tg(k: String) = en.tags.firstOrNull { it.size >= 2 && it[0] == k }?.get(1)
+                plan += mapOf("n" to en.n, "k" to en.k, "at" to en.atS, "route" to tg("route"), "fb" to (tg("fb") ?: "1"), "late" to en.late)
+                DiagLog.ev("cmd_sent", "tag" to t.id, "path" to "mailbox", "id" to ev.id, "seq" to seq, "n" to en.n, "k" to en.k, "xc" to en.pc.copyOf(4),
+                    "at" to en.atS, "late" to en.late, "y" to en.tags.filter { it.size >= 2 && it[0] == "y" }.map { it[1] },
+                    "route" to tg("route"), "fb" to tg("fb"), "relays_ok" to ok)
                 sent++
                 if (en.late) DiagLog.i(TAG, "${t.name}: late mailbox entry for n=${en.n}")
+                delay(PUBLISH_GAP_MS)
             }
-            DiagLog.i(TAG, "${t.name}: $sent mailbox entries for seq=$seq")
+            if (sent > 0) DiagLog.ev("cmd_plan", "tag" to t.id, "seq" to seq, "entries" to plan)
+            if (accepted > 0) store.updateTracker(t.id) { cur ->
+                val q = cur.pending
+                if (q == null || q.seq != seq) cur else cur.copy(pending = q.copy(accepted = maxOf(q.accepted, accepted)))
+            }
+            DiagLog.i(TAG, "${t.name}: $sent mailbox entries for seq=$seq, $accepted relay(s) took them")
         }
     }
 
     /** the command was not cancelled or replaced meanwhile (publishing runs in the background) */
     private fun stillPending(id: String, seq: Int) = store.get(id)?.pending?.seq == seq
+
+    // ---------------------------------------------------------------- the ACK sender (SPEC.md 3.2, PROTOCOL.md 3.3, 4.3)
+
+    /** when a notification about a tag went out (MORE for 30 s after it) */
+    private val notifiedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private fun noteNotify(id: String) { notifiedAt[id] = System.currentTimeMillis() }
+
+    private fun moreFor(t: Tracker): Boolean =
+        app.libretag.data.QuietPlan.more(t.pending != null, detailOpenId == t.id, notifiedAt[t.id], System.currentTimeMillis())
+
+    /**
+     * The ACK for report [n] copy [j] (SPEC.md 3.2, the machine Opened -> LiveNode, LiveNostr, Timed ->
+     * Sent -> Settled): from the own node zero-hop when it heard the copy directly, else an ACK entry
+     * on the relays at once, else (late) timed entries for the next slots. Never a flood.
+     */
+    private suspend fun ackReport(t0: Tracker, n: Long, j: Int, pos: Position, receivedAtMs: Long, viaNode: Boolean, nodeDirect: Boolean,
+                                  x: String?, choice: app.libretag.data.QuietPlan.AckChoice? = null) {
+        val t = store.get(t0.id) ?: return
+        if (t.lastN != n) return
+        val standing = app.libretag.data.QuietPlan.still(t.positions.lastOrNull { it.n < n && it.via != VIA_USB_QUIET }, pos)
+        val c = choice ?: app.libretag.data.QuietPlan.ackChoice(true, pos.approx, t.canCommand, j, viaNode, nodeDirect, nodeRxMeta,
+            mesh.canZeroHop, reportAgeMs(if (viaNode) "mesh" else "nostr", receivedAtMs), standing)
+        val hold = t.holdNow
+        val more = moreFor(t)
+        when (c.way) {
+            app.libretag.data.QuietPlan.AckWay.NODE -> if (!sendNodeAck(t, n, 0, hold, more, timed = false, reportAt = receivedAtMs))
+                timedAcks(t, n, c.form, hold, more, receivedAtMs, "node_failed")
+            app.libretag.data.QuietPlan.AckWay.NOSTR -> if (x == null || !liveAckEntry(t, n, j, c.form, hold, more, x, receivedAtMs))
+                timedAcks(t, n, c.form, hold, more, receivedAtMs, "relay_refused")
+            app.libretag.data.QuietPlan.AckWay.TIMED -> timedAcks(t, n, c.form, hold, more, receivedAtMs, c.why)
+            app.libretag.data.QuietPlan.AckWay.SKIP -> DiagLog.ev("ack", "tag" to t.id, "n" to n, "skip" to c.why)
+        }
+    }
+
+    /** The near ACK Pa(n, k) zero-hop from the own node (`tx_now` when offered). True when the radio took it. */
+    private suspend fun sendNodeAck(t: Tracker, n: Long, k: Int, hold: Int, more: Boolean, timed: Boolean, reportAt: Long = 0, atMs: Long? = null): Boolean {
+        val ce = chainFor(t)?.cmd(LibreTag.epoch(n)) ?: return false
+        val pa = app.libretag.proto.QuietMesh.ackSeal(ce, n, k, hold, more)
+        val r = mesh.sendZeroHopNow(pa)
+        DiagLog.ev("ack", "tag" to t.id, "n" to n, "xa" to pa.copyOf(4), "form" to "near", "timed" to timed, "k" to k, "at" to atMs,
+            "path" to "node", "hold" to hold, "more" to more, "report_age_ms" to (if (reportAt > 0) System.currentTimeMillis() - reportAt else null),
+            "request_ms" to r.requestMs, "sent_at" to r.sentAtMs, "ok" to r.ok, "error" to r.error)
+        if (r.ok) store.updateTracker(t.id) { it.copy(lastAck = app.libretag.data.AckRec(n, r.sentAtMs ?: System.currentTimeMillis(), hold, "near", "node",
+            timed = timed, reportAt = reportAt, xa = LibreTag.bytesToHex(pa.copyOf(4)))) }
+        return r.ok
+    }
+
+    /**
+     * A live ACK entry (PROTOCOL.md 4.3) for copy [j] whose x is [x]: near (route near) for a hello or a
+     * moved flood, both forms (route direct) for a standing flood, routed (route direct, via the path
+     * record, p the bridge of the last routed ACK) for copy 11. `p` from a receipt only within 500 ms.
+     * If no bridge says it sent it within 10 s, timed entries follow.
+     */
+    private suspend fun liveAckEntry(t: Tracker, n: Long, j: Int, form: app.libretag.proto.QuietMesh.Form, hold: Int, more: Boolean, x: String, reportAt: Long): Boolean {
+        val ce = chainFor(t)?.cmd(LibreTag.epoch(n)) ?: return false
+        val nowS = System.currentTimeMillis() / 1000
+        val routedForm = form == app.libretag.proto.QuietMesh.Form.ROUTED
+        val p = if (routedForm) listOfNotNull(t.routedBridge) else bridges.receiptAuthors(x, RECEIPT_WAIT_MS).take(1)
+        val tags = listOf(listOf("v", "2"), listOf("a", "1"), listOf("y", x), listOf("route", app.libretag.proto.QuietMesh.ackRoute(form))) +
+            listOfNotNull(t.routedVia?.takeIf { routedForm }?.let { listOf("via", it) }) + p.map { listOf("p", it) } +
+            listOf(listOf("expiration", (nowS + app.libretag.proto.QuietMesh.ACK_LIVE_TTL_S).toString()))
+        val content = app.libretag.proto.QuietMesh.ackEntryContent(ce, n, 0, form, hold, more)
+        val ev = NostrEvent.sign(LibreTag.mailboxSk(ce, n), nowS, LibreTag.NOSTR_COMMAND_KIND, tags, content)
+        keepKey(t, ACK_SEQ, ev, nowS + app.libretag.proto.QuietMesh.ACK_LIVE_TTL_S, nowS, n)
+        val ok = relays.publishCount(ev.toJson(), app.libretag.nostr.RelayPool.ONCE)
+        val xa = LibreTag.bytesToHex(app.libretag.proto.QuietMesh.ackTag(ce, n, 0))
+        DiagLog.ev("ack", "tag" to t.id, "n" to n, "xa" to xa, "form" to form.wire, "timed" to false, "k" to 0, "path" to "nostr",
+            "p" to p.firstOrNull()?.take(16), "hold" to hold, "more" to more, "report_age_ms" to System.currentTimeMillis() - reportAt,
+            "id" to ev.id, "relays_ok" to ok)
+        if (ok == 0) return false
+        store.updateTracker(t.id) { it.copy(lastAck = app.libretag.data.AckRec(n, System.currentTimeMillis(), hold, form.wire, "nostr", reportAt = reportAt, xa = xa)) }
+        // Sent -> Timed: no "ack sent" note within 10 s means no bridge transmitted it
+        scope.launch {
+            delay(ACK_NOTE_WAIT_MS)
+            val cur = store.get(t.id) ?: return@launch
+            val a = cur.lastAck
+            if (cur.lastN == n && a != null && a.n == n && a.path == "nostr" && a.noteAt == null)
+                timedAcks(cur, n, form, hold, moreFor(cur), reportAt, "no_note")
+        }
+        return true
+    }
+
+    /**
+     * Timed ACKs (PROTOCOL.md 4.3, R28): Pa(n, k) for the next slots on each grid, 2 for the near
+     * form, 1 for the routed form, signed with sk of the anchor report, `at` t_k + 1, a `via` per
+     * copy of the anchor, expiring at + 120 s; deleted once a newer report is in. Through the own
+     * node as well when it heard the tag directly.
+     */
+    /** The timed ACK entries last published per tag, so a command queued after them can set MORE (PROTOCOL.md 3.3). */
+    private data class TimedAckSet(val n: Long, val form: app.libretag.proto.QuietMesh.Form, val hold: Int, val more: Boolean,
+                                   val reportAt: Long, val ids: Set<String>, val lastAtS: Long)
+    private val timedAckSets = java.util.concurrent.ConcurrentHashMap<String, TimedAckSet>()
+
+    /**
+     * A command was queued after timed ACKs without MORE went out: a tag at a listen-only slot would close its
+     * receiver right after the ACK and miss the command 300 ms behind it. The entries are deleted and published
+     * again with MORE for the slots still ahead (the firmware also keeps the receiver on 1 s after such an ACK).
+     */
+    private suspend fun timedAcksWithMore(id: String) {
+        val set = timedAckSets[id] ?: return
+        val t = store.get(id) ?: return
+        val nowS = System.currentTimeMillis() / 1000
+        if (set.more || t.lastN != set.n || set.lastAtS <= nowS + 2) return
+        timedAckSets.remove(id)
+        val old = mailboxKeys.cancelIds(id, ACK_SEQ, set.ids)
+        if (old.isNotEmpty()) publishDeletions(old)
+        nodeSlotAcks.computeIfPresent(id) { _, l -> l.map { it.copy(more = true) } }
+        DiagLog.ev("ack", "tag" to id, "n" to set.n, "timed" to true, "republish" to "more", "deleted" to old.size)
+        timedAcks(t, set.n, set.form, set.hold, true, set.reportAt, "cmd_queued")
+    }
+
+    private suspend fun timedAcks(t0: Tracker, n: Long, form: app.libretag.proto.QuietMesh.Form, hold: Int, more: Boolean, reportAt: Long, why: String) {
+        val t = store.get(t0.id) ?: return
+        if (t.lastN != n) return
+        val chain = chainFor(t) ?: return
+        val ce = chain.cmd(LibreTag.epoch(n)) ?: return
+        val now = System.currentTimeMillis()
+        val slots = app.libretag.data.QuietPlan.timedAckSlots(Status.sendGrids(t, now), form, now)
+        if (slots.isEmpty()) { DiagLog.ev("ack", "tag" to t.id, "n" to n, "timed" to true, "skip" to "no_grid", "why" to why); return }
+        if (t.last?.nodeDirect == true && form != app.libretag.proto.QuietMesh.Form.ROUTED) nodeSlotAcks[t.id] = slots.map { (g, k) ->
+            NodeSlotAck(n, g.n, k, g.t0 + (g.offsetsS[k - 1] + app.libretag.proto.QuietMesh.SLOT_SEND_AFTER_S) * 1000, hold, more)
+        }.also { checksChanged.trySend(Unit) }
+        val nowS = now / 1000
+        val ids = mutableSetOf<String>()
+        var lastAtS = 0L
+        for ((g, k) in slots) {
+            val ceA = chain.cmd(LibreTag.epoch(g.n)) ?: continue
+            val atS = app.libretag.proto.QuietMesh.slotSendAt(g.t0 / 1000, g.offsetsS[k - 1])
+            val xa = LibreTag.bytesToHex(app.libretag.proto.QuietMesh.ackTag(ce, n, k))
+            val vias = g.vias.ifEmpty { listOfNotNull(chain.view(LibreTag.epoch(g.n))?.let { LibreTag.bytesToHex(LibreTag.reportTag(it, g.n, LibreTag.J_HOME)) }) }
+            val exp = atS + app.libretag.proto.QuietMesh.ACK_TIMED_TTL_S
+            val tags = listOf(listOf("v", "2"), listOf("a", "1"), listOf("y", xa), listOf("route", app.libretag.proto.QuietMesh.ackRoute(form)),
+                listOf("at", atS.toString())) + vias.map { listOf("via", it) } + listOf(listOf("expiration", exp.toString()))
+            val ev = NostrEvent.sign(LibreTag.mailboxSk(ceA, g.n), nowS, LibreTag.NOSTR_COMMAND_KIND, tags,
+                app.libretag.proto.QuietMesh.ackEntryContent(ce, n, k, form, hold, more))
+            keepKey(t, ACK_SEQ, ev, exp, nowS, g.n)
+            ids += ev.id
+            lastAtS = maxOf(lastAtS, atS)
+            val ok = relays.publishCount(ev.toJson())
+            DiagLog.ev("ack", "tag" to t.id, "n" to n, "xa" to xa, "form" to form.wire, "timed" to true, "k" to k, "at" to atS, "grid" to g.n,
+                "path" to "nostr", "hold" to hold, "more" to more, "report_age_ms" to now - reportAt, "why" to why, "id" to ev.id, "relays_ok" to ok)
+            delay(PUBLISH_GAP_MS)
+        }
+        if (ids.isNotEmpty()) timedAckSets[t.id] = TimedAckSet(n, form, hold, more, reportAt, ids, lastAtS)
+        if (!more && store.get(t.id)?.pending != null) timedAcksWithMore(t.id) // a command came in while they went out
+        store.updateTracker(t.id) { cur ->
+            if (cur.lastAck?.n == n && !cur.lastAck.timed) cur
+            else cur.copy(lastAck = app.libretag.data.AckRec(n, now, hold, form.wire, "nostr", timed = true, reportAt = reportAt))
+        }
+    }
+
+    // ---------------------------------------------------------------- clock against the relays (R17)
+
+    /** recent (phone arrival - created_at) of live report events, ms; the smallest is network delay plus the offset */
+    private val relaySamples = ArrayDeque<Long>()
+    /** the phone's clock minus the bridges' (ms, the smallest sample); applied above 2 s */
+    @Volatile var relayOffsetMs: Long = 0L
+        private set
+
+    private fun noteRelayClock(createdAtS: Long) {
+        val d = System.currentTimeMillis() - createdAtS * 1000
+        if (kotlin.math.abs(d) > 10 * 60_000L) return // a backlog event, not a live one
+        synchronized(relaySamples) {
+            relaySamples.addLast(d)
+            while (relaySamples.size > 20) relaySamples.removeFirst()
+            relayOffsetMs = relaySamples.min()
+        }
+    }
 
     // ---------------------------------------------------------------- DMs (PROTOCOL.md 5)
 
@@ -1727,11 +2277,19 @@ class LibreTagApp : Application() {
         }
     }
 
+    /** the last status line logged per tag (field log `status`, on every change) */
+    private val statusLogged = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     fun checkSilence() {
         val now = System.currentTimeMillis()
         store.lastSilenceCheck = now
         for (t in store.trackers.value) {
             val s = Status.of(t, now)
+            val link = app.libretag.data.QuietPlan.link(t)
+            val deadline = Status.silentAt(t, now)
+            val key = "${s.kind}|$link|${deadline?.div(60_000)}|${t.anchor.known}"
+            if (statusLogged.put(t.id, key) != key) DiagLog.ev("status", "tag" to t.id, "state" to s.kind.name,
+                "link" to link.name.lowercase(), "deadline" to deadline, "schedule_known" to t.anchor.known, "missed" to s.missed)
             // overdue (also in Lost, which outranks Silent in the status) or never heard: maybe past the window
             val overdue = Status.nextAt(t, now)?.let { now > it + Status.SILENT_MARGIN_MS } ?: (t.lastN < 0 && now - t.createdAt > 3600_000L)
             if (overdue) maybeResync(t, now)
@@ -1739,6 +2297,14 @@ class LibreTagApp : Application() {
             val d = app.libretag.data.Diagnosis.of(t, s, c, now)
             // 0.12: receipts for the counters the app has not seen (4.4)
             if (overdue) maybeAskAhead(t, now)
+            // 0.14.0 (R13): before "silent", is the bridge that heard it offline?
+            if (overdue || Status.of(t, now).missed > 0) maybeCheckBridges(t, now)
+            // "<Tag> is heard but does not get the answers": once per report counter
+            if (app.libretag.data.QuietPlan.noAnswers(t) && t.noAnswersNotified != t.lastN && t.alerts.silent) {
+                store.updateTracker(t.id) { it.copy(noAnswersNotified = t.lastN) }
+                notify(t.id, KIND_NO_ANSWERS, getString(R.string.notif_no_answers_title, t.name), getString(R.string.dg_find_no_answers), alarm = false)
+                DiagLog.ev("notify", "tag" to t.id, "kind" to "no_answers", "value" to t.lastN)
+            }
             // "Car keeps restarting": once per episode, also while it reports
             app.libretag.data.SilentNotify.restartNotice(t, now)?.let { start ->
                 store.updateTracker(t.id) { it.copy(restartNotified = start) }
@@ -1777,6 +2343,34 @@ class LibreTagApp : Application() {
         }
     }
 
+    private val bridgeCheckAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * R13: the bridges that heard the tag's last reports, with their newest announcements: when all
+     * of them are offline (announcement older than 2 h, or radio down), the diagnosis says "the
+     * bridge that hears it is offline" instead of an alarm. Asked at most every 15 minutes.
+     */
+    private fun maybeCheckBridges(t: Tracker, now: Long) {
+        if (now - (bridgeCheckAt[t.id] ?: 0L) < BRIDGE_CHECK_MS || relays.connected.value.first == 0) return
+        if (t.last?.via != "nostr" && t.last?.alsoVia != "nostr") return
+        bridgeCheckAt[t.id] = now
+        scope.launch {
+            val chain = chainFor(t) ?: return@launch
+            val ys = app.libretag.nostr.BridgeTargets.recentYs(t.lastN, null, { n, j ->
+                chain.view(LibreTag.epoch(n))?.let { LibreTag.bytesToHex(LibreTag.reportTag(it, n, j)) } }, count = 3).keys
+            val anns = runCatching { bridges.hearers(ys) }.getOrDefault(emptyList())
+            val nowS = System.currentTimeMillis() / 1000
+            val down = anns.mapNotNull { a -> a.offlineSince(nowS)?.let { a to it } }
+            val seen = if (anns.isNotEmpty() && down.size == anns.size) down.maxBy { it.second }.let { (a, since) ->
+                app.libretag.data.BridgeDownSeen(since * 1000, a.name, a.radioUp == false, now) } else null
+            DiagLog.ev("bridge_check", "tag" to t.id, "bridges" to anns.size, "offline" to down.size, "since" to seen?.sinceMs)
+            val cur = bridgeDown.value
+            if (seen != null) bridgeDown.value = cur + (t.id to seen) else if (t.id in cur) bridgeDown.value = cur - t.id
+            diagContextVersion.value++
+            if (seen != null) DiagLog.ev("notify", "tag" to t.id, "kind" to "bridge_offline", "value" to seen.sinceMs, "shown" to "diagnosis")
+        }
+    }
+
     /**
      * "Car left Home at 22:01" / "Car arrived at Home at 18:40" on the Places channel: information
      * at default importance, never an alarm. [place] may be [WifiZoneTransit.UNNAMED].
@@ -1791,6 +2385,9 @@ class LibreTagApp : Application() {
     }
 
     private fun notify(id: String, kind: Int, title: String, text: String, channel: String = CH_ALERT, onlyOnce: Boolean = false, alarm: Boolean = true) {
+        DiagLog.ev("notify", "tag" to id, "kind" to kind, "channel" to channel, "alarm" to alarm)
+        noteNotify(id) // MORE for 30 s: the owner may answer with a command
+
         val intent = Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_TAG, id)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val pi = PendingIntent.getActivity(this, (id + kind).hashCode(), intent,
@@ -1870,6 +2467,10 @@ class LibreTagApp : Application() {
         const val KIND_BLIND = 7
         /** 0.13.1: the tag answered the wake advert, tap to connect */
         const val KIND_BLE_WAKE = 8
+        /** 0.14.0: Lost or Track ended; a command did not reach the tag; heard but no answers */
+        const val KIND_MODE_END = 9
+        const val KIND_NOT_DELIVERED = 10
+        const val KIND_NO_ANSWERS = 11
         /** the tracker raises LOW_BATT itself; this is the app's own threshold for older reports */
         const val LOW_BATT_PCT = 20
         /** the first firmware that seals reports v2 (PROTOCOL.md 2) */
@@ -1879,19 +2480,36 @@ class LibreTagApp : Application() {
         const val LOW_BATT_RESET_PCT = 40
         /** the tracker listens 60 s after a report; leave margin for the flood back */
         const val CMD_FRESH_MS = 40_000L
-        const val MAILBOX_AHEAD = 4
-        /** 0.7: timed mailbox entries for at most this many checks ahead */
+        /** timed mailbox entries for at most this many slots per grid (a bridge keeps 12 per via) */
         const val MAILBOX_CHECKS = 12
-        /** senders transmit at t_k + 3 s (checks-0.7.md "Window") */
-        const val CHECK_SEND_DELAY_MS = 3_000L
-        /** a check missed by more than this is skipped (the window is check_s, 30 s by default and longer on slower presets, + drift) */
-        const val CHECK_LATE_MS = 15_000L
         const val CHECK_IDLE_POLL_MS = 60_000L
+        /** own-node slot sends: retried every 3 s until t_k + 20 s (R9) */
+        const val SLOT_RETRY_MS = 3_000L
+        const val SLOT_RETRY_UNTIL_MS = 20_000L
+        /** R11: frames in the first 20 s after the node connected are approximate */
+        const val NODE_QUEUED_MS = 20_000L
+        /** how far back a queued frame may lie when the app never saw the node go down */
+        const val NODE_QUEUED_GUESS_MS = 3600_000L
+        /** MailboxKeys seq of ACK entries (commands use 1..255) */
+        const val ACK_SEQ = 0
+        /** the ACK first, the command 300 ms later (PROTOCOL.md 4.3) */
+        const val ACK_BEFORE_CMD_MS = 300L
+        /** a receipt names the bridge of a live ACK only within 500 ms (4.3) */
+        const val RECEIPT_WAIT_MS = 500L
+        /** no "ack sent" note within 10 s: timed ACKs follow */
+        const val ACK_NOTE_WAIT_MS = 10_000L
+        /** between events of one publish run (P9) */
+        const val PUBLISH_GAP_MS = 150L
+        /** the clock offset against the relays is applied above this (R17) */
+        const val CLOCK_APPLY_MS = 2_000L
+        const val COMMAND_LOOP_MS = 30_000L
+        const val DOZE_GAP_MS = 90_000L
+        /** blind Lost: at most 3 tries (PROTOCOL.md 4.3) */
+        const val BLIND_TRIES = 3
+        const val BRIDGE_CHECK_MS = 15 * 60_000L
         const val CHECK_SLOT_TTL_S = 600L
         /** bridge claims older than this are not news (bridges ignore them after 30 s) */
         const val CLAIM_MAX_AGE_S = 120L
-        /** a receipt follows its report by 2-5 s (PROTOCOL.md 4.1) */
-        const val RECEIPT_SETTLE_MS = 6_000L
         const val GUARD_M = 300.0
         /** leaving a zone counts only this far outside its edge (a bad first fix after waking) */
         const val ZONE_HYST_M = 50

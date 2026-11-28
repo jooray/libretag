@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS mailbox (
     event_id TEXT NOT NULL,
     y TEXT NOT NULL,
     payload BLOB NOT NULL,
-    route TEXT NOT NULL,               -- near | flood
+    route TEXT NOT NULL,               -- near | direct | flood | both
     created_at INTEGER NOT NULL,
     expires REAL NOT NULL,
     known_at REAL NOT NULL,
@@ -38,10 +38,11 @@ CREATE TABLE IF NOT EXISTS mailbox (
 );
 CREATE INDEX IF NOT EXISTS mailbox_y ON mailbox(y);
 CREATE INDEX IF NOT EXISTS mailbox_expires ON mailbox(expires);
-CREATE TABLE IF NOT EXISTS report_paths (  -- paths of caught LT2 reports by x, for timed entries
+CREATE TABLE IF NOT EXISTS report_paths (  -- path record per caught LT2 report x (PROTOCOL.md 4.3)
     x TEXT PRIMARY KEY,
-    hops INTEGER,                      -- NULL: heard, hop count unknown
-    path BLOB,                         -- flood path as heard, first hop first (NULL: unknown)
+    hops INTEGER,                      -- NULL: hop count unknown (a DIRECT arrival, or not reported)
+    path BLOB,                         -- tag-to-bridge order: a flood's path as heard, or for a DIRECT
+                                       -- arrival the path learned from its `via` (NULL: none)
     hash_size INTEGER NOT NULL,
     heard_at REAL NOT NULL
 );
@@ -67,6 +68,13 @@ CREATE TABLE IF NOT EXISTS timed_tx (   -- own timed transmissions (per-via gap,
 );
 CREATE INDEX IF NOT EXISTS timed_tx_at ON timed_tx(at);
 CREATE TABLE IF NOT EXISTS open_tx (    -- own floods of open entries (no "p", or format 1): hourly cap
+    at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ack_tx (     -- own ACK transmissions: hourly cap, apart from commands
+    at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS blind_tx (   -- own blind LOST floods, per via: 3 per via and 6 in all per 24 h
+    via TEXT NOT NULL,
     at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS done_groups (  -- command groups ["g"] whose tracker answered: rest dropped
@@ -130,6 +138,14 @@ class MailboxEntry:
     fmt: int = 2                     # always 2 (PROTOCOL.md 4.1); old ledgers may hold 1
     plist: str = ""                  # the bridges named in "p", space separated, in order
     pubkey: str = ""                 # author: the mailbox key of the report it answers (PROTOCOL.md 4.2)
+    ack: int = 0                     # an ACK entry (["a", "1"], PROTOCOL.md 4.3): payload is 13 or 26 B
+    fb: int = 1                      # flood fallback after a zero-hop (both) or path send; ["fb", "0"] turns it off
+    blind: int = 0                   # blind LOST entry (["blind", "1"]): a flood at `at` without `via` heard
+    vias: str = ""                   # every ["via", x], space separated (`via` is the first)
+
+    @property
+    def via_list(self) -> list[str]:
+        return self.vias.split() if self.vias else ([self.via] if self.via else [])
 
     @property
     def p(self) -> list[str]:
@@ -141,7 +157,7 @@ class MailboxEntry:
 
 
 ENTRY_COLS = "event_id, y, payload, route, created_at, expires, known_at, at, via, grp, pow, fmt, plist, " \
-             "COALESCE(pubkey, '')"
+             "COALESCE(pubkey, ''), ack, fb, blind, COALESCE(vias, '')"
 
 
 @dataclass
@@ -151,6 +167,24 @@ class ReportPath:
     path: list[bytes] | None
     hash_size: int
     heard_at: float
+    route: str | None = None         # flood | tflood | direct | tdirect as it arrived (None: unknown)
+    scope: str | None = None         # the flood's scope when known ("" = unscoped)
+    used_at: float | None = None     # last use for an ACK or a command (R33: the 48 h run from here)
+
+    @property
+    def is_direct(self) -> bool:
+        return self.route in ("direct", "tdirect")
+
+    @property
+    def heard(self) -> dict:
+        """As quietmesh.plan takes it (lt2svc.arrival): "path" None when the route or path is not known."""
+        if self.is_direct:
+            return {"route": self.route, "path": []}
+        if self.hops is None:
+            return {"route": "unknown", "path": None, "hops": None}
+        if self.hops > 0 and not self.path:
+            return {"route": self.route or "flood", "path": None, "hops": self.hops}
+        return {"route": self.route or "flood", "path": [h.hex() for h in (self.path or [])]}
 
 
 class Ledger:
@@ -163,9 +197,15 @@ class Ledger:
         cols = {r[1] for r in self._db.execute("PRAGMA table_info(mailbox)")}
         for col, typ in (("at", "INTEGER"), ("via", "TEXT"), ("pubkey", "TEXT"), ("pow", "INTEGER NOT NULL DEFAULT 0"),
                          ("relay", "TEXT"), ("grp", "TEXT"), ("fmt", "INTEGER NOT NULL DEFAULT 1"),
-                         ("plist", "TEXT NOT NULL DEFAULT ''")):  # older ledgers
+                         ("plist", "TEXT NOT NULL DEFAULT ''"), ("ack", "INTEGER NOT NULL DEFAULT 0"),
+                         ("fb", "INTEGER NOT NULL DEFAULT 1"), ("blind", "INTEGER NOT NULL DEFAULT 0"),
+                         ("vias", "TEXT")):  # older ledgers
             if col not in cols:
                 self._db.execute(f"ALTER TABLE mailbox ADD COLUMN {col} {typ}")
+        cols = {r[1] for r in self._db.execute("PRAGMA table_info(report_paths)")}
+        for col, typ in (("route", "TEXT"), ("scope", "TEXT"), ("used_at", "REAL")):
+            if col not in cols:
+                self._db.execute(f"ALTER TABLE report_paths ADD COLUMN {col} {typ}")
         for ix in ("at", "via", "relay", "grp"):
             self._db.execute(f"CREATE INDEX IF NOT EXISTS mailbox_{ix} ON mailbox({ix})")
         self._db.commit()
@@ -219,7 +259,8 @@ class Ledger:
                     expires: float, known_at: float, cap: int, at: int | None = None,
                     via: str | None = None, pubkey: str | None = None, pow: int = 0, relay: str | None = None,
                     grp: str | None = None, per_via_max: int | None = None,
-                    relay_share: float | None = None, fmt: int = 1, plist: str = "") -> bool:
+                    relay_share: float | None = None, fmt: int = 1, plist: str = "", ack: bool = False,
+                    fb: bool = True, blind: bool = False, vias: list[str] | None = None) -> bool:
         """True if the event is new and stays. Limits, in this order (PROTOCOL.md 4, "Limits"):
         - a timed entry: at most `per_via_max` unsent timed events per `via`; over it the one seen last goes;
         - one source relay holds at most `relay_share` x `cap` tags;
@@ -228,9 +269,9 @@ class Ledger:
         with self._lock:
             cur = self._db.executemany(
                 "INSERT OR IGNORE INTO mailbox(event_id, y, payload, route, created_at, expires, known_at, at, via, "
-                "pubkey, pow, relay, grp, fmt, plist) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "pubkey, pow, relay, grp, fmt, plist, ack, fb, blind, vias) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [(event_id, y, payload, route, created_at, expires, known_at, at, via, pubkey, pow, relay, grp, fmt,
-                  plist) for y in ys])
+                  plist, int(ack), int(fb), int(blind), " ".join(vias) if vias else None) for y in ys])
             new = cur.rowcount > 0
             if new and at is not None and per_via_max:
                 ids = [r[0] for r in self._db.execute(
@@ -292,6 +333,12 @@ class Ledger:
                          (x, before, now, x, before))
         return {r[0] for r in rows}
 
+    def key_known_at(self, x: str, pubkey: str) -> float | None:
+        """When an event of `pubkey` first named `x` (anchor or untimed entry)."""
+        r = self._x("SELECT MIN(k) FROM (SELECT known_at AS k FROM anchors WHERE y=? AND pubkey=? UNION ALL "
+                    "SELECT known_at FROM mailbox WHERE y=? AND pubkey=? AND at IS NULL)", (x, pubkey, x, pubkey))
+        return r[0] if r else None
+
     def lock_add(self, x: str, pubkey: str, now: float) -> bool:
         return self._x_rowcount("INSERT OR IGNORE INTO locks(x, pubkey, at) VALUES (?,?,?)", (x, pubkey, now)) == 1
 
@@ -319,9 +366,34 @@ class Ledger:
         """Unsent commands for tag `y` that were known BEFORE the report was heard, the one seen first first
         (newest-first let anyone copy the owner's y tags into a later event with junk content)."""
         rows = self._all(f"SELECT {ENTRY_COLS} FROM mailbox "
-                         "WHERE y=? AND known_at < ? AND expires > ? AND sent_at IS NULL AND at IS NULL "
+                         "WHERE y=? AND known_at < ? AND expires > ? AND sent_at IS NULL AND at IS NULL AND ack=0 "
                          "ORDER BY known_at, rowid", (y, heard_at, now))
         return [MailboxEntry(*r) for r in rows]
+
+    def ack_match(self, y: str, now: float) -> list[MailboxEntry]:
+        """Unsent live ACK entries (untimed) for report tag `y`, the one seen first first."""
+        rows = self._all(f"SELECT {ENTRY_COLS} FROM mailbox "
+                         "WHERE y=? AND expires > ? AND sent_at IS NULL AND at IS NULL AND ack=1 "
+                         "ORDER BY known_at, rowid", (y, now))
+        return [MailboxEntry(*r) for r in rows]
+
+    def entry(self, event_id: str) -> MailboxEntry | None:
+        r = self._x(f"SELECT {ENTRY_COLS} FROM mailbox WHERE event_id=? ORDER BY rowid LIMIT 1", (event_id,))
+        return MailboxEntry(*r) if r else None
+
+    def entry_ys(self, event_id: str) -> set[str]:
+        return {r[0] for r in self._all("SELECT y FROM mailbox WHERE event_id=?", (event_id,))}
+
+    def entry_mark_vias(self, event_id: str, via: str) -> None:
+        """The `via` of a timed entry that this bridge heard (of the several the app names)."""
+        self._x("UPDATE mailbox SET via=? WHERE event_id=?", (via, event_id))
+
+    def group_untimed(self, g: str) -> dict[str, set[str]]:
+        """Untimed command entries of group `g`: event id -> its y tags (ACK entries have no group)."""
+        out: dict[str, set[str]] = {}
+        for eid, y in self._all("SELECT event_id, y FROM mailbox WHERE grp=? AND at IS NULL AND ack=0", (g,)):
+            out.setdefault(eid, set()).add(y)
+        return out
 
     def mailbox_timed_due(self, until: float, now: float) -> list[MailboxEntry]:
         """Unsent, unexpired timed entries with `at` <= `until` whose tags were not answered yet."""
@@ -335,29 +407,44 @@ class Ledger:
     # ------------------------------------------------------------ LT2 report paths (for timed entries)
 
     def report_path_put(self, x: str, hops: int | None, path: list[bytes] | None, hash_size: int,
-                        heard_at: float) -> None:
-        """Remember how report `x` reached us; of several copies the one with the fewest hops stays."""
-        blob = b"".join(path) if path is not None else None
+                        heard_at: float, route: str | None = None, scope: str | None = None) -> None:
+        """Remember how report `x` reached us; of several copies the one with the fewest hops stays (a
+        flood copy with a known count replaces an unknown one; a DIRECT arrival never replaces a record)."""
+        blob = b"".join(path) if path else None
         with self._lock:
-            old = self._db.execute("SELECT hops FROM report_paths WHERE x=?", (x,)).fetchone()
-            if old is not None and old[0] is not None and (hops is None or hops >= old[0]):
+            old = self._db.execute("SELECT hops, route FROM report_paths WHERE x=?", (x,)).fetchone()
+            if old is not None and (hops is None or (old[0] is not None and hops >= old[0])):
                 return
-            self._db.execute("INSERT OR REPLACE INTO report_paths(x, hops, path, hash_size, heard_at) "
-                             "VALUES (?,?,?,?,?)", (x, hops, blob, hash_size, heard_at))
+            self._db.execute("INSERT OR REPLACE INTO report_paths(x, hops, path, hash_size, heard_at, route, scope) "
+                             "VALUES (?,?,?,?,?,?,?)", (x, hops, blob, hash_size, heard_at, route, scope))
+            self._db.commit()
+
+    def report_path_learn(self, x: str, path: list[bytes], hash_size: int, now: float) -> None:
+        """A DIRECT arrival x answered along the path of its `via`: the path is now x's too (PROTOCOL.md 4.3)."""
+        self._x("UPDATE report_paths SET path=?, hash_size=?, used_at=? WHERE x=? AND path IS NULL",
+                (b"".join(path), hash_size, now, x))
+
+    def report_path_touch(self, x: str, now: float) -> None:
+        """A use for an ACK or a command restarts the 48 h of the record and of its key lock (R33)."""
+        with self._lock:
+            self._db.execute("UPDATE report_paths SET used_at=? WHERE x=?", (now, x))
+            self._db.execute("UPDATE locks SET at=MAX(at, ?) WHERE x=?", (now, x))
             self._db.commit()
 
     def report_path(self, x: str, since: float) -> ReportPath | None:
-        r = self._x("SELECT hops, path, hash_size, heard_at FROM report_paths WHERE x=? AND heard_at >= ?",
-                    (x, since))
+        """The record of `x` if it was heard or used at `since` or later."""
+        r = self._x("SELECT hops, path, hash_size, heard_at, route, scope, used_at FROM report_paths "
+                    "WHERE x=? AND MAX(heard_at, COALESCE(used_at, 0)) >= ?", (x, since))
         if r is None:
             return None
-        hops, blob, hs, heard_at = r
+        hops, blob, hs, heard_at, route, scope, used_at = r
         path = None if blob is None else [bytes(blob[i:i + hs]) for i in range(0, len(blob), hs)]
-        return ReportPath(x, hops, path, hs, heard_at)
+        return ReportPath(x, hops, path, hs, heard_at, route, scope, used_at)
 
     def report_paths_prune(self, before: float) -> int:
         with self._lock:
-            n = self._db.execute("DELETE FROM report_paths WHERE heard_at < ?", (before,)).rowcount
+            n = self._db.execute("DELETE FROM report_paths WHERE MAX(heard_at, COALESCE(used_at, 0)) < ?",
+                                 (before,)).rowcount
             self._db.commit()
             return n
 
@@ -442,6 +529,20 @@ class Ledger:
     def open_tx_count(self, since: float) -> int:
         return self._x("SELECT COUNT(*) FROM open_tx WHERE at >= ?", (since,))[0]
 
+    def ack_tx_add(self, now: float) -> None:
+        self._x("INSERT INTO ack_tx(at) VALUES (?)", (now,))
+
+    def ack_tx_count(self, since: float) -> int:
+        return self._x("SELECT COUNT(*) FROM ack_tx WHERE at >= ?", (since,))[0]
+
+    def blind_tx_add(self, via: str, now: float) -> None:
+        self._x("INSERT INTO blind_tx(via, at) VALUES (?,?)", (via, now))
+
+    def blind_tx_count(self, since: float, via: str | None = None) -> int:
+        if via is None:
+            return self._x("SELECT COUNT(*) FROM blind_tx WHERE at >= ?", (since,))[0]
+        return self._x("SELECT COUNT(*) FROM blind_tx WHERE at >= ? AND via=?", (since, via))[0]
+
     def group_done(self, g: str) -> bool:
         return self._x("SELECT 1 FROM done_groups WHERE g=?", (g,)) is not None
 
@@ -457,8 +558,11 @@ class Ledger:
 
     def groups_of_y(self, y: str) -> list[str]:
         """Groups that have an untimed entry with tag `y` (a report with this x is the tracker's own)."""
-        return [r[0] for r in self._all("SELECT DISTINCT grp FROM mailbox WHERE y=? AND at IS NULL AND grp IS NOT NULL",
-                                        (y,))]
+        return [r[0] for r in self._all("SELECT DISTINCT grp FROM mailbox WHERE y=? AND at IS NULL AND ack=0 "
+                                        "AND grp IS NOT NULL", (y,))]
+
+    def group_has_timed(self, g: str) -> bool:
+        return self._x("SELECT 1 FROM mailbox WHERE grp=? AND at IS NOT NULL LIMIT 1", (g,)) is not None
 
     def group_timed(self, g: str) -> list[MailboxEntry]:
         return [MailboxEntry(*r) for r in self._all(f"SELECT {ENTRY_COLS} FROM mailbox WHERE grp=? AND at IS NOT NULL "
@@ -481,10 +585,16 @@ class Ledger:
 
     # ------------------------------------------------------------ outbox (unpublished events)
 
-    def outbox_put(self, event: dict, ledger_key: str, stat: str, expires: float, now: float) -> None:
+    def outbox_put(self, event: dict, ledger_key: str, stat: str, expires: float, now: float,
+                   next_try: float | None = None) -> None:
+        """`next_try`: when a restarted bridge may publish it at the latest (a report written at hearing time,
+        R21, is due after its publish delay); default after the pool's own retries."""
         self._x("INSERT OR IGNORE INTO outbox(id, event, ledger_key, stat, expires, next_try, tries) "
                 "VALUES (?,?,?,?,?,?,0)", (event["id"], json.dumps(event, separators=(",", ":")), ledger_key, stat,
-                                           expires, now + OUTBOX_BACKOFF_S[0]))
+                                           expires, now + OUTBOX_BACKOFF_S[0] if next_try is None else next_try))
+
+    def outbox_has(self, eid: str) -> bool:
+        return self._x("SELECT 1 FROM outbox WHERE id=?", (eid,)) is not None
 
     def outbox_done(self, eid: str) -> None:
         self._x("DELETE FROM outbox WHERE id=?", (eid,))
@@ -532,6 +642,8 @@ class Ledger:
             n += self._db.execute("DELETE FROM locks WHERE at < ?", (now - 2 * 86400,)).rowcount
             n += self._db.execute("DELETE FROM timed_tx WHERE at < ?", (now - 2 * 86400,)).rowcount
             n += self._db.execute("DELETE FROM open_tx WHERE at < ?", (now - 2 * 86400,)).rowcount
+            n += self._db.execute("DELETE FROM ack_tx WHERE at < ?", (now - 2 * 86400,)).rowcount
+            n += self._db.execute("DELETE FROM blind_tx WHERE at < ?", (now - 2 * 86400,)).rowcount
             n += self._db.execute("DELETE FROM airtime WHERE at < ?", (now - 2 * 86400,)).rowcount
             self._db.commit()
             return n

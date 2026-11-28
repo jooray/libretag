@@ -9,6 +9,9 @@ import asyncio
 import json
 import logging
 import secrets
+import time
+
+from . import fieldlog
 from typing import Awaitable, Callable
 
 log = logging.getLogger("nostrmesh.relays")
@@ -69,6 +72,7 @@ class Relay:
                     self._connected.set()
                     backoff = 2
                     log.info("connected %s", self.url)
+                    fieldlog.ev("relay_up", url=self.url)
                     for sid, filters in self.subs.items():
                         await ws.send(json.dumps(["REQ", sid, *filters]))
                     async for raw in ws:
@@ -77,6 +81,7 @@ class Relay:
                 raise
             except Exception as e:  # noqa: BLE001
                 log.warning("%s: %s", self.url, e)
+                fieldlog.ev("relay_down", url=self.url, why=str(e)[:160])
             self._connected.clear()
             self.authed.clear()
             self._ws = None
@@ -224,16 +229,25 @@ class RelayPool:
         async def one(url):
             relay = self.relays[url]
             res = (False, "")
-            for delay in (0, *self.retry_delays) if retry else (0,):
-                if delay:
-                    await asyncio.sleep(delay)
-                res = await relay.publish(event)
-                ok, msg = res
-                if ok or msg.startswith("duplicate:"):
-                    return True, msg
-                if msg.startswith(FINAL_REJECT):
-                    return res
-            return res
+            tries, t0 = 0, time.time()
+            try:
+                for delay in (0, *self.retry_delays) if retry else (0,):
+                    if delay:
+                        await asyncio.sleep(delay)
+                    tries += 1
+                    t1 = time.time()
+                    res = await relay.publish(event)
+                    ok, msg = res
+                    if ok or msg.startswith("duplicate:"):
+                        res = (True, msg)
+                        return res
+                    if msg.startswith(FINAL_REJECT):
+                        return res
+                return res
+            finally:
+                fieldlog.ev("publish", id=event.get("id"), kind=event.get("kind"), url=url, ok=res[0], msg=res[1][:160] or None,
+                            ms=round((time.time() - t1) * 1000) if tries else None,
+                            total_s=round(time.time() - t0, 3), tries=tries)
 
         results = await asyncio.gather(*(one(u) for u in self.publish_urls))
         return dict(zip(self.publish_urls, results))
@@ -255,10 +269,14 @@ class RelayPool:
         async def one(url):
             r = Relay(url, connect=self._connect, auth_signer=self.auth_signer)
             r.start()
+            t0 = time.time()
+            ok, msg = False, "error: cancelled"
             try:
                 ok, msg = await r.publish(event, timeout)
                 return (ok or msg.startswith("duplicate:")), msg
             finally:
+                fieldlog.ev("publish", id=event.get("id"), kind=event.get("kind"), url=url, ok=ok, msg=msg[:160] or None,
+                            ms=round((time.time() - t0) * 1000), tries=1, once=True)
                 await r.stop()
 
         res = await asyncio.gather(*(one(u) for u in urls), return_exceptions=True)

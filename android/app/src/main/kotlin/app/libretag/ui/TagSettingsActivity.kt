@@ -19,6 +19,7 @@ import app.libretag.data.Tracker
 import app.libretag.nostr.DmPublish
 import app.libretag.proto.Command
 import app.libretag.proto.LibreTag
+import app.libretag.proto.QuietMesh
 import app.libretag.usb.TagOps
 import app.libretag.usb.Via
 import app.libretag.usb.WriteResult
@@ -125,6 +126,32 @@ class TagSettingsActivity : ScreenActivity() {
             setInterval(t, w, e)
         })
         small(getString(R.string.ts_cmd_waits, Format.duration(this, (if (listensAt) wakeMin else periodMin) * 60_000L)))
+        if (t.canCommand) wider(t)
+    }
+
+    /**
+     * 0.14.0 (A4): how long the tag may go without an answer from nearby before a report goes over
+     * the wider mesh (the ACK's hold: 0, 6, 12, 24 h; every report while guarding), and "Report at
+     * once when it moves" (ack_patience 2).
+     */
+    private fun wider(t: Tracker) {
+        label(getString(R.string.ts_mesh_after), null)
+        pad(chips(QuietMesh.HOLD_CHOICES, if (t.guarding) 0 else t.holdUnits, {
+            if (it == 0) getString(R.string.ts_mesh_after_every) else Format.duration(this, it * QuietMesh.HOLD_UNIT_S * 1000)
+        }) { v -> if (!t.guarding) app.store.updateTracker(t.id) { it.copy(holdUnits = v) } }.apply { isEnabled = !t.guarding })
+        small(getString(if (t.guarding) R.string.ts_mesh_after_guard else R.string.ts_mesh_after_sub))
+        pad(switchItem(R.drawable.ic_track, getString(R.string.ts_at_once), getString(R.string.ts_at_once_sub), t.reportAtOnce || t.guarding,
+            enabled = !t.guarding) { on -> setReportAtOnce(t, on) })
+    }
+
+    /** ack_patience 2 or 1: over the cable now, else a SET_IDLE that keeps the interval (no Bluetooth form). */
+    private fun setReportAtOnce(t: Tracker, on: Boolean) {
+        if (on == t.reportAtOnce) return
+        if (app.usb.tagFor(t)) { change(t) { it.copy(reportAtOnce = on) }; return }
+        if (!t.canCommand) return
+        app.store.updateTracker(t.id) { it.copy(reportAtOnce = on) }
+        val checkS = if (t.checkS > 0) t.checkS else Command.CHECK_OFF
+        app.queueCommand(t.id, CommandKind.INTERVAL, t.intervalMin, checkS, t.reportEvery, ackPatience = if (on) 2 else 1)
     }
 
     /** "5 weeks": a full charge at the pace measured so far; null until [BatteryModel] has an estimate. */
@@ -185,7 +212,7 @@ class TagSettingsActivity : ScreenActivity() {
             resources.getQuantityString(R.plurals.reports_n, it, it) + " (" + Format.duration(this, it.toLong() * t0.reportPeriodMin * 60_000L) + ")"
         }) { v -> tag()?.let { t -> change(t) { it.copy(stillAfter = v) } } })
         s.label(getString(R.string.ts_still_sheet_life))
-        s.body.addView(chips(listOf(2, 4, 6, 8, 12), t0.stillHbH, { Format.every(this, it * 3600) }) { v ->
+        s.body.addView(chips(listOf(4, 6, 8, 12, 24), t0.stillHbH, { Format.every(this, it * 3600) }) { v ->
             tag()?.let { t -> change(t) { it.copy(stillHbH = v) } }
         })
         s.foot(button(getString(R.string.done)) { s.dialog.dismiss() })

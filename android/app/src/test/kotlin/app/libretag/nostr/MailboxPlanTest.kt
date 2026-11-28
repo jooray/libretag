@@ -32,8 +32,8 @@ class MailboxPlanTest {
 
     @Test fun lateEntriesOnlyWhileTheTagListens() {
         assertTrue(MailboxPlan.lateOk(0))
-        assertTrue(MailboxPlan.lateOk(74))
-        assertTrue(!MailboxPlan.lateOk(75))   // 90 s window, 15 s for relays and bridges
+        assertTrue(MailboxPlan.lateOk(39))
+        assertTrue(!MailboxPlan.lateOk(40))   // P6: 60 s window, bridges take a late entry until the report is 40 s old
         assertTrue(!MailboxPlan.lateOk(-1))
         // a late entry for report n stays worth publishing while n is the newest report
         assertTrue(!MailboxPlan.stale(968, timed = false, lastN = 968, late = true))

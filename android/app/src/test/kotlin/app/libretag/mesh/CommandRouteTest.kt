@@ -96,10 +96,14 @@ class CommandRouteTest {
     }
 
     @Test fun notNearMeansTheAdvertRunsButIsNotCountedOn() {
-        assertTrue(CommandRoute.isNear(knownDevices = 1, lastQuietReason = null))
-        assertTrue(CommandRoute.isNear(knownDevices = 0, lastQuietReason = "owner"))
-        assertFalse(CommandRoute.isNear(knownDevices = 0, lastQuietReason = "zone"))
-        assertFalse(CommandRoute.isNear(knownDevices = 0, lastQuietReason = null))
+        // P10: a Bluetooth sighting in the last 15 min, quiet because of the owner, or ACKed through the own node
+        val t0 = 1_800_000_000_000L
+        assertTrue(CommandRoute.isNear(bleSightAt = t0 - 10 * 60_000L, lastQuietReason = null, ackedByNode = false, now = t0))
+        assertFalse(CommandRoute.isNear(bleSightAt = t0 - 20 * 60_000L, lastQuietReason = null, ackedByNode = false, now = t0))
+        assertTrue(CommandRoute.isNear(bleSightAt = null, lastQuietReason = "owner", ackedByNode = false, now = t0))
+        assertTrue(CommandRoute.isNear(bleSightAt = null, lastQuietReason = null, ackedByNode = true, now = t0))
+        assertFalse(CommandRoute.isNear(bleSightAt = null, lastQuietReason = "zone", ackedByNode = false, now = t0))
+        assertFalse(CommandRoute.isNear(bleSightAt = null, lastQuietReason = null, ackedByNode = false, now = t0))
         val p = CommandRoute.plan(CommandKind.BLE_CONSOLE, beaconOk = true, zeroHopOk = true, nextWindowAt = window,
             nextScanAt = window, near = false)
         assertEquals(CommandRoute.Via.ZERO_HOP, p.via)

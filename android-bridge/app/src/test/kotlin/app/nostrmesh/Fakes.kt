@@ -4,6 +4,7 @@ import app.nostrmesh.bridge.BridgeConfig
 import app.nostrmesh.bridge.MeshLink
 import app.nostrmesh.bridge.Publisher
 import app.nostrmesh.bridge.Route
+import app.nostrmesh.bridge.TxResult
 import app.nostrmesh.nostr.NostrEvent
 import app.nostrmesh.nostr.hex
 import app.nostrmesh.nostr.sha256
@@ -12,23 +13,32 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
 
 class FakeMesh(var capabilities0: Set<String> = emptySet(), override val maxPayload: Int = 163) : MeshLink {
-    data class Sent(val channel: String, val dataType: Int, val payload: ByteArray, val route: Route)
+    data class Sent(val channel: String, val dataType: Int, val payload: ByteArray, val route: Route, val region: String? = null, val atMs: Long = 0)
     val sent = mutableListOf<Sent>()
     override val capabilities get() = capabilities0
-    override suspend fun send(channel: String, dataType: Int, payload: ByteArray, route: Route): Boolean {
-        sent += Sent(channel, dataType, payload, route)
-        return true
+    /** What the radio answers (null: ok). */
+    var fail: String? = null
+    var clock: () -> Long = { 0L }
+    override suspend fun send(channel: String, dataType: Int, payload: ByteArray, route: Route, region: String?): TxResult {
+        fail?.let { return TxResult(false, it) }
+        sent += Sent(channel, dataType, payload, route, region, clock())
+        return TxResult(true)
     }
 }
 
 class FakeRelays(override val publishUrls: List<String> = listOf("wss://nostr.example.com")) : Publisher {
     val published = mutableListOf<JsonObject>()
+    /** A dead relay: publish hangs this long (the pool's retries at 0, 5, 30, 120 s) before it fails. */
+    var hangMs: Long = 0
     val subs = mutableMapOf<String, List<JsonObject>>()
     /** What [query] answers (any filter). */
     val stored = mutableListOf<JsonObject>()
     var queries = 0
     val publishedOnce = mutableListOf<Pair<JsonObject, List<String>>>()
-    override suspend fun publish(event: JsonObject): Boolean { published += event; return true }
+    override suspend fun publish(event: JsonObject): Boolean {
+        if (hangMs > 0) { published += event; kotlinx.coroutines.delay(hangMs); return false }
+        published += event; return true
+    }
     override suspend fun query(filters: List<JsonObject>): List<JsonObject> { queries++; return stored.toList() }
     override suspend fun publishOnce(event: JsonObject, urls: List<String>): Boolean { publishedOnce += event to urls; return true }
     override fun subscribe(subId: String, filters: List<JsonObject>) { subs[subId] = filters }

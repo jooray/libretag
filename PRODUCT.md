@@ -16,7 +16,7 @@ The main surface is the native Android app LibreTag (`android/`, Kotlin, Android
 
 ## Product Purpose
 
-LibreTag is a sleeping LoRa GPS tracker on the MeshCore mesh. Once an hour it sends an encrypted position, then listens briefly for commands. Only the owner can read where it is. The app pairs a tracker over USB, shows its positions and an estimated area when it has no GPS (from repeaters heard), sends commands (Lost, Track, Beep, Normal) that are delivered after the next report, and alerts on silence, low battery and leaving a guarded spot.
+LibreTag is a sleeping LoRa GPS tracker on the MeshCore mesh. It sends encrypted positions, mostly as a quiet zero-hop hello to the nearest bridge, and listens briefly for commands, which reach it within about an hour. Anyone can run a bridge. Only the owner can read where it is. The app pairs a tracker over USB, shows its positions and an estimated area when it has no GPS (from repeaters heard), sends commands (Lost, Track, Beep, Normal) that are delivered after the next report, and alerts on silence, low battery and leaving a guarded spot.
 
 Success: the owner can tell where the tracker is, or roughly where it is and how sure that is, from the mesh alone, without a phone network, a server they don't control, or anyone else being able to follow it.
 
@@ -36,7 +36,7 @@ Success: the owner can tell where the tracker is, or roughly where it is and how
   - a glance at the main list ("last heard 12 min ago, 82 %");
   - a stressful search (the car is gone, the child is late) with a map, an estimate circle and commands;
   - setup at the kitchen table with a cable.
-- Reports arrive at most hourly in normal mode, so the app must make it clear how old a position is and when the tracker will next be heard or can take a command.
+- A position can be hours old and the tracker is often quiet on purpose, so the app must make it clear how old a position is and when the tracker will next be heard or can take a command.
 - The phone may be GrapheneOS (no Google services). Avoid location permission unless it is truly needed.
 
 ## Capabilities and Constraints

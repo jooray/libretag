@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Sun, 22 Nov 2026 11:54:17 +0100
-Subject: [PATCH 41/42] tracker 0.9.5: console wake advert from the owner's
+Subject: [PATCH 41/50] tracker 0.9.5: console wake advert from the owner's
  phone (company 0xFFFF, type 0x26, salt, HMAC(usb_key, LT2-bcon-wake ||
  salt)[0:6]): every presence, LOST and command scan also looks for it, a salt
  not taken in this boot and one HMAC, then the console window opens for 180 s

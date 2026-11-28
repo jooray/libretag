@@ -99,6 +99,7 @@ export default {
   'slip.waiting_check': '{c} · waiting for the check (~{t})',
   'slip.waiting_silent': '{c} · waiting ({name} is silent)',
   'slip.waiting_first': '{c} · waiting for the first report',
+  'slip.schedule_unknown': 'Waiting for {name} to report. Its schedule is not known right now.',
   'slip.confirmed': '{c} · confirmed {t}',
   'slip.failed': '{c} · not confirmed. Will retry with the next report.',
   'slip.cancel': 'Cancel command',

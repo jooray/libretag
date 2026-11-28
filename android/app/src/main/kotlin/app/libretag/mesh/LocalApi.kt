@@ -53,7 +53,7 @@ object DiagLogger : MeshLogger {
 class MeshLink(
     private val settings: MeshSettings,
     scope: CoroutineScope,
-    channelName: String = CHANNEL,
+    private val channelName: String = CHANNEL,
     /** Further channels read after the main one is subscribed. */
     extraChannels: Map<String, List<Int>> = emptyMap(),
 ) {
@@ -95,7 +95,37 @@ class MeshLink(
         ).isOk
     }
 
+    /** The result of a zero-hop send: [ok], the server's error code, and when the radio sent it ([sentAtMs], `tx_now`). */
+    data class Sent(val ok: Boolean, val error: String? = null, val sentAtMs: Long? = null, val requestMs: Long = 0)
+
+    /**
+     * A zero-hop datagram (ACKs and slot commands, SPEC.md 3.2 "Own node"). When the server lists
+     * `tx_now` (our MeshCore Open fork), it goes with `"priority": "now"`, skipping the quiet wait, and
+     * the answer carries `sentAt`. Never a flood: without `tx_path_data` nothing is sent.
+     */
+    suspend fun sendZeroHopNow(payload: ByteArray): Sent {
+        val t0 = System.currentTimeMillis()
+        if (session.state.value !is SessionState.Connected) return Sent(false, "not_connected", requestMs = t0)
+        if (!canZeroHop) return Sent(false, "no_tx_path_data", requestMs = t0)
+        if (TX_NOW !in session.capabilities) {
+            val r = session.sendData(payload, DATA_TYPE_LIBRETAG, route = Route.ZeroHop)
+            return Sent(r.isOk, r.errorCode, null, t0)
+        }
+        val params = kotlinx.serialization.json.JsonObject(
+            io.github.jooray.meshcore.localapi.MeshCoreApiClient.sendDataParams(channelName, DATA_TYPE_LIBRETAG,
+                payload, null, Route.ZeroHop) + ("priority" to kotlinx.serialization.json.JsonPrimitive("now")))
+        val ans = session.request("channel.sendData", params)
+        val sentAt = (ans.resultOrNull?.get("sentAt") as? kotlinx.serialization.json.JsonPrimitive)?.content
+            ?.let { v -> v.toLongOrNull() ?: runCatching { java.time.Instant.parse(v).toEpochMilli() }.getOrNull() }
+        if (!ans.isOk) logger.warn("MeshLink", "send now refused: ${ans.errorCode}", null)
+        return Sent(ans.isOk, ans.errorCode ?: if (ans.isOk) null else ans.javaClass.simpleName.lowercase(), sentAt, t0)
+    }
+
     companion object {
+        /** our MeshCore Open fork: `"priority": "now"` on channel.sendData for short packets, with `sentAt` */
+        const val TX_NOW = io.github.jooray.meshcore.localapi.Capabilities.TX_NOW
+        const val RX_QUEUED = io.github.jooray.meshcore.localapi.Capabilities.RX_QUEUED
+        private val logger = DiagLogger
         const val CHANNEL = "#libretag"
         /** LibreTag reports and commands on #libretag (MeshCore dev range; allocation pending). */
         const val DATA_TYPE_LIBRETAG = 0xFF4C

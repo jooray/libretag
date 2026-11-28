@@ -11,8 +11,6 @@ data class ReportExtras(
     val quiet: Boolean = false,
     /** "zone", "owner" or "parked" (0.7) */
     val quietReason: String? = null,
-    /** 0.7 CHECKS: while quiet the tag listens at checks */
-    val checks: Boolean = false,
     /** used charge since the last full charge (mAh, lower bound), null = not counted */
     val energyMah: Int? = null,
     val bleDevices: Int? = null,
@@ -35,7 +33,6 @@ data class ReportExtras(
             nextInS = r.nextInS,
             quiet = r.quiet,
             quietReason = r.quietReason,
-            checks = r.checks,
             energyMah = r.energyMah,
             bleDevices = r.ble?.devices,
             bleStable = r.ble?.stable,

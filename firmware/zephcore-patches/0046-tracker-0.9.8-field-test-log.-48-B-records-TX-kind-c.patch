@@ -1,0 +1,891 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Thu, 26 Nov 2026 13:20:18 +0100
+Subject: [PATCH 46/50] tracker 0.9.8: field-test log. 48 B records (TX: kind,
+ copy, header, path, length, region, est. airtime, battery, floods_24h, fix
+ state and age, satellites, payload hash; RX: header, path length and hashes,
+ SNR, RSSI, transport code, hash, match own copy / discover answer / advert
+ with key; windows: wake-up, listen, check, discover open and close with
+ durations and packet counts; GPS start, fix with position, timeout, stop;
+ every event-log event, txdrop), buffered in RAM (32) and flushed at the end
+ of each wake-up, before a reset and when full; Wio Tracker L1: /ext/fl0|1 on
+ the QSPI flash (2 x 8192 records, mounted per flush, deep power-down after),
+ elsewhere /lfs/libretag/fl0|1 (2 x 640); console fieldlog [dump [seq]|clear]
+ (USB only)
+
+---
+ zephcore/CMakeLists.txt       |   1 +
+ zephcore/src/lt_fieldlog.c    | 267 ++++++++++++++++++++++++++++++
+ zephcore/src/lt_fieldlog.h    |  57 +++++++
+ zephcore/src/lt_version.h     |   2 +-
+ zephcore/src/main_tracker.cpp | 300 +++++++++++++++++++++++++++++++++-
+ 5 files changed, 623 insertions(+), 4 deletions(-)
+ create mode 100644 zephcore/src/lt_fieldlog.c
+ create mode 100644 zephcore/src/lt_fieldlog.h
+
+diff --git a/zephcore/CMakeLists.txt b/zephcore/CMakeLists.txt
+index 3966ffa..72efbb1 100644
+--- a/zephcore/CMakeLists.txt
++++ b/zephcore/CMakeLists.txt
+@@ -639,6 +639,7 @@ elseif(CONFIG_ZEPHCORE_ROLE_TRACKER)
+     src/main_tracker.cpp
+     src/lt_platform_zephyr.c
+     src/lt_diag.c
++    src/lt_fieldlog.c
+     ${LIBRETAG_CORE_DIR}/lt_core.c
+     ${LIBRETAG_CORE_DIR}/lt_region.c
+     ${LIBRETAG_CORE_DIR}/lt_country_grid.c
+diff --git a/zephcore/src/lt_fieldlog.c b/zephcore/src/lt_fieldlog.c
+new file mode 100644
+index 0000000..97c34d5
+--- /dev/null
++++ b/zephcore/src/lt_fieldlog.c
+@@ -0,0 +1,267 @@
++/*
++ * SPDX-License-Identifier: MIT
++ * LibreTag 0.9.8: field-test log storage. See lt_fieldlog.h.
++ */
++
++#include "lt_fieldlog.h"
++
++#include <zephyr/kernel.h>
++#include <zephyr/devicetree.h>
++#include <zephyr/fs/fs.h>
++#include <zephyr/logging/log.h>
++#include <zephyr/sys/byteorder.h>
++#include <string.h>
++#include <stdio.h>
++
++#include "../adapters/datastore/ZephyrFsFormat.h"
++
++LOG_MODULE_REGISTER(lt_fieldlog, LOG_LEVEL_INF);
++
++#if DT_NODE_EXISTS(DT_NODELABEL(qspi_lfs))
++/* 2 MB QSPI, empty on the tracker: 2 x 8192 x 48 B = 768 KB, the newest 8192..16384 records */
++#define FL_EXT 1
++#define FL_FMT "/ext/fl%u"
++#define FL_MNT "/ext"
++#define FL_SEG_RECS 8192
++#else
++/* internal volume only (ESP32-S3: 384 KB /lfs shared with the state and history): 2 x 640 x 48 B */
++#define FL_EXT 0
++#define FL_FMT "/lfs/libretag/fl%u"
++#define FL_MNT "/lfs"
++#define FL_SEG_RECS 640
++#endif
++
++#define FL_BUF 32
++
++static uint8_t buf[FL_BUF][LT_FL_REC];
++static uint32_t buf_n;
++static uint8_t seg;
++static uint32_t seg_count; /* records in the current segment */
++static uint32_t other_count;
++static uint32_t seq;
++static uint32_t lost, errors, flushes;
++static bool ready;
++
++static void seg_name(char *b, size_t n, unsigned s) { snprintf(b, n, FL_FMT, s); }
++
++static bool vol_begin(void)
++{
++#if FL_EXT
++	if (!zephcore_fs_mount_ext()) {
++		errors++;
++		return false;
++	}
++#endif
++	return true;
++}
++
++static void vol_end(void)
++{
++#if FL_EXT
++	zephcore_fs_ext_power_down(); /* unmounts /ext and sends the flash to deep power-down */
++#endif
++}
++
++/* records in a segment file and the seq after its last record */
++static uint32_t seg_scan(unsigned s, uint32_t *next_seq)
++{
++	struct fs_dirent st;
++	struct fs_file_t f;
++	char name[32];
++	uint8_t r[LT_FL_REC];
++	uint32_t cnt;
++
++	seg_name(name, sizeof(name), s);
++	if (fs_stat(name, &st) != 0) {
++		return 0;
++	}
++	cnt = (uint32_t)(st.size / LT_FL_REC);
++	if (!cnt) {
++		return 0;
++	}
++	fs_file_t_init(&f);
++	if (fs_open(&f, name, FS_O_READ) == 0) {
++		if (fs_seek(&f, (off_t)(cnt - 1) * LT_FL_REC, FS_SEEK_SET) == 0 &&
++		    fs_read(&f, r, LT_FL_REC) == LT_FL_REC && r[0] == LT_FL_MAGIC) {
++			uint32_t q = sys_get_le32(r + 4) + 1;
++
++			if (q > *next_seq) {
++				*next_seq = q;
++			}
++		}
++		fs_close(&f);
++	}
++	return cnt;
++}
++
++void lt_fl_init(void)
++{
++	uint32_t c[2];
++
++	if (!vol_begin()) {
++		LOG_ERR("field log: no volume");
++		return;
++	}
++	seq = 0;
++	c[0] = seg_scan(0, &seq);
++	c[1] = seg_scan(1, &seq);
++	seg = (c[0] >= FL_SEG_RECS && c[1] < FL_SEG_RECS) ? 1 : 0;
++	if (c[0] >= FL_SEG_RECS && c[1] >= FL_SEG_RECS) {
++		char name[32];
++
++		seg_name(name, sizeof(name), 0);
++		fs_unlink(name);
++		c[0] = 0;
++		seg = 0;
++	}
++	seg_count = c[seg];
++	other_count = c[seg ^ 1];
++	vol_end();
++	ready = true;
++	LOG_INF("field log: %u + %u records, seq %u", seg_count, other_count, seq);
++}
++
++void lt_fl_flush(void)
++{
++	struct fs_file_t f;
++	char name[32];
++	bool open = false;
++
++	if (!ready || !buf_n) {
++		return;
++	}
++	if (!vol_begin()) {
++		lost += buf_n;
++		buf_n = 0;
++		return;
++	}
++	fs_file_t_init(&f);
++	for (uint32_t i = 0; i < buf_n; i++) {
++		if (seg_count >= FL_SEG_RECS) {
++			if (open) {
++				fs_close(&f);
++				open = false;
++			}
++			seg ^= 1;
++			other_count = seg_count;
++			seg_count = 0;
++			seg_name(name, sizeof(name), seg);
++			fs_unlink(name);
++		}
++		if (!open) {
++			seg_name(name, sizeof(name), seg);
++			fs_file_t_init(&f);
++			if (fs_open(&f, name, FS_O_CREATE | FS_O_WRITE | FS_O_APPEND) < 0) {
++				errors++;
++				lost += buf_n - i;
++				break;
++			}
++			open = true;
++		}
++		if (fs_write(&f, buf[i], LT_FL_REC) != LT_FL_REC) {
++			errors++;
++			lost++;
++			continue;
++		}
++		seg_count++;
++	}
++	if (open) {
++		fs_close(&f);
++	}
++	buf_n = 0;
++	flushes++;
++	vol_end();
++}
++
++void lt_fl_put(uint8_t *rec)
++{
++	rec[0] = LT_FL_MAGIC;
++	sys_put_le32(seq++, rec + 4);
++	if (!ready) {
++		lost++;
++		return;
++	}
++	if (buf_n >= FL_BUF) {
++		lt_fl_flush();
++	}
++	if (buf_n < FL_BUF) {
++		memcpy(buf[buf_n++], rec, LT_FL_REC);
++	} else {
++		lost++;
++	}
++}
++
++uint32_t lt_fl_each(void (*fn)(const uint8_t *rec, void *user), void *user)
++{
++	unsigned order[2] = {(unsigned)(seg ^ 1), seg};
++	uint8_t r[LT_FL_REC];
++	uint32_t n = 0;
++
++	if (!ready) {
++		return 0;
++	}
++	lt_fl_flush();
++	if (!vol_begin()) {
++		return 0;
++	}
++	for (unsigned k = 0; k < 2; k++) {
++		struct fs_file_t f;
++		char name[32];
++
++		seg_name(name, sizeof(name), order[k]);
++		fs_file_t_init(&f);
++		if (fs_open(&f, name, FS_O_READ) < 0) {
++			continue;
++		}
++		while (fs_read(&f, r, LT_FL_REC) == LT_FL_REC) {
++			if (r[0] == LT_FL_MAGIC) {
++				fn(r, user);
++				n++;
++			}
++		}
++		fs_close(&f);
++	}
++	vol_end();
++	return n;
++}
++
++void lt_fl_clear(void)
++{
++	char name[32];
++
++	buf_n = 0;
++	if (!ready || !vol_begin()) {
++		return;
++	}
++	for (unsigned i = 0; i < 2; i++) {
++		seg_name(name, sizeof(name), i);
++		fs_unlink(name);
++	}
++	seg = 0;
++	seg_count = 0;
++	other_count = 0;
++	vol_end();
++}
++
++void lt_fl_get_info(struct lt_fl_info *o)
++{
++	struct fs_statvfs sv;
++
++	memset(o, 0, sizeof(*o));
++	o->path = FL_FMT;
++	o->seg_recs = FL_SEG_RECS;
++	o->count = seg_count + other_count;
++	o->seq = seq;
++	o->buffered = buf_n;
++	o->lost = lost;
++	o->errors = errors;
++	o->flushes = flushes;
++	o->ready = ready;
++	if (ready && vol_begin()) {
++		if (fs_statvfs(FL_MNT, &sv) == 0) {
++			o->vol_kb = (uint32_t)((uint64_t)sv.f_frsize * sv.f_blocks / 1024);
++			o->free_kb = (uint32_t)((uint64_t)sv.f_frsize * sv.f_bfree / 1024);
++		}
++		vol_end();
++	}
++}
+diff --git a/zephcore/src/lt_fieldlog.h b/zephcore/src/lt_fieldlog.h
+new file mode 100644
+index 0000000..2cd3e75
+--- /dev/null
++++ b/zephcore/src/lt_fieldlog.h
+@@ -0,0 +1,57 @@
++/*
++ * SPDX-License-Identifier: MIT
++ *
++ * LibreTag 0.9.8: field-test log. Fixed 48 B records (TX, RX, windows, GPS, state events) in RAM,
++ * flushed in batches to two append-only segments: on boards with the QSPI flash (Wio Tracker L1)
++ * /ext/fl0, /ext/fl1 (the flash is mounted for the flush and put back into deep power-down after
++ * it); elsewhere /lfs/libretag/fl0, fl1 (smaller). The older segment is dropped when the current
++ * one is full. The records hold positions: they stay on the tag and leave it only over the
++ * unlocked USB console (`fieldlog dump`). Main thread only.
++ */
++#pragma once
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define LT_FL_REC 48
++#define LT_FL_MAGIC 0xF1
++
++/* every record: magic, type, phase, mode, u32 seq (set by lt_fl_put), u32 uptime ms, u32 unix s */
++struct lt_fl_info {
++	const char *path;   /* segment name format */
++	uint32_t seg_recs;  /* records per segment */
++	uint32_t count;     /* records on flash */
++	uint32_t seq;       /* next sequence number */
++	uint32_t buffered;  /* in RAM, not yet written */
++	uint32_t lost;      /* records not written (buffer overflow while the store failed) */
++	uint32_t errors;    /* failed mounts, opens or writes */
++	uint32_t flushes;
++	uint32_t vol_kb, free_kb; /* the volume holding the log (0 if unknown) */
++	bool ready;
++};
++
++/* Once at boot, after /lfs is mounted. */
++void lt_fl_init(void);
++
++/* A record (LT_FL_REC bytes): seq is filled in; written at the next flush or when the buffer is full. */
++void lt_fl_put(uint8_t *rec);
++
++/* Write the buffer out (end of a wake-up, before a reset, before a dump). */
++void lt_fl_flush(void);
++
++/* Every record on flash, oldest first. Flushes first. Returns the count. */
++uint32_t lt_fl_each(void (*fn)(const uint8_t *rec, void *user), void *user);
++
++/* Delete the log (both segments and the buffer); seq goes on. */
++void lt_fl_clear(void);
++
++void lt_fl_get_info(struct lt_fl_info *out);
++
++#ifdef __cplusplus
++}
++#endif
+diff --git a/zephcore/src/lt_version.h b/zephcore/src/lt_version.h
+index 7c83aca..6f10ada 100644
+--- a/zephcore/src/lt_version.h
++++ b/zephcore/src/lt_version.h
+@@ -1,4 +1,4 @@
+ /* Generated by firmware/tools/zephcore.sh; do not edit. */
+ #pragma once
+-#define LT_FW_VERSION "0.9.7"
++#define LT_FW_VERSION "0.9.8"
+ #define LT_ZEPHCORE_BASE "da3513aa6d08"
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index 1a3096c..af76105 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -88,6 +88,7 @@ extern "C" {
+ #include "lt_region.h"
+ #include "lt_version.h"
+ #include "lt_diag.h"
++#include "lt_fieldlog.h"
+ #if IS_ENABLED(CONFIG_LIBRETAG_NOSTR)
+ #include "lt_nostr.h"
+ #endif
+@@ -174,6 +175,26 @@ enum {
+ 	EVT_STALL = 16,  /* the main loop runs past its watchdog deadline: a reset follows (b = 1: wdtest) */
+ };
+ static void ev_log(uint8_t type, uint8_t a, uint8_t b, uint16_t c, uint32_t x);
++#define EVT_TXDROP 17 /* 0.9.8: TX refused 30 times, packet dropped: a = index, b = queue length */
++
++/* 0.9.8: field-test log (lt_fieldlog.h). Record types and what they log: */
++enum { FL_TX = 1, FL_RX = 2, FL_WIN = 3, FL_GPS = 4, FL_EVT = 5 };
++/* FL_TX kind */
++enum { FLK_REPORT = 1, FLK_EXTRA = 2, FLK_NOSTR = 3, FLK_DISCOVER = 4, FLK_RETX = 5 };
++/* FL_RX match */
++enum { FLM_NONE = 0, FLM_OWN = 1, FLM_DISC = 4, FLM_ADVERT = 5 };
++/* FL_WIN kind */
++enum { FLW_WAKE = 1, FLW_LISTEN = 2, FLW_CHECK = 3, FLW_DISCOVER = 4 };
++/* FL_GPS result */
++enum { FLG_START = 0, FLG_FIX = 1, FLG_TIMEOUT = 2, FLG_STOPPED = 3 };
++static void fl_hdr(uint8_t *r, uint8_t type);
++static void fl_tx(const uint8_t *pkt, size_t len, uint8_t kind, uint8_t j, bool alt);
++static void fl_rx(const uint8_t *b, size_t n, int16_t rssi, float snr);
++static void fl_win(uint8_t kind, bool open, uint32_t dur_ms, uint32_t a, uint32_t b);
++static void fl_gps(uint8_t result, uint32_t timeout_s);
++static uint16_t fl_rx_n, fl_own_n; /* packets heard / copies of our own report heard, this wake-up */
++static int64_t fl_gps_ms;           /* start of the GPS search */
++static int64_t fl_disc_ms;          /* start of the discover window */
+ 
+ /* 0.9.7: what the main thread is doing, in the breadcrumb; restored when the scope ends */
+ struct diag_act {
+@@ -447,6 +468,7 @@ static uint8_t txq[TXQ_MAX][192];
+ static bool txq_no_listen; /* BLE_SCAN result: sleep right after sending */
+ static size_t txq_len[TXQ_MAX];
+ static bool txq_alt[TXQ_MAX]; /* goes out on alt_net */
++static uint8_t txq_kind[TXQ_MAX], txq_j[TXQ_MAX]; /* 0.9.8: for the field log */
+ static int txq_n, txq_i;
+ static int tx_tries;
+ static uint32_t report_cycle;
+@@ -1552,6 +1574,7 @@ static uint32_t sleep_s_now(void)
+ static void check_rx_close(void)
+ {
+ 	if (check_rx) {
++		fl_win(FLW_CHECK, false, (uint32_t)(k_uptime_get() - check_rx_ms), chk_k, n_report);
+ 		check_rx = false;
+ 		check_rx_over = false;
+ 		k_timer_stop(&check_tmr);
+@@ -1561,7 +1584,14 @@ static void check_rx_close(void)
+ 
+ static void go_to_sleep(void)
+ {
++	if (phase == PH_LISTEN && listen_start_ms) {
++		fl_win(FLW_LISTEN, false, (uint32_t)(k_uptime_get() - listen_start_ms), cfg.listen_s, sent_acked);
++	}
+ 	check_rx_close();
++	if (wake_start_ms) {
++		fl_win(FLW_WAKE, false, (uint32_t)(k_uptime_get() - wake_start_ms), fl_rx_n, fl_own_n);
++	}
++	lt_fl_flush(); /* 0.9.8: the wake-up's records to flash before the sleep */
+ 	check_wait = false;
+ 	check_cmd = false;
+ #if IS_ENABLED(CONFIG_BT_OBSERVER)
+@@ -1648,6 +1678,8 @@ static void go_to_sleep(void)
+ static void txq_reset(void)
+ {
+ 	memset(txq_alt, 0, sizeof(txq_alt));
++	memset(txq_kind, 0, sizeof(txq_kind));
++	memset(txq_j, 0, sizeof(txq_j));
+ 	txq_n = 0;
+ 	txq_i = 0;
+ 	tx_tries = 0;
+@@ -1667,6 +1699,7 @@ static void try_tx(void)
+ 		radio_home();
+ 	}
+ 	if (radio.startSendRaw(txq[txq_i], (int)txq_len[txq_i])) {
++		fl_tx(txq[txq_i], txq_len[txq_i], txq_kind[txq_i], txq_j[txq_i], txq_alt[txq_i]);
+ 		phase = PH_TX;
+ 		tx_start_ms = k_uptime_get();
+ 		flood_count();
+@@ -1678,6 +1711,7 @@ static void try_tx(void)
+ 	}
+ 	if (++tx_tries > 30) {
+ 		LOG_WRN("TX refused 30x, dropping packet %d of %d", txq_i + 1, txq_n);
++		ev_log(EVT_TXDROP, (uint8_t)txq_i, (uint8_t)txq_n, 0, 0);
+ 		if (txq_i == 0) {
+ 			hist_cur.flags |= HF_DROPPED;
+ 		}
+@@ -1721,6 +1755,7 @@ static void tx_finished(void)
+ 	} else {
+ 		phase = PH_LISTEN;
+ 		listen_start_ms = k_uptime_get();
++		fl_win(FLW_LISTEN, true, 0, cfg.listen_s, 0);
+ 		k_timer_start(&listen_timer, K_SECONDS(cfg.listen_s), K_NO_WAIT);
+ 		k_timer_start(&retx_timer, K_MSEC(RETX_AFTER_MS), K_NO_WAIT);
+ 	}
+@@ -1740,6 +1775,7 @@ static bool txq_add_nostr(const uint8_t *frame, size_t len)
+ 	if (!w) {
+ 		return false;
+ 	}
++	txq_kind[txq_n] = FLK_NOSTR;
+ 	txq_len[txq_n++] = w + 2;
+ 	return true;
+ }
+@@ -1822,6 +1858,8 @@ static bool txq_add_report(const lt_report_t *r, uint32_t n, uint8_t j)
+ 	if (!l) {
+ 		return false;
+ 	}
++	txq_kind[txq_n] = FLK_REPORT;
++	txq_j[txq_n] = j;
+ 	txq_len[txq_n++] = l;
+ 	return true;
+ }
+@@ -2280,6 +2318,8 @@ static void send_report(bool with_fix, const lt_wake_out_t *d)
+ 		size_t l = lt_build_extra_packet(keys.k.view, cfg.channel_mode ? chan_key : nullptr, n_cur, LT_J_WIFI,
+ 						 wifi_pt, LT_REPORT_PT_LEN, txq[txq_n], sizeof(txq[0]));
+ 		if (l) {
++			txq_kind[txq_n] = FLK_EXTRA;
++			txq_j[txq_n] = LT_J_WIFI;
+ 			txq_len[txq_n++] = l;
+ 		}
+ 	}
+@@ -2315,6 +2355,9 @@ static int64_t lost_disc_ms;   /* its start, for the energy estimate */
+ static void wake_finish(bool with_fix)
+ {
+ 	k_timer_stop(&fix_timer);
++	if (gps_wait) {
++		fl_gps(FLG_STOPPED, 0); /* the search ended without a fix or a timeout (owner, command) */
++	}
+ 	gps_wait = false;
+ 	lost_scan_pending = false;
+ 	lost_disc_wait = false;
+@@ -2434,6 +2477,10 @@ static void start_report(void)
+ 	 * there is still answered); the heartbeat still reports */
+ 	listen_only = sched_keyed() && !wake_forced && !low_forced && chk_k && !chk_hb &&
+ 		      (!lt_wake_reports(chk_k, chk_every) || over_cap());
++	fl_rx_n = 0;
++	fl_own_n = 0;
++	fl_win(FLW_WAKE, true, 0, chk_hb ? 0xFFFFu : chk_k,
++	       (listen_only ? 1u : 0u) | (wake_forced ? 2u : 0u) | (low_forced ? 4u : 0u) | (sched_keyed() ? 8u : 0u));
+ 	if (sched_keyed() && !wake_forced && chk_k && !chk_hb && cfg.check_s) {
+ 		/* 0.7: check k after report n: receive from t_k - g_k to t_k + window + g_k, alongside the
+ 		 * GPS search and the Bluetooth scan (window: check_s scaled to the preset, 0.7.3) */
+@@ -2447,6 +2494,7 @@ static void start_report(void)
+ 			check_rx = true;
+ 			check_rx_over = false;
+ 			check_rx_ms = k_uptime_get();
++			fl_win(FLW_CHECK, true, (uint32_t)left, chk_k, n_report);
+ 			k_timer_start(&check_tmr, K_MSEC(left), K_NO_WAIT);
+ 			LOG_INF("check %u after n=%u: listening %lld ms%s", chk_k, n_report, (long long)left,
+ 				listen_only ? " (only listening)" : "");
+@@ -2502,6 +2550,8 @@ static void start_report(void)
+ 						: cfg.fix_timeout_s;
+ 		k_timer_start(&fix_timer, K_SECONDS(to), K_NO_WAIT);
+ 		gps_wait = true;
++		fl_gps_ms = k_uptime_get();
++		fl_gps(FLG_START, to);
+ 		LOG_INF("waiting up to %u s for a fix", to);
+ 		/* Indoors last time: ask the repeaters around while the GPS searches.
+ 		 * One 8-byte zero-hop packet; answers come within seconds. LOST with a fix sends
+@@ -2574,6 +2624,7 @@ static void gps_fix_cb(double lat, double lon, int64_t utc)
+ 	fix_lon = lon;
+ 	fix_alt_m = pos.altitude_mm / 1000;
+ 	fix_time = utc > 0 ? (uint32_t)utc : now_unix();
++	fl_gps(FLG_FIX, 0);
+ 	first_fix_pending = false;
+ 	if (fix_time) {
+ 		/* the next report without a fix carries this (with its GPS time) */
+@@ -2730,6 +2781,7 @@ static void handle_rx(void)
+ 
+ 	while ((len = radio.recvRaw(buf, sizeof(buf))) > 0) {
+ 		mesh_scan_record(buf, (size_t)len, (int16_t)radio.getLastRSSI(), (int8_t)radio.getLastSNR());
++		fl_rx(buf, (size_t)len, (int16_t)radio.getLastRSSI(), radio.getLastSNR());
+ 		if (phase == PH_LISTEN && !radio.hasRadioOverride()) {
+ 			home_heard = true;
+ 		}
+@@ -4028,6 +4080,8 @@ static size_t ble_result_packets(uint32_t n, size_t max_packets, uint8_t seconds
+ 						 (uint8_t)(LT_J_BLE + k), pts[k], LT_BLE_PT_LEN, txq[txq_n], sizeof(txq[0]));
+ 		if (l) {
+ 			txq_alt[txq_n] = false;
++			txq_kind[txq_n] = FLK_EXTRA;
++			txq_j[txq_n] = (uint8_t)(LT_J_BLE + k);
+ 			txq_len[txq_n++] = l;
+ 			q++;
+ 		}
+@@ -4840,6 +4894,9 @@ static bool disc_start(uint32_t sec, bool quiet)
+ 		mesh_scanning = false;
+ 		return false;
+ 	}
++	fl_tx(pkt, sizeof(pkt), FLK_DISCOVER, 0, false);
++	fl_disc_ms = k_uptime_get();
++	fl_win(FLW_DISCOVER, true, 0, sec, 0);
+ 	side_tx_pending = true;
+ 	k_timer_start(&scan_timer, K_SECONDS(sec), K_NO_WAIT);
+ 	return true;
+@@ -4900,6 +4957,10 @@ static void fill_neighbours(lt_report_t *r)
+ static void scan_end(void)
+ {
+ 	if (mesh_scanning) {
++		if (fl_disc_ms) {
++			fl_win(FLW_DISCOVER, false, (uint32_t)(k_uptime_get() - fl_disc_ms), 0, 0);
++			fl_disc_ms = 0;
++		}
+ 		mesh_scanning = false;
+ 		disc_tag = 0;
+ 		{
+@@ -4956,7 +5017,7 @@ static bool bcon_authed(void) { return false; }
+  * firmware update, the USB unlock, and blepair (it needs the connection the console uses). */
+ static bool cli_ble_denied(const char *c, int argc)
+ {
+-	static const char *const deny[] = {"dfu", "newkey", "lock", "unpair", "challenge", "auth", "blepair", "wdtest"};
++	static const char *const deny[] = {"dfu", "newkey", "lock", "unpair", "challenge", "auth", "blepair", "wdtest", "fieldlog"};
+ 
+ 	if (!strcmp(c, "key")) {
+ 		return argc >= 2; /* `key` alone is `status` */
+@@ -5261,6 +5322,203 @@ static void ev_log(uint8_t type, uint8_t a, uint8_t b, uint16_t c, uint32_t x)
+ 	e.c = c;
+ 	e.x = x;
+ 	ring_append(&ev_ring, &e);
++	{
++		/* 0.9.8: every event also goes to the field log */
++		uint8_t r[LT_FL_REC] = {};
++
++		fl_hdr(r, FL_EVT);
++		r[16] = type;
++		r[17] = a;
++		r[18] = b;
++		r[19] = e.quiet;
++		sys_put_le16(c, r + 20);
++		r[22] = e.flags;
++		sys_put_le32(x, r + 24);
++		sys_put_le32(n_cur, r + 28);
++		sys_put_le16(e.batt_mv, r + 32);
++		lt_fl_put(r);
++		if (type == EVT_REBOOT || type == EVT_STALL) {
++			lt_fl_flush(); /* a reset follows */
++		}
++	}
++}
++
++/* ------------------------------------------------------------------ field log (0.9.8)
++ * 48 B records, little endian, decoded by `libretag fieldlog` (host/src/libretag/fieldlog.py):
++ *   0 magic F1, 1 type, 2 phase, 3 mode, 4 u32 seq, 8 u32 uptime ms, 12 u32 unix s (0 unknown)
++ * FL_TX  16 u32 n_report, 20 kind, 21 j, 22 header byte, 23 path-length byte, 24 total length,
++ *        25 flags (1 alt network, 2 scoped, 4 USB power, 8 over the flood cap, 16 fix this wake-up,
++ *        32 an older fix), 26 u16 est. airtime ms, 28 u16 battery mV, 30 floods_24h (max 255),
++ *        31 satellites, 32 u32 hash, 36 u16 fix age s (FFFF none), 38 u16 transport code,
++ *        40 char[8] region (not NUL-terminated at 8)
++ * FL_RX  16 header byte, 17 path-length byte, 18 total length, 19 match (FLM_*; |0x80 path cut,
++ *        |0x40 heard on the alternate radio), 20 i8 SNR x4, 21 u8 -RSSI, 22 u16 transport code,
++ *        24 u32 hash, 28 path[12] (all, or the first 9 and the last 3 bytes when longer),
++ *        40 extra[8]: advert key[4] + type; discover answer key[4] + their SNR x4
++ * FL_WIN 16 kind (FLW_*), 17 1 open / 0 close, 20 u32 duration ms (close; check open: its
++ *        length), 24 u32 a, 28 u32 b (wake open: k, flags; wake close: packets, own copies;
++ *        listen: listen_s, relayed; check: k, n_report; discover open: seconds)
++ * FL_GPS 16 result (FLG_*), 17 satellites, 18 cold start pending, 20 u32 search ms,
++ *        24 i32 lat e7, 28 i32 lon e7, 32 i16 alt m, 36 u32 fix time, 40 u16 timeout s
++ * FL_EVT 16 EVT_* type, 17 a, 18 b, 19 quiet, 20 u16 c, 22 flags, 24 u32 x, 28 u32 n, 32 u16 mV
++ * The hash is CRC-32 (IEEE) of the payload type byte and the payload after the path, so a copy of
++ * our own report repeated by a repeater has the hash of the TX record. */
++static void fl_hdr(uint8_t *r, uint8_t type)
++{
++	r[1] = type;
++	r[2] = (uint8_t)phase;
++	r[3] = (uint8_t)mode;
++	sys_put_le32((uint32_t)k_uptime_get(), r + 8);
++	sys_put_le32(now_unix(), r + 12);
++}
++
++/* header, transport code, path and hash of a raw packet; false if it does not parse */
++static bool fl_parse(const uint8_t *b, size_t n, uint16_t *tcode, size_t *path_o, size_t *path_bytes,
++		     uint32_t *hash)
++{
++	if (n < 2) {
++		return false;
++	}
++	uint8_t route = b[0] & 0x03, ptype = (b[0] >> 2) & 0x0F;
++	size_t o = 1;
++
++	*tcode = 0;
++	if (route == 0x00 || route == 0x03) {
++		if (n < 6) {
++			return false;
++		}
++		*tcode = sys_get_le16(b + 1);
++		o += 4;
++	}
++	uint8_t pl = b[o++];
++	size_t pb = (size_t)((pl >> 6) + 1) * (pl & 0x3F);
++
++	if (n < o + pb) {
++		return false;
++	}
++	*path_o = o;
++	*path_bytes = pb;
++	*hash = crc32_ieee_update(crc32_ieee(&ptype, 1), b + o + pb, n - o - pb);
++	return true;
++}
++
++static void fl_tx(const uint8_t *pkt, size_t len, uint8_t kind, uint8_t j, bool alt)
++{
++	uint8_t r[LT_FL_REC] = {};
++	uint16_t tc = 0;
++	size_t po = 1, pb = 0;
++	uint32_t h = 0;
++	struct gps_state_info gi;
++	const char *scope = alt ? alt_net.scope : cfg.scope;
++
++	fl_hdr(r, FL_TX);
++	fl_parse(pkt, len, &tc, &po, &pb, &h);
++	gps_get_state_info(&gi);
++	sys_put_le32(n_report, r + 16);
++	r[20] = kind;
++	r[21] = j;
++	r[22] = pkt[0];
++	r[23] = len > po - 1 ? pkt[po - 1] : 0;
++	r[24] = (uint8_t)MIN(len, 255U);
++	r[25] = (alt ? 1 : 0) | (scope && scope[0] ? 2 : 0) | (board.isExternalPowered() ? 4 : 0) |
++		(over_cap() ? 8 : 0) | (fix_valid ? 16 : 0) | (!fix_valid && cfg.last_fix_time ? 32 : 0);
++	sys_put_le16((uint16_t)MIN(radio.getEstAirtimeFor((int)len), 65535U), r + 26);
++	sys_put_le16(board.getBattMilliVolts(), r + 28);
++	r[30] = (uint8_t)MIN(floods_24h(), 255U);
++	r[31] = (uint8_t)MIN(gi.satellites, 255);
++	sys_put_le32(h, r + 32);
++	sys_put_le16((uint16_t)MIN(gi.last_fix_age_s, 65535U), r + 36);
++	sys_put_le16(tc, r + 38);
++	if (scope) {
++		strncpy((char *)r + 40, scope, 8);
++	}
++	lt_fl_put(r);
++}
++
++static void fl_rx(const uint8_t *b, size_t n, int16_t rssi, float snr)
++{
++	uint8_t r[LT_FL_REC] = {};
++	uint16_t tc = 0;
++	size_t po = 1, pb = 0;
++	uint32_t h = 0;
++	uint8_t m = FLM_NONE;
++
++	fl_rx_n++;
++	fl_hdr(r, FL_RX);
++	r[16] = b[0];
++	r[18] = (uint8_t)MIN(n, 255U);
++	r[20] = (uint8_t)(int8_t)CLAMP((int)lroundf(snr * 4.0f), -128, 127);
++	r[21] = (uint8_t)CLAMP(-(int)rssi, 0, 255);
++	if (fl_parse(b, n, &tc, &po, &pb, &h)) {
++		uint8_t ptype = (b[0] >> 2) & 0x0F;
++		const uint8_t *pay = b + po + pb;
++		size_t pn = n - po - pb;
++		const uint8_t *gp;
++		size_t gl;
++
++		r[17] = b[po - 1];
++		sys_put_le16(tc, r + 22);
++		sys_put_le32(h, r + 24);
++		if (pb <= 12) {
++			memcpy(r + 28, b + po, pb);
++		} else {
++			memcpy(r + 28, b + po, 9);
++			memcpy(r + 37, b + po + pb - 3, 3);
++			m |= 0x80;
++		}
++		if (sent_payload_len && (gl = lt_packet_grp_payload(b, n, &gp)) == sent_payload_len &&
++		    !memcmp(gp, sent_payload, gl)) {
++			m |= FLM_OWN;
++			fl_own_n++;
++		} else if ((b[0] & 0x03) == 0x02 && ptype == 0x0B && n >= 16 && b[1] == 0 && (b[2] & 0xF0) == 0x90) {
++			m |= FLM_DISC;
++			memcpy(r + 40, b + 8, 4);
++			r[44] = b[3];
++		} else if (ptype == 0x04 && pn >= 101) {
++			m |= FLM_ADVERT;
++			memcpy(r + 40, pay, 4);
++			r[44] = pay[100] & 0x0F;
++		}
++	}
++	if (radio.hasRadioOverride()) {
++		m |= 0x40;
++	}
++	r[19] = m;
++	lt_fl_put(r);
++}
++
++static void fl_win(uint8_t kind, bool open, uint32_t dur_ms, uint32_t a, uint32_t b)
++{
++	uint8_t r[LT_FL_REC] = {};
++
++	fl_hdr(r, FL_WIN);
++	r[16] = kind;
++	r[17] = open ? 1 : 0;
++	sys_put_le32(dur_ms, r + 20);
++	sys_put_le32(a, r + 24);
++	sys_put_le32(b, r + 28);
++	lt_fl_put(r);
++}
++
++static void fl_gps(uint8_t result, uint32_t timeout_s)
++{
++	uint8_t r[LT_FL_REC] = {};
++	struct gps_position pos;
++
++	gps_get_position(&pos);
++	fl_hdr(r, FL_GPS);
++	r[16] = result;
++	r[17] = (uint8_t)MIN(pos.satellites, 255);
++	r[18] = first_fix_pending ? 1 : 0;
++	sys_put_le32(fl_gps_ms && result != FLG_START ? (uint32_t)(k_uptime_get() - fl_gps_ms) : 0, r + 20);
++	if (result == FLG_FIX) {
++		sys_put_le32((uint32_t)(int32_t)llround(fix_lat * 1e7), r + 24);
++		sys_put_le32((uint32_t)(int32_t)llround(fix_lon * 1e7), r + 28);
++		sys_put_le16((uint16_t)(int16_t)CLAMP(fix_alt_m, -32768, 32767), r + 32);
++		sys_put_le32(fix_time, r + 36);
++	}
++	sys_put_le16((uint16_t)MIN(timeout_s, 65535U), r + 40);
++	lt_fl_put(r);
+ }
+ 
+ /* the boot record: once, after the file system and the state are loaded */
+@@ -5270,6 +5528,7 @@ static void boot_record(void)
+ 	struct lt_crumb p;
+ 	struct zephcore_crash cr;
+ 
++	lt_fl_init(); /* 0.9.8, before the boot's own event */
+ 	ring_init(&boot_ring);
+ 	ring_init(&ev_ring);
+ 	r.magic = BOOT_MAGIC;
+@@ -5442,7 +5701,7 @@ static const char *evt_name(uint8_t t)
+ {
+ 	static const char *const names[] = {"?",      "boot",   "alive", "quiet",  "active", "mode",
+ 					    "net",    "still",  "moving", "txfail", "txfloor", "cap",
+-					    "clock",  "reboot", "blecon", "cmd",    "stall"};
++					    "clock",  "reboot", "blecon", "cmd",    "stall",  "txdrop"};
+ 
+ 	return t < ARRAY_SIZE(names) ? names[t] : "?";
+ }
+@@ -6299,7 +6558,7 @@ static void cli_exec(char *l)
+ 		out("status | version | selftest | challenge | auth <hex> | lock | unpair | key <hex64> | newkey\r\n");
+ 		out("report | interval <min> | listen <s> | fixto <s> | check <s>\r\n");
+ 		out("still <after> <heartbeat_h> | still off | heartbeat zone|owner <h>\r\n");
+-		out("log [count] | history [from_n] | boots [count] | events [count]\r\n");
++		out("log [count] | history [from_n] | boots [count] | events [count] | fieldlog [dump [seq]|clear]\r\n");
+ 		out("track <interval_s> <minutes> | idle | transport channel|stealth\r\n");
+ 		out("radio <MHz> <bwkHz> <sf> <cr> | power <dBm> | pathhash 1|2|3 | region <name>|none\r\n");
+ 		out("network [auto|manual] | where <lat> <lon> | test [count] [interval_s] | gps | reboot\r\n");
+@@ -6536,6 +6795,39 @@ static void cli_exec(char *l)
+ 			    h->flags2 & HF2_WIFI ? "wifi " : "", h->flags2 & HF2_BLE ? "ble" : "");
+ 		});
+ 		out("END\r\n");
++	} else if (!strcmp(c, "fieldlog")) {
++		/* 0.9.8: fieldlog [info] | dump [from_seq] | clear (USB only: it holds positions) */
++		if (argc >= 2 && !strcmp(argv[1], "dump")) {
++			static uint32_t from;
++			static char hx[2 * LT_FL_REC + 1];
++
++			from = argc >= 3 ? (uint32_t)strtoul(argv[2], NULL, 10) : 0;
++			out("FIELDLOG %u\r\n", LT_FL_REC);
++			uint32_t cnt = lt_fl_each(
++				[](const uint8_t *rec, void *) {
++					if (sys_get_le32(rec + 4) < from) {
++						return;
++					}
++					hex(hx, rec, LT_FL_REC);
++					out("FL %s\r\n", hx);
++				},
++				nullptr);
++			out("END %u\r\n", (unsigned)cnt);
++		} else if (argc >= 2 && !strcmp(argv[1], "clear")) {
++			lt_fl_clear();
++			out("OK fieldlog cleared\r\n");
++		} else {
++			struct lt_fl_info fi;
++
++			lt_fl_get_info(&fi);
++			out("fieldlog %s file=%s rec=%u B records=%u of %u..%u next_seq=%u buffered=%u lost=%u errors=%u "
++			    "flushes=%u\r\n",
++			    fi.ready ? "on" : "off", fi.path, LT_FL_REC, (unsigned)fi.count, (unsigned)fi.seg_recs,
++			    (unsigned)(2 * fi.seg_recs), (unsigned)fi.seq, (unsigned)fi.buffered, (unsigned)fi.lost,
++			    (unsigned)fi.errors, (unsigned)fi.flushes);
++			out("volume %u KB, free %u KB, log %u KB\r\n", (unsigned)fi.vol_kb, (unsigned)fi.free_kb,
++			    (unsigned)(fi.count * LT_FL_REC / 1024));
++		}
+ 	} else if (!strcmp(c, "boots") || !strcmp(c, "events")) {
+ 		/* 0.9.7: boots [count] (default 16), events [count] (default 30), oldest first */
+ 		static uint32_t want, total, skip;
+@@ -6990,6 +7282,7 @@ int main(void)
+ 		}
+ 		if ((ev & EV_FIX_TIMEOUT) && phase == PH_WAIT_FIX) {
+ 			gps_wait = false;
++			fl_gps(FLG_TIMEOUT, 0);
+ 			LOG_INF("no fix in time");
+ 			/* The long cold-start window is spent once; indoors it would otherwise
+ 			 * keep the GPS on for minutes at every wake-up. */
+@@ -7062,6 +7355,7 @@ int main(void)
+ 			 * it drop the copy, so this costs the mesh nothing when it was not needed) */
+ 			retx_done = true;
+ 			if (radio.startSendRaw(txq[0], (int)txq_len[0])) {
++				fl_tx(txq[0], txq_len[0], FLK_RETX, txq_j[0], txq_alt[0]);
+ 				side_tx_pending = true;
+ 				flood_count();
+ 				LOG_INF("report not relayed, sent again");

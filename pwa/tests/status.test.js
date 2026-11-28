@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { hexToBytes } from '../src/lib/bytes.js';
 import * as L from '../src/lib/lt2.js';
+import * as Q from '../src/lib/quietmesh.js';
 import { setLang } from '../src/lib/i18n.js';
-import { checkPlan, checkSOf, inferIntervalMin, intervalMinOf, reportEveryOf, nextAt, nextCheck, positionText, slip, sortTags, statusOf, statusText, statusSub, timelineDays, queuedText } from '../src/lib/status.js';
+import { checkPlan, checkSOf, scheduleUnknown, inferIntervalMin, intervalMinOf, reportEveryOf, nextAt, nextCheck, positionText, slip, sortTags, statusOf, statusText, statusSub, timelineDays, queuedText } from '../src/lib/status.js';
 
 const V = JSON.parse(readFileSync(new URL('../../host/tests/vectors/lt2.json', import.meta.url)));
 const chain = new L.KeyChain(hexToBytes(V.k0));
@@ -59,12 +60,14 @@ describe('position sentences are honest about the web version', () => {
   });
 });
 
-describe('0.7 quiet with checks: two times', () => {
-  const q = (o) => pos({ n: 201, quiet: true, quietReason: 'zone', checks: true, nextInS: 28800, receivedAt: NOW - 60_000, ...o });
-  it('computes the next check from the keyed schedule and shows it before the heartbeat', () => {
-    const t = tag([q()], { lastN: 201, intervalMin: 60 });
+describe('slots of the anchor (0.10.0): two times', () => {
+  const q = (o) => pos({ n: 201, quiet: true, quietReason: 'zone', sync: true, nextInS: 28800, receivedAt: NOW - 60_000, ...o });
+  const anchor = { a: { n: 201, t0: NOW - 60_000 }, cands: [], lastN: 201, seen: {}, known: true };
+  const slotOffs = (n, baseS, count) => Q.slotOffsets(Q.slotKey(chain.cmd(L.epoch(n)), n), baseS, count);
+  it('computes the next slot from the anchor\'s grid and shows it before the heartbeat', () => {
+    const t = tag([q()], { lastN: 201, intervalMin: 60, anchor });
     const plan = checkPlan(t);
-    const offs = L.checkOffsets(chain.cmd(L.epoch(201)), 201, 3600, 12, 28800);
+    const offs = slotOffs(201, 3600, 12);
     expect(plan.offsetsS.slice(0, 3)).toEqual(offs.slice(0, 3));
     expect(nextCheck(plan, NOW).at).toBe(NOW - 60_000 + offs[0] * 1000);
     const s = statusOf(t, NOW);
@@ -79,7 +82,7 @@ describe('0.7 quiet with checks: two times', () => {
     expect(checkSOf(tag([q()], { extra: { check_s: 0 } }))).toBe(0);
   });
   it('without a known interval there is no check time, only the heartbeat', () => {
-    const t = tag([q()], { lastN: 201 });
+    const t = tag([q()], { lastN: 201, anchor });
     expect(checkPlan(t)).toBeNull();
     expect(statusOf(t, NOW).nextCheckAt).toBeNull();
   });
@@ -90,20 +93,20 @@ describe('0.7 quiet with checks: two times', () => {
     expect(inferIntervalMin([pos({ nextInS: 3600 }), q()])).toBe(60);
   });
   it('0.7.3 report every 3rd wake-up: checks between normal reports, next report at next_in', () => {
-    const p = pos({ n: 201, checks: true, nextInS: 10800, receivedAt: NOW - 60_000 });
-    const t = tag([p], { lastN: 201, intervalMin: 60, extra: { report_every: 3 } });
+    const p = pos({ n: 201, sync: true, nextInS: 10800, receivedAt: NOW - 60_000 });
+    const t = tag([p], { lastN: 201, intervalMin: 60, extra: { report_every: 3 }, anchor });
     expect(reportEveryOf(t)).toBe(3);
-    const offs = L.checkOffsets(chain.cmd(L.epoch(201)), 201, 3600, 12, 10800);
+    const offs = slotOffs(201, 3600, 12);
     const plan = checkPlan(t);
-    expect(plan.offsetsS).toEqual(offs);
-    expect(offs.length).toBe(2);
+    expect(plan.offsetsS.slice(0, 12)).toEqual(offs);
     const s = statusOf(t, NOW);
     expect(s.kind).toBe('OK');
     expect(s.nextCheckAt).toBe(NOW - 60_000 + offs[0] * 1000);
     expect(s.nextAt).toBe(NOW - 60_000 + 10800_000);
     expect(queuedText(t, 'BEEP', s, NOW)).toMatch(/^Beep goes out at the next check, /);
-    // reporting at every wake-up (no report_every): nothing in between
+    // no anchor: no slot time ("schedule not known")
     expect(checkPlan(tag([p], { lastN: 201, intervalMin: 60 }))).toBeNull();
+    expect(scheduleUnknown(tag([p], { lastN: 201, intervalMin: 60 }), NOW)).toBe(true);
     // the interval inferred from next_in is the report period: divided by report_every
     expect(intervalMinOf(tag([p], { extra: { report_every: 3 } }))).toBe(60);
     expect(reportEveryOf(tag([p], { extra: { report_every: 'x' } }))).toBe(1);

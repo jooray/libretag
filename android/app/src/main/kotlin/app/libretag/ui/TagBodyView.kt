@@ -279,7 +279,9 @@ class TagBodyView(ctx: Context, private val host: DetailHost) : NestedScrollView
         // Route
         if (p != null) {
             val route = ctx.vbox()
-            route.addView(ctx.text(R.style.TextAppearance_LibreTag_RowValue, TagText.route(ctx, p)))
+            // 0.14.0 (A4): the link line first: how the tag reaches the owner right now
+            TagText.link(ctx, tag)?.let { route.addView(ctx.text(R.style.TextAppearance_LibreTag_RowValue, it)) }
+            route.addView(ctx.text(R.style.TextAppearance_LibreTag_BodySmall, TagText.route(ctx, p)))
             val sub2 = when (p.via) {
                 "nostr" -> ctx.getString(R.string.route_nostr_sub)
                 "usb", "usb-quiet" -> ctx.getString(R.string.route_usb_sub)

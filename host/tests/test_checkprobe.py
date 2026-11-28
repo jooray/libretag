@@ -18,7 +18,7 @@ KEYS = Keys(bytes.fromhex(VEC["k0"]))
 
 
 def _quiet(next_in):
-    return Report(quiet=True, checks=True, next_in_s=next_in)
+    return Report(quiet=True, next_in_s=next_in)
 
 
 def test_plan_matches_checks_vectors():
@@ -38,7 +38,7 @@ def test_plan_report_every_vectors():
     for v in VEC["report_every"]:
         ce = KEYS.cmd(epoch(v["n"]))
         # a normal IDLE report with report_every > 1: checks until its next_in (wake-up `every`)
-        rep = Report(checks=True, mode=Mode.IDLE, next_in_s=v["next_in"])
+        rep = Report(mode=Mode.IDLE, next_in_s=v["next_in"])
         plan = cp.check_plan(ce, v["n"], rep, t0, v["base_s"], v["every"])
         if v["every"] <= 1:
             assert plan == []  # every wake-up reports: nothing to listen for in between
@@ -51,11 +51,10 @@ def test_plan_report_every_vectors():
         assert [s.report_wakeup for s in qp] == v["reports"]
 
 
-def test_no_plan_without_checks_or_when_reporting_every_wakeup():
+def test_no_plan_when_tracking_or_reporting_every_wakeup():
     ce = KEYS.cmd(0)
-    assert cp.check_plan(ce, 5, Report(checks=False, quiet=True, next_in_s=28800), 0, 3600, 3) == []
-    assert cp.check_plan(ce, 5, Report(checks=True, mode=Mode.TRACK, next_in_s=300), 0, 3600, 3) == []
-    assert cp.check_plan(ce, 5, Report(checks=True, next_in_s=3600), 0, 3600, 1) == []
+    assert cp.check_plan(ce, 5, Report(mode=Mode.TRACK, next_in_s=300), 0, 3600, 3) == []
+    assert cp.check_plan(ce, 5, Report(next_in_s=3600), 0, 3600, 1) == []
 
 
 def test_choose_slot_skips_report_wakeups_close_and_too_soon():

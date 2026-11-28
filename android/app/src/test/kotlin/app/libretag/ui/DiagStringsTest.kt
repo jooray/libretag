@@ -29,17 +29,17 @@ class DiagStringsTest {
     private fun args(s: String) = Regex("""%(\d)[$][sd]""").findAll(s).map { it.value }.toSet()
 
     @Test fun everyCauseHasARowAndACard() {
-        val en = load("values") + load("values", "strings.xml") + load("values", "strings_status.xml")
+        val en = load("values") + load("values", "strings.xml") + load("values", "strings_status.xml") + load("values", "strings_quiet.xml")
         for (c in Diagnosis.Cause.entries) {
             assertTrue("row for $c", DiagText.ROW.getValue(c) in en)
             assertTrue("card for $c", DiagText.CARD.getValue(c) in en)
         }
     }
 
-    @Test fun languagesAgree() {
-        val en = load("values")
+    @Test fun languagesAgree() = listOf("strings_diag.xml", "strings_quiet.xml").forEach { file ->
+        val en = load("values", file)
         for (dir in langs.drop(1)) {
-            val l = load(dir)
+            val l = load(dir, file)
             assertEquals("$dir names", en.keys, l.keys)
             for ((k, v) in en) {
                 val want = v.flatMap { args(it) }.toSet()

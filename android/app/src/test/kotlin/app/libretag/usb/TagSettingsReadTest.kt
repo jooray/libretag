@@ -65,7 +65,7 @@ class TagSettingsReadTest {
 
     @Test
     fun sameSettingsDontCount() {
-        val same = app.copy(reportEvery = 3, checkS = 30, stillAfter = 3)
+        val same = app.copy(reportEvery = 3, checkS = 30, stillAfter = 3, stillHbH = 6)
         val next = TagSettingsRead.adopt(same, TrackerStatus.parse(lines073), null)
         assertFalse(TagSettingsRead.settingsDiffer(same, next))
         assertEquals(same, next)

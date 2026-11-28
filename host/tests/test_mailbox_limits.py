@@ -303,7 +303,7 @@ def test_status_keys():
     """The Android bridge writes the same status.json keys (ReliabilityTest.HOST_STATUS_KEYS)."""
     st = make().status()
     assert set(st) == {"at", "started_at", "interval_s", "total", "last_hour", "airtime_window_s", "airtime_cap_s",
-                       "radio_silence_s", "mailbox_tags", "outbox", "counters"}
+                       "radio_silence_s", "radio", "mailbox_tags", "outbox", "counters"}
     assert set(st["total"]) == set(st["last_hour"]) == {"heard", "published", "dropped", "spam_rejected",
                                                          "sent_to_radio", "airtime_s"}
 
@@ -411,7 +411,7 @@ def test_group_closed_by_the_trackers_next_report():
     async def go():
         br = make(timed_claim_lead_s=0.05)
         await br.start()
-        await br.on_datagram(heard(p_n, 2))
+        await br.on_datagram(heard(p_n, 3))  # over 3 hops: timed sends flood (no path, no fallback)
         await br.drain()
         now = int(br.clock_ref["t"])
         for ev in group_setup(br, now, p_n, [p_n1[:4], report(1001, 1)[:4], report(1002)[:4]]):
@@ -448,7 +448,7 @@ def test_group_not_closed_by_copies_of_report_via():
         await br.on_datagram(heard(p_n, 0))
         await br.drain()
         now = int(br.clock_ref["t"])
-        for ev in group_setup(br, now, p_n, [copy[:4]], n_checks=2):
+        for ev in group_setup(br, now, p_n, [p_n[:4], copy[:4]], n_checks=2):  # the entry for n names its copies
             await br.on_relay_event(ev.to_dict(), "wss://a")
         br.clock_ref["t"] = now + 8
         await br.on_datagram(heard(copy, 0))
@@ -460,43 +460,13 @@ def test_group_not_closed_by_copies_of_report_via():
     assert not br.ledger.group_done(G) and br.stats.c["lt_group_answered"] == 0
 
 
-def test_group_heuristic_after_own_transmission_same_way():
-    p_n, other = report(1020), report(1021)
-
-    async def go(path_of_next):
-        br = make(timed_claim_lead_s=0.05)
-        await br.start()
-        await br.on_datagram(heard(p_n, 2, path=[b"\x31", b"\x32"]))
-        await br.drain()
-        now = int(br.clock_ref["t"])
-        for ev in group_setup(br, now, p_n, [], n_checks=3):
-            await br.on_relay_event(ev.to_dict(), "wss://a")
-        br.clock_ref["t"] = now + 900 - 0.05
-        br.lt2.timed_tick(br.clock_ref["t"])
-        await br.drain()
-        br.clock_ref["t"] = now + 1000
-        await br.on_datagram(heard(other, 2, path=path_of_next))
-        await br.drain()
-        br.clock_ref["t"] = now + 1800 - 0.05
-        br.lt2.timed_tick(br.clock_ref["t"])
-        await br.drain()
-        await br.stop()
-        return br, now
-
-    br, now = run(go([b"\x31", b"\x40"]))   # same first hop, same hop count: the tracker's answer
-    assert len(br.radio.sent) == 1 and br.ledger.group_done(G)
-    assert claims(br, done=True)[0]["tags"] == [["g", G], ["done", other[:4].hex()], ["at", str(now + 900)]]
-    br, _ = run(go([b"\x55", b"\x32"]))     # another first hop: some other tracker
-    assert len(br.radio.sent) == 2 and not br.ledger.group_done(G)
-
-
 def test_done_claim_needs_own_evidence():
     p_n, p_n1 = report(1030), report(1031)
 
     async def go(evidence):
         br = make(timed_claim_lead_s=0.05)
         await br.start()
-        await br.on_datagram(heard(p_n, 1))
+        await br.on_datagram(heard(p_n, 3))
         await br.drain()
         now = int(br.clock_ref["t"])
         for ev in group_setup(br, now, p_n, [p_n1[:4]], n_checks=3):
@@ -680,28 +650,30 @@ def test_outbox_drops_expired_events(tmp_path):
     assert br.ledger.outbox_size() == 0 and len(br.pool.published) == 1
 
 
-def test_watchdog_sets_fatal_after_silence():
+def test_radio_silence_is_radio_down_without_exit():
+    """R37: nothing from the radio for rx_silence_s makes the radio down (announced, hooks); the bridge never exits."""
     async def go():
         br = make()
         br.cfg.watchdog.rx_silence_s = 600
         await br.start()
         br.clock_ref["t"] += 500
-        await br.tick()
-        first = br.fatal.is_set()
+        await br.health.tick(br.clock_ref["t"])
+        first = br.health.state
         await br.on_datagram(heard(report(1130), 0))  # a frame resets it
         br.clock_ref["t"] += 500
-        await br.tick()
-        second = br.fatal.is_set()
+        await br.health.tick(br.clock_ref["t"])
+        second = br.health.state
         br.clock_ref["t"] += 700
-        await br.tick()
-        third = br.fatal.is_set()
+        await br.health.tick(br.clock_ref["t"])
+        third = br.health.state
         await br.drain()
         await br.stop()
         return first, second, third, br
 
     first, second, third, br = run(go())
-    assert (first, second, third) == (False, False, True)
-    assert "no radio frame" in br.fatal_reason
+    assert (first, second, third) == ("up", "up", "down")
+    assert br.health.reason == "rx_silence" and not br.fatal.is_set()
+
 
 
 def test_watchdog_counts_adapter_activity():

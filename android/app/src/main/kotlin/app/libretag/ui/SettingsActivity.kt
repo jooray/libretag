@@ -1,6 +1,7 @@
 package app.libretag.ui
 
 import android.content.Intent
+import app.libretag.DiagLog
 import app.libretag.ble.BleSightScan
 import android.net.Uri
 import android.os.Bundle
@@ -253,8 +254,11 @@ class SettingsActivity : ScreenActivity() {
         val f = getExternalFilesDir(null)?.resolve("libretag.log")
         if (f == null || !f.exists()) { content.snack(getString(R.string.set_log_empty)); return }
         lifecycleScope.launch {
-            val uri = FileProvider.getUriForFile(this@SettingsActivity, "$packageName.files", f)
-            startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri)
+            // the text log and the field-test JSONL files (app.libretag.DiagLog.ev) together
+            val uris = ArrayList((listOf(f) + DiagLog.fieldFiles()).map {
+                FileProvider.getUriForFile(this@SettingsActivity, "$packageName.files", it) })
+            startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND_MULTIPLE).setType("text/plain")
+                .putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), getString(R.string.set_log)))
         }
     }

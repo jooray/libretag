@@ -56,20 +56,20 @@ object BleBeaconPlan {
         return out
     }
 
-    /** [plan]: the check plan of the last report (Status.checkPlan), null when there is none. */
+    /**
+     * [plan]: the tag's confirmed grid (Status.checkPlan), null when the schedule is not known. With a
+     * grid, slot k of anchor plan.n, from the end of slot k - 1's scan; without one, K_NEXT after the
+     * last report n.
+     */
     fun target(t: Tracker, plan: CheckPlan?, now: Long): BleTarget? {
         val p = t.pending ?: return null
         if (!eligible(t)) return null
         if (p.queuedAt > 0 && now >= expiresAt(p.queuedAt, p.kind)) return null
-        val n = t.lastN
-        if (plan == null || plan.n != n) return BleTarget(n, BleCommand.K_NEXT, null)
+        if (plan == null) return BleTarget(t.lastN, BleCommand.K_NEXT, null)
         plan.offsetsS.forEachIndexed { i, off ->
             val end = plan.t0 + off * 1000L + guardMs(off) + SCAN_AFTER_MS
-            if (end > now) return BleTarget(n, i + 1, end)
+            if (end > now) return BleTarget(plan.n, i + 1, end)
         }
-        // all checks before the next report are over: quiet, the heartbeat (not a check); between
-        // reports (report_every > 1), keyed wake-up R, the one that reports
-        return if (t.last?.quiet == true) BleTarget(n, BleCommand.K_NEXT, null)
-        else BleTarget(n, plan.offsetsS.size + 1, null)
+        return BleTarget(t.lastN, BleCommand.K_NEXT, null)
     }
 }

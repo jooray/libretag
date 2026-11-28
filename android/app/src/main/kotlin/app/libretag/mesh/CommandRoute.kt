@@ -86,10 +86,14 @@ object CommandRoute {
     }
 
     /**
-     * "Near" as the app can tell it: the tag has known devices (it scans for them, and the owner's
-     * phone is usually one), or its last report was quiet because one of them was there.
+     * "Near" as the app can tell it (P10): this phone saw the tag over Bluetooth in the last 15
+     * minutes, its last report was quiet because one of the owner's devices was there, or the last
+     * report was ACKed through the own node (it heard the tag directly).
      */
-    fun isNear(knownDevices: Int, lastQuietReason: String?): Boolean = knownDevices > 0 || lastQuietReason == "owner"
+    fun isNear(bleSightAt: Long?, lastQuietReason: String?, ackedByNode: Boolean, now: Long): Boolean =
+        (bleSightAt != null && now - bleSightAt in 0..NEAR_SIGHT_MS) || lastQuietReason == "owner" || ackedByNode
+
+    const val NEAR_SIGHT_MS = 15 * 60_000L
 
     /**
      * A command that went only by local ways ([Plan.mailbox] false) and is still not acknowledged

@@ -218,6 +218,22 @@ def _console_key(args) -> tuple[bytes, str | None]:
     return bytes.fromhex(sh.usb_key), sh.id
 
 
+def _view_of(args):
+    """epoch -> V_e for `x` in the field log: from --k0-file or a stored share (any level), else None.
+    Only x goes into the output; no key does."""
+    from .lt2 import chain
+    if args.k0_file:
+        k = Keys(bytes.fromhex(Path(args.k0_file).read_text().strip()))
+        return k.view
+    from . import share
+    try:
+        sh = share.find(args.tag, Path(args.config) if args.config else None, need_console=False)
+    except LookupError:
+        return None
+    base, e0 = bytes.fromhex(sh.view), sh.epoch
+    return lambda e: chain(base, e - e0) if e >= e0 else None
+
+
 def cmd_console(args) -> None:
     """The tag's USB console, unlocked with the stored key; -c runs lines, else lines from stdin."""
     from . import console
@@ -253,6 +269,48 @@ def cmd_console(args) -> None:
                     run(line.strip())
     finally:
         port.close()
+
+
+def cmd_fieldeval(args) -> None:
+    from . import fieldeval
+
+    print(fieldeval.run(args.paths, args.timeline, args.json, args.ref, args.band, args.since, args.until, args.match))
+
+
+def cmd_fieldlog(args) -> None:
+    """Pull the tag's field-test log over USB (or decode a saved dump) into JSON lines."""
+    from . import console, fieldlog
+    if args.decode:
+        lines = Path(args.decode).read_text().splitlines()
+    else:
+        usb_key, want_id = _console_key(args)
+        try:
+            path = args.port or console.find_port()
+        except LookupError as e:
+            sys.exit(str(e))
+        port = console.open_serial(path, esp=args.esp)
+        try:
+            c = console.Console(port)
+            st = c.status()
+            if want_id and st.id and st.id != want_id:
+                sys.exit(f"{path}: this is tag {st.id}, not {want_id}")
+            if st.locked and not c.unlock(usb_key):
+                sys.exit("unlock refused")
+            lines = c.command_until(f"fieldlog dump {args.since}", "END ", max_s=args.max)
+            if args.clear:
+                print("\n".join(c.command("fieldlog clear")), file=sys.stderr)
+        finally:
+            port.close()
+        if args.raw:
+            Path(args.raw).write_text("\n".join(lines) + "\n")
+    out = fieldlog.to_jsonl(lines, _view_of(args))
+    end = next((l for l in lines if l.startswith("END ")), None)
+    if args.out:
+        Path(args.out).write_text("".join(l + "\n" for l in out))
+    else:
+        for l in out:
+            print(l)
+    print(f"# {len(out)} records{'' if end is None else ' (' + end + ')'}", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -341,6 +399,31 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--quiet", type=float, default=0.6, help="an answer ends after this many quiet seconds")
     s.add_argument("--max", type=float, default=15, help="the longest one answer may take (s)")
     s.set_defaults(func=cmd_console)
+
+    s = sub.add_parser("fieldlog", help="pull the tag's field-test log (firmware 0.9.8) as JSON lines")
+    s.add_argument("--tag")
+    s.add_argument("--k0-file")
+    s.add_argument("--config")
+    s.add_argument("--port")
+    s.add_argument("--esp", action="store_true")
+    s.add_argument("--out", help="JSONL file (default stdout); it holds positions, keep it out of the repo")
+    s.add_argument("--raw", help="also save the raw dump lines here")
+    s.add_argument("--decode", help="decode a saved raw dump instead of reading the tag")
+    s.add_argument("--since", type=int, default=0, help="only records with seq >= this")
+    s.add_argument("--clear", action="store_true", help="clear the log on the tag after a complete dump")
+    s.add_argument("--max", type=float, default=900, help="longest the dump may take (s)")
+    s.set_defaults(func=cmd_fieldlog)
+
+    s = sub.add_parser("fieldeval", help="merge tag, bridge and app field logs into one timeline and summary")
+    s.add_argument("paths", nargs="+", help="JSONL files or directories (tag fieldlog, bridge-*.jsonl, app-*.jsonl)")
+    s.add_argument("--timeline", help="write the merged timeline (JSONL, one line per report copy; holds positions)")
+    s.add_argument("--json", action="store_true", help="summary as JSON")
+    s.add_argument("--ref", help="lat,lon for the coverage distance bands (default: the first position)")
+    s.add_argument("--band", type=float, default=500.0, help="coverage band width in metres")
+    s.add_argument("--since", type=float, help="unix s")
+    s.add_argument("--until", type=float, help="unix s")
+    s.add_argument("--match", type=float, default=30.0, help="pair a tag tx with a bridge hearing within this many s")
+    s.set_defaults(func=cmd_fieldeval)
 
     args = p.parse_args(argv)
     logging.basicConfig(

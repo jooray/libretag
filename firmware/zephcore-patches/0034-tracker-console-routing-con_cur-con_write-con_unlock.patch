@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Wed, 18 Nov 2026 14:44:29 +0100
-Subject: [PATCH 34/42] tracker: console routing (con_cur, con_write,
+Subject: [PATCH 34/50] tracker: console routing (con_cur, con_write,
  con_unlocked): output goes to the console that sent the last line; no
  behaviour change
 

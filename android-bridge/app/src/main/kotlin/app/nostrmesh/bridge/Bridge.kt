@@ -1,5 +1,6 @@
 package app.nostrmesh.bridge
 
+import app.nostrmesh.FieldLog
 import app.nostrmesh.frames.FrameException
 import app.nostrmesh.frames.Frames
 import app.nostrmesh.frames.Fragments
@@ -9,6 +10,7 @@ import app.nostrmesh.libretag.Election
 import app.nostrmesh.libretag.Lt2
 import app.nostrmesh.libretag.Mailbox
 import app.nostrmesh.libretag.Market
+import app.nostrmesh.libretag.QuietMesh
 import app.nostrmesh.nostr.Bech32
 import app.nostrmesh.libretag.ReportPaths
 import app.nostrmesh.libretag.StoredMailbox
@@ -61,9 +63,10 @@ data class BridgeConfig(
     /** A DM also goes to the recipient's inbox relays (kind 10050, else 10002 read). */
     val dmInboxRelays: Boolean = true,
     val dmInboxMax: Int = InboxRelays.MAX_EXTRA,
-    /** 0.7 checks: mailbox entries with `at` and `via` go out at `at` along a stored report path. */
+    /** Slots: mailbox entries with `at` and `via` go out at `at` by the plan of PROTOCOL.md 4.3. */
     val timedCommands: Boolean = true,
-    val reportPathTtlMs: Long = 48 * 3600_000L,
+    /** Path records live this long from their last use (R33). */
+    val reportPathTtlMs: Long = QuietMesh.PATH_RECORD_TTL_MS,
     /** The claim for a timed entry goes out this long before `at`; the election is decided at `at`. */
     val timedClaimLeadMs: Long = 5_000,
     /** A timed entry more than this late (on arrival or at sending time) is dropped. */
@@ -93,8 +96,8 @@ data class BridgeConfig(
     // Signed mailbox (PROTOCOL.md 4.2; same names and defaults as host/src/nostrmesh/config.py): no proof of work
     /** A key locks only if an event of it was here this long before the report. */
     val anchorLeadMs: Long = 60_000,
-    /** A locked key's entry for a report heard at most this long ago goes out at once (late entry). */
-    val lateMaxMs: Long = 60_000,
+    /** A locked key's entry for a report heard at most this long ago goes out at once (late entry; the tag listens 60 s). */
+    val lateMaxMs: Long = QuietMesh.LATE_MAX_MS,
     /** Distinct keys stored per report tag y (anchors and untimed entries; first seen stay). */
     val keysPerY: Int = 8,
     // PROTOCOL.md 4.1 (same names and defaults as [libretag] in host/src/nostrmesh/config.py)
@@ -102,15 +105,19 @@ data class BridgeConfig(
     val peers: List<String> = emptyList(),
     /** Networks served (announcement `d`; entries with another `r` are not stored). */
     val networks: List<String> = emptyList(),
-    /** Publish kind 4245 "heard" receipts (operator opt-in; needs the bridge key). */
-    val receipts: Boolean = false,
+    /** Publish kind 4245 receipts for reports heard directly (on by default since 0.10.0; needs the bridge key). */
+    val receipts: Boolean = true,
     val receiptsPerHour: Int = 120,
-    /** Publish kind 38244 announcements (needs the bridge key). */
+    /** Publish kind 38244 announcements (needs the bridge key): hourly, and within a minute of a radio change. */
     val announce: Boolean = true,
-    val announceIntervalMs: Long = 24 * 3600_000L,
+    val announceIntervalMs: Long = 3600_000L,
+    /** Live ACK sends per rolling hour (apart from the command budget). */
+    val acksPerHour: Int = QuietMesh.ACKS_PER_HOUR,
+    /** A zero-hop send with `both`, or a path send: the 0xFF6C flood after this without an answer. */
+    val fallbackAfterMs: Long = QuietMesh.FALLBACK_AFTER_MS,
     /** Store entries that name no bridge (no `p`). */
     val acceptOpen: Boolean = true,
-    /** Route `direct`: reversed path of a report heard this many hops away. */
+    /** Paths of at most this many repeaters (`direct_max_hops`, 2; 0 turns direct routing off). */
     val directMaxHops: Int = Market.DIRECT_MAX_HOPS,
     /** Timed transmissions use at most this share of the #libretag airtime budget. */
     val timedAirtimeShare: Double = 0.5,
@@ -121,8 +128,8 @@ data class BridgeConfig(
     /** Shown in the announcement. */
     val bridgeName: String = "",
     val appVersion: String = "",
-    /** MeshCore flood scope name (announcement `region`); [region] says whether one is set. */
-    val regionName: String = "",
+    /** MeshCore flood scopes this bridge serves, narrow first (`[radio] regions`; announcement `region` tags). */
+    val regions: List<String> = emptyList(),
     /** Drop the rest of a command group once the tracker answered (PROTOCOL.md 4 "Command groups"). */
     val groupAck: Boolean = true,
     /** A report this soon after an own timed transmission may be its answer. */
@@ -158,13 +165,13 @@ data class BridgeConfig(
     val region: Boolean = false,
     /** An event no relay took is retried this long (capped by its own `expiration`). */
     val outboxTtlMs: Long = Outbox.TTL_MS,
-    /** Nothing from the radio this long: the app reconnects the Local API client (0 = off). */
+    /** Nothing from the radio this long: radio_down, and the app reconnects the Local API client (0 = off). */
     val rxSilenceMs: Long = Watchdog.SILENCE_MS,
     /** Heartbeat: log line and status.json. */
     val heartbeatMs: Long = 3600_000L,
 ) {
     internal fun limits() = listOf(rxPerMinute, perPubkeyPerMinute, perPubkeyPerHour, dmPerHour, dmPerDevicePerHour,
-        ltRxPerMinute, ltRxPerFirstHopPerMinute, receiptsPerHour)
+        ltRxPerMinute, ltRxPerFirstHopPerMinute, receiptsPerHour, acksPerHour)
 
     companion object {
         val DEFAULT_UPLINK = setOf("road.report", "road.vote", "libretag", "dm4.ref", "dm4.full")
@@ -177,13 +184,17 @@ data class Activity(val atMs: Long, val direction: Direction, val profile: Strin
     enum class Direction { UP, DOWN, DROP, INFO }
 }
 
+/** What the radio said to one send: [error] is the Local API error code (`not_connected`, `timeout`, ...). */
+data class TxResult(val ok: Boolean, val error: String? = null)
+
 interface MeshLink {
     val maxPayload: Int
     /** `hello.capabilities` of the Local API server. */
     val capabilities: Set<String> get() = emptySet()
     /** LoRa preset reported by the server, if any (else [BridgeConfig.preset]). */
     val preset: LoRaPreset? get() = null
-    suspend fun send(channel: String, dataType: Int, payload: ByteArray, route: Route = Route.Flood): Boolean
+    /** [region]: the flood scope (null: the node's default); ignored for zero-hop and direct sends. */
+    suspend fun send(channel: String, dataType: Int, payload: ByteArray, route: Route = Route.Flood, region: String? = null): TxResult
 }
 
 interface Publisher {
@@ -218,6 +229,9 @@ data class BridgeState(
     val ltTimedAirtime: List<List<Double>> = emptyList(),
     /** When open entries went out as a flood (hourly cap). */
     val openFloods: List<Long> = emptyList(),
+    /** Radio state (SPEC 3.2 "Radio health"): "up" or "down" and since when. */
+    val radio: String = "up",
+    val radioSince: Long = 0,
 )
 
 /**
@@ -254,6 +268,7 @@ class Bridge(
             ltBudget.fraction = value.ltAirtimeFraction
             ltTimedBudget.fraction = value.ltAirtimeFraction * value.timedAirtimeShare
             if (old.peers != value.peers) peerKeys = parsePeers(value.peers)
+            radio.silenceMs = value.rxSilenceMs
         }
 
     /** Hex pubkey of [bridgeKey], or null. */
@@ -305,15 +320,11 @@ class Bridge(
     /** Called after every mailbox change (the app saves the state at once, not a minute later). */
     @Volatile var onMailboxChange: (() -> Unit)? = null
     /** y of verified kind 4243 seen on relays -> created_at (evidence for "done" claims). */
-    /** x -> report P of its first live hearing (claim proofs, late entries). */
-    private val heardP = object : LinkedHashMap<String, ByteArray>(256, 0.75f, false) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray>?) = size > 2_048
-    }
     private val relayReports = object : LinkedHashMap<String, Long>(256, 0.75f, false) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 5_000
     }
-    /** Group -> (when, entry) of this bridge's last timed transmission of it. */
-    private val timedSent = mutableMapOf<String, Pair<Long, Mailbox.Command>>()
+    /** The radio's own state (R37): detection from MeshCore Open's state, failed sends and silence. */
+    val radio = RadioHealth(config.rxSilenceMs, clock())
 
     private fun mailboxChanged() {
         changes.incrementAndGet()
@@ -352,9 +363,11 @@ class Bridge(
         ltRx = RateLimit(c.ltRxPerMinute, 60_000)
         ltRxFirstHop = RateLimit(c.ltRxPerFirstHopPerMinute, 60_000)
         receiptsHour = RateLimit(c.receiptsPerHour, 3600_000)
+        acksHour = RateLimit(c.acksPerHour, 3600_000)
     }
 
     private lateinit var receiptsHour: RateLimit
+    private lateinit var acksHour: RateLimit
 
     private val _stats = MutableStateFlow(Stats())
     val stats: StateFlow<Stats> = _stats
@@ -409,12 +422,21 @@ class Bridge(
     suspend fun onDatagram(channel: String, dataType: Int, payload: ByteArray, meta: RxMeta) {
         val now = clock()
         lastRxMs = now
-        if (channel == Frames.CHANNEL_LIBRETAG && dataType == Frames.DATA_TYPE_LIBRETAG) {
+        radioEvent(radio.onRadio(now), now)
+        if (channel == Frames.CHANNEL_LIBRETAG && (dataType == Frames.DATA_TYPE_LIBRETAG || dataType == QuietMesh.DATA_TYPE_RETRY)) {
+            if (!meta.forUs) return // a DIRECT packet with path entries left is for the next repeater
             when {
-                Lt2.isUplinkPacket(payload.size) -> onLt2Report(payload, meta, now)
+                dataType == Frames.DATA_TYPE_LIBRETAG && Lt2.isUplinkPacket(payload.size) -> onLt2Report(payload, meta, now)
                 payload.size == Lt2.COMMAND_LEN -> mailbox.heardOnAir(payload, now).let {
+                    if (dataType == QuietMesh.DATA_TYPE_RETRY) synchronized(lock) { heardFallback[payload.hex()] = now }
                     mailboxChanged()
+                    fl("rx", "xc" to payload.copyOf(4), "len" to payload.size, "dtype" to dataType, "route" to meta.route)
                     if (it != null) log(Activity.Direction.INFO, "libretag", "príkaz ${it.ys.first()} už vyslal iný most")
+                }
+                // an ACK another bridge or the owner's node sent: the same Pa is not sent again
+                dataType == Frames.DATA_TYPE_LIBRETAG && (payload.size == QuietMesh.ACK_LEN || payload.size in QuietMesh.ROUTED_ACK_LENS) -> {
+                    synchronized(lock) { heardPa[payload.copyOf(QuietMesh.ACK_LEN).hex()] = now }
+                    fl("rx", "xa" to payload.copyOf(4), "len" to payload.size, "route" to meta.route)
                 }
             }
             return
@@ -538,16 +560,96 @@ class Bridge(
         return ok
     }
 
-    // ------------------------------------------------------------------ LibreTag LT2
+    // ------------------------------------------------------------------ LibreTag LT2 (quiet mesh, PROTOCOL.md 4.3)
+
+    private fun fl(ev: String, vararg fields: Pair<String, Any?>) = FieldLog.ev(ev, *fields)
+
+    private val caps get() = mesh.capabilities
+    private val canZeroHop get() = Caps.TX_PATH_DATA in caps
+    private val canPath get() = Caps.TX_PATH_DATA in caps && Caps.RX_PATH in caps
+
+    /** Configured regions, narrow first (`[radio] regions`). */
+    private fun regions() = config.regions.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
+    /** The scope a plan names: the report's (from its record), the narrowest region, or the country (widest). */
+    private fun floodRegion(scope: String?, rec: ReportPaths.Entry?): String? = when (scope) {
+        "narrowest" -> regions().firstOrNull()
+        "country" -> regions().lastOrNull()
+        else -> when {
+            rec == null -> regions().firstOrNull()
+            rec.scope != null -> rec.scope
+            rec.route == "tflood" -> regions().firstOrNull() // scoped, but the node did not say which: the narrowest
+            rec.isDirect -> regions().firstOrNull()
+            else -> null // an unscoped report gets an unscoped reply
+        }
+    }
+
+    /** B6: hop class of a hearing (0, 1, 2, 3+, unknown). */
+    private fun hopClass(h: Int?) = when (h) { null -> "unknown"; 0 -> "0"; 1 -> "1"; 2 -> "2"; else -> "3+" }
+
+    /** Earliest time of a queued frame: the last time the node's queue was seen empty (a live frame), else now. */
+    @Volatile private var lastLiveRxMs = 0L
+
+    /** Pa heard on air -> when (a near ACK is skipped if another bridge sent the same one). */
+    private val heardPa = object : LinkedHashMap<String, Long>(64, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 2_048
+    }
+    /** y -> when an "ack sent" note of another bridge for it arrived. */
+    private val ackNotes = object : LinkedHashMap<String, Long>(64, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 2_048
+    }
+
+    /** A command sent zero-hop with `both`, or along a path: the 0xFF6C flood follows unless an answer comes. */
+    private class Fallback(
+        val cmd: Mailbox.Command, val region: String?, val armedAt: Long, val via: String?,
+        @Volatile var job: kotlinx.coroutines.Job? = null,
+    )
+    private val fallbacks = LinkedHashMap<String, Fallback>()
+    /** Pc of a 0xFF6C fallback another bridge sent (heard on air): our own fallback for it is not sent again. */
+    private val heardFallback = object : LinkedHashMap<String, Long>(64, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 2_048
+    }
+    /** Group -> (x a send of the group was for -> when that report was heard): what a later report answers (R34). */
+    private val sendRefs = object : LinkedHashMap<String, MutableMap<String, Long>>(64, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MutableMap<String, Long>>?) = size > 2_048
+    }
+    /**
+     * Group -> (x -> when heard) of live first hearings of the group's untimed y: a timed entry that falls due
+     * later checks them against its own via (R34), also when nothing was there to answer at the hearing.
+     */
+    private val groupHeard = object : LinkedHashMap<String, MutableMap<String, Long>>(64, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MutableMap<String, Long>>?) = size > 2_048
+    }
+    /** ACKs on their way, by report window (y, or `at`:key for a slot): a command for the same window waits. */
+    private val ackInFlight = HashMap<String, kotlinx.coroutines.Job>()
+    /** When the ACK of a report window was done (sent or skipped): the command keeps 300 ms after it. */
+    private val ackDoneAt = object : LinkedHashMap<String, Long>(64, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?) = size > 2_048
+    }
+
+    /** Timed sends and fallbacks in progress: the app holds a wake lock while this is above 0 (R24). */
+    private val busyCount = AtomicInteger(0)
+    val busy: Boolean get() = busyCount.get() > 0 || synchronized(lock) { fallbacks.isNotEmpty() }
+
+    private fun persist() {
+        changes.incrementAndGet()
+        onMailboxChange?.invoke()
+    }
 
     private suspend fun onLt2Report(p: ByteArray, meta: RxMeta, now: Long) {
         val y = Lt2.tag(p)
         val heardAt = meta.receivedAtMs?.coerceAtMost(now) ?: now
         val key = "lt:" + sha256(p).hex()
+        val c = caps
+        val hops = meta.hopCount(c)
+        val direct = meta.heardDirect(c)
+        // R22: a frame more than 20 s old or marked queued by the node has an approximate time
+        val live = now - heardAt <= config.liveRxMs && meta.queued != true
+        val newPacket = synchronized(lock) { ledger[key] } == null
         // own limit for new packets, so a #libretag flood does not use up the other channels' share
-        if (synchronized(lock) { ledger[key] } == null) {
+        if (newPacket) {
             // one first hop (where the packet entered the mesh) cannot use up the whole #libretag limit
-            val fh = firstHopKey(meta, mesh.capabilities)
+            val fh = firstHopKey(meta, c)
             if (fh != null && !ltRxFirstHop.allow(now, fh)) {
                 count("lt_rx_first_hop_limited")
                 return drop("libretag", "too many LibreTag packets from one repeater")
@@ -559,66 +661,92 @@ class Bridge(
             if (fh != null) ltRxFirstHop.hit(now, fh)
         }
         val dup = seenBefore(key, now)
-        if (!dup) stat { it.copy(heard = it.heard + 1) }
-        if (config.libretagCommands) { // timed entries and late entries need it
-            val caps = mesh.capabilities
-            val hops = meta.hopCount(caps)
-            val path = if (hops != null && Caps.RX_PATH in caps) meta.path else null
-            reportPaths.put(y, hops, path, meta.pathHashSize ?: 1, heardAt)
-            changes.incrementAndGet()
-        }
-        val live = now - heardAt <= config.liveRxMs
-        // Q5: only the first hearing of P triggers; a later flood copy or the tag's retransmission does not,
-        // so an entry published after the report reached the relays cannot ride on it. A variant of P with
-        // another c is a new hearing: it may lock another key (PROTOCOL.md 4.2), never remove one.
+        // Q5: only the first hearing of P triggers; a later flood copy does not, so an entry published after the
+        // report reached the relays cannot ride on it. A variant of P with another c is a new hearing: it may
+        // lock another key (PROTOCOL.md 4.2), never remove one.
         val firstX = synchronized(lock) { if (key in heardX) false else { heardX[key] = now; true } }
         val first = !dup && firstX
-        if (config.libretagCommands && live && first && p.size == Lt2.REPORT_LEN) {
-            synchronized(lock) { heardP.putIfAbsent(y, p) }
-            lockReport(p, heardAt, now)
+        if (live) lastLiveRxMs = now
+        if (!dup) {
+            stat { it.copy(heard = it.heard + 1) }
+            count("lt_rx_route_" + meta.route)
+            count("lt_rx_hops_" + hopClass(hops))
         }
-        if (config.libretagCommands && config.groupAck && live && !dup && p.size == Lt2.REPORT_LEN) groupAck(y, meta, heardAt, now)
+        fl("rx", "x" to y, "len" to p.size, "route" to meta.route, "hops" to hops,
+            "path" to FieldLog.pathList(meta.path, meta.pathHashSize), "phs" to meta.pathHashSize,
+            "scope" to meta.scope, "transport" to meta.transportCode, "snr" to meta.snrDb, "rssi" to meta.rssiDbm,
+            "rx_time" to meta.receivedAtMs?.let { it / 1000.0 }, "stale" to (now - heardAt > config.liveRxMs).takeIf { it },
+            "queued" to meta.queued, "first" to first, "heard_direct" to direct)
+        if (config.libretagCommands) {
+            val scope = if (meta.route == "tflood") QuietMesh.replyScope(meta.scope, meta.transportCode, Frames.DATA_TYPE_LIBRETAG, p, regions()) else null
+            reportPaths.put(y, hops, if (meta.isDirect) null else meta.path, meta.pathHashSize ?: 1, heardAt, meta.route,
+                if (p.size == Lt2.REPORT_LEN && live && first) p else null, scope, live)
+            persist()
+        }
+        val waiting = mailbox.hasUntimed(y) // before the downlink takes it: decides the publish delay
+        if (config.libretagCommands && live && first && p.size == Lt2.REPORT_LEN) lockReport(p, heardAt, now)
+        if (config.libretagCommands && live && !dup && p.size == Lt2.REPORT_LEN) answers(y, heardAt, now)
         // Downlink first: the tracker listens for a short while only.
-        if (config.libretagCommands && live && first) command(y, p, heardAt, meta, now)
+        if (config.libretagCommands && live && first) command(y, now)
         if (dup) return
-        val receipt = live && first && p.size == Lt2.REPORT_LEN && config.receipts && bridgeKey != null
+        val receipt = live && first && direct && p.size == Lt2.REPORT_LEN && config.receipts && bridgeKey != null
         val uplink = "libretag" in config.uplinkProfiles
         if (!receipt && !uplink) return
         val content = Base64.getEncoder().encodeToString(p)
-        val hops = meta.hopCount(mesh.capabilities)
+        // fast publish (0.3 to 0.8 s) for a report heard directly or over a path, when no untimed command waits
+        val pathOk = hops != null && hops in 1..2 && meta.floodPath(c) != null
+        val fast = live && (direct || pathOk) && !waiting
+        val (lo, hi) = if (fast) QuietMesh.FAST_PUBLISH_MIN_MS to QuietMesh.FAST_PUBLISH_MAX_MS
+            else config.reportHoldMinMs to maxOf(config.reportHoldMinMs, config.reportHoldMaxMs)
+        val delayMs = random.nextLong(lo, hi + 1)
+        // created_at = when the radio heard it (apps anchor the schedule on it); a stale frame gets the range
+        val ev = if (live) Lt2.reportEvent(p, heardAt / 1000, newKey())
+            else Lt2.reportEvent(p, now / 1000, newKey(), minOf(heardAt, lastLiveRxMs.takeIf { it > 0 } ?: now) / 1000)
+        val json = ev.toJson()
+        // R21: into the outbox at hearing time, with a not-before time, so a crash in the delay loses nothing
+        if (uplink) {
+            outbox.put(ev.id, json.toString(), key, "libretag", now, Outbox.expirationMs(json), firstTryMs = now + delayMs)
+            outboxChanged()
+            persist()
+        }
         scope.launch {
-            // the floor is above the claim wait: P reaches the relays only after the claims are decided
-            delay(random.nextLong(config.reportHoldMinMs, maxOf(config.reportHoldMinMs, config.reportHoldMaxMs) + 1))
-            if (receipt) publishReceipt(y, hops, heardAt)
+            delay(delayMs)
+            if (receipt) scope.launch { publishReceipt(y, meta.isDirect, heardAt) }
             if (!uplink) return@launch
             val already = dedup.relays(y, content, clock())
             if (already >= config.dedupMinRelays) {
+                outbox.done(ev.id)
+                outboxChanged()
                 log(Activity.Direction.INFO, "libretag", "report $y už je na $already relays")
+                fl("report_pub", "x" to y, "id" to ev.id, "skipped" to "on_relays", "relays" to already)
                 return@launch
             }
-            // created_at = when the radio heard it: apps anchor the tracker's check schedule on it (0.7)
-            val ev = Lt2.reportEvent(p, heardAt / 1000, newKey())
-            if (publishKept(ev.toJson(), "lt:" + sha256(p).hex(), "libretag", "lt_published")) {
+            val t1 = clock()
+            val ok = relays.publish(json)
+            if (ok) {
+                outbox.done(ev.id)
+                published(key, "lt_published")
                 log(Activity.Direction.UP, "libretag", if (p.size == Lt2.BLE_LEN) "BLE paket $y" else "report $y")
             } else {
+                outbox.deferred(ev.id, clock())
+                count("publish_deferred")
                 log(Activity.Direction.INFO, "libretag", "report $y: no relay took it yet, kept for a retry")
             }
+            outboxChanged()
+            fl("report_pub", "x" to y, "id" to ev.id, "created_at" to ev.createdAt, "delay_s" to (t1 - now) / 1000.0,
+                "approx" to !live, "ok" to ok, "ms" to clock() - t1, "receipt" to receipt)
         }
     }
 
-    private suspend fun publishReceipt(x: String, hops: Int?, heardAtMs: Long) {
+    private suspend fun publishReceipt(x: String, direct: Boolean, heardAtMs: Long) {
         val sk = bridgeKey ?: return
         if (!receiptsHour.hit(clock(), "")) {
             count("lt_receipts_limited")
             return
         }
-        val ev = NostrEvent.sign(sk, heardAtMs / 1000, Market.RECEIPT_KIND, Market.receiptTags(x, hops, heardAtMs / 1000), "")
+        val ev = NostrEvent.sign(sk, heardAtMs / 1000, Market.RECEIPT_KIND, Market.receiptTags(x, direct, heardAtMs / 1000), "")
         if (relays.publish(ev.toJson())) count("lt_receipts")
     }
-
-    /** The route [cmd] may go out on for a report heard over [hops] (null: its route does not allow it here). */
-    private fun entryRoute(cmd: Mailbox.Command, hops: Int?, reverse: Route.Direct?): Route? =
-        lt2EntryRoute(cmd.fmt, cmd.route, cmd.timed, hops, reverse, mesh.capabilities, config.directMaxHops)
 
     private fun pruneOpenFloods(now: Long) {
         while (openFloods.isNotEmpty() && now - openFloods.first() >= 3600_000L) openFloods.removeFirst()
@@ -646,11 +774,13 @@ class Bridge(
             log(Activity.Direction.INFO, "libretag", "report $x: key ${pk.take(12)} locked")
         }
         val keys = mailbox.locked(x)
+        fl("lock", "x" to x, "keys" to keys.size, "lead_s" to mailbox.keyLeadMs(x, keys, t)?.let { it / 1000.0 })
         if (keys.isEmpty()) {
             count("lt_lock_none")
             return
         }
         count("lt_lock")
+        persist()
         val dropped = mailbox.dropUnlocked(x, keys + cands)
         if (dropped > 0) {
             count("lt_mailbox_unsigned_dropped", dropped.toLong())
@@ -668,10 +798,41 @@ class Bridge(
         return pubkey in mailbox.lockCandidates(x, reportTime(x, rp.heardAtMs) - config.anchorLeadMs, now)
     }
 
-    private fun command(y: String, p: ByteArray, heardAt: Long, meta: RxMeta, now: Long) {
-        val caps = mesh.capabilities
-        val heardHops = meta.hopCount(caps)
-        val reverse = meta.reversePath(caps)
+    /** The stored path (tag to bridge order) of the first `via` of [cmd] that has one, with its record. */
+    private fun viaPath(cmd: Mailbox.Command, now: Long): Pair<ReportPaths.Entry, List<String>>? =
+        cmd.vias.firstNotNullOfOrNull { v ->
+            reportPaths.get(v, now)?.let { r -> r.hashes?.takeIf { it.isNotEmpty() }?.let { r to it } }
+        }
+
+    /**
+     * A plan and the hash size of the path it uses (a DIRECT arrival's path comes from its `via` record).
+     * [pathX]: for a path send, the x of the path record whose path it uses (the "ack sent" note's `via`).
+     */
+    private class Planned(val plan: QuietMesh.Plan, val hashSize: Int, val pathX: String? = null) {
+        val send get() = plan.send
+    }
+
+    private fun planFor(cmd: Mailbox.Command, rec: ReportPaths.Entry?, now: Long, blind: Boolean = false): Planned {
+        // a DIRECT arrival has no path of its own: the one stored for `via` (or under its own x) is used
+        val stored = if (rec?.isDirect == true) viaPath(cmd, now) ?: rec.hashes?.takeIf { it.isNotEmpty() }?.let { rec to it } else null
+        val plan = QuietMesh.plan(
+            if (cmd.ack) "ack" else "cmd", rec?.heard, cmd.route, viaPath = stored?.second, forms = cmd.ackForms ?: "near",
+            fb = cmd.fb, maxHops = config.directMaxHops, canZeroHop = canZeroHop, canPath = canPath, blind = blind,
+        )
+        val pathX = if (plan.send == "path") (stored?.first ?: rec)?.x else null
+        return Planned(plan, stored?.first?.hashSize ?: rec?.hashSize ?: 1, pathX)
+    }
+
+    private fun routeOf(p: Planned): Route? = when (p.plan.send) {
+        "zero-hop" -> Route.ZeroHop
+        "flood" -> Route.Flood
+        "path" -> Route.Direct(QuietMesh.pathBytes(p.plan.path), p.hashSize)
+        else -> null
+    }
+
+    /** On the first live hearing of report [y]: its ACK entries first, then its commands 300 ms later (R25: from the stores). */
+    private fun command(y: String, now: Long) {
+        val rec = reportPaths.get(y, now) ?: return
         val keys = mailbox.locked(y)
         if (keys.isEmpty()) {
             if (mailbox.hasUntimed(y)) {
@@ -680,37 +841,197 @@ class Bridge(
             }
             return
         }
+        for (a in mailbox.match(y, rec.heardAtMs, now, keys, ack = true)) sendAck(a, y, rec, now)
         // an entry its route does not allow is not taken: its y stays for a nearer bridge
-        val cmds = mailbox.match(y, heardAt, now, keys) { entryRoute(it, heardHops, reverse) != null }
+        val cmds = mailbox.match(y, rec.heardAtMs, now, keys) { planFor(it, rec, now).send != "none" }
         if (cmds.isEmpty()) {
             if (mailbox.hasUntimed(y)) log(Activity.Direction.INFO, "libretag", "command for $y asks for a nearer bridge or is not signed, not sending")
             return
         }
-        for (cmd in cmds) deliver(cmd, y, p, entryRoute(cmd, heardHops, reverse)!!, heardHops, now)
+        for (cmd in cmds) deliver(cmd, y, rec, now)
     }
 
     /**
-     * A late entry (PROTOCOL.md 4.2): an untimed entry from a key report [y] locked, arriving after the
-     * report, goes out at once while the report is at most [BridgeConfig.lateMaxMs] old.
+     * A command for the same report and window goes [QuietMesh.ACK_BEFORE_CMD_MS] after its ACK (the app set
+     * MORE): waits for an ACK still on its way under [key], then the gap. An ACK already done costs nothing.
+     */
+    private suspend fun afterAck(key: String) {
+        synchronized(lock) { ackInFlight[key] }?.join()
+        val done = synchronized(lock) { ackDoneAt[key] } ?: return
+        val wait = done + QuietMesh.ACK_BEFORE_CMD_MS - clock()
+        if (wait > 0) {
+            delay(wait)
+            count("lt_cmd_after_ack")
+        }
+    }
+
+    private fun ackJob(key: String, job: kotlinx.coroutines.Job) {
+        synchronized(lock) { ackInFlight[key] = job }
+        job.invokeOnCompletion {
+            synchronized(lock) {
+                ackDoneAt[key] = clock()
+                if (ackInFlight[key] === job) ackInFlight.remove(key)
+            }
+        }
+    }
+
+    /**
+     * A late entry (PROTOCOL.md 4.2): an untimed entry (command or ACK) from a key report [y] locked, arriving
+     * after the report, goes out at once while the report is at most [BridgeConfig.lateMaxMs] old. It uses
+     * the persisted path record and lock only, so it works across a restart (R25).
      */
     private fun late(y: String, pubkey: String, now: Long) {
         if (pubkey !in mailbox.locked(y)) return
-        val p = synchronized(lock) { heardP[y] }
-        val rp = reportPaths.get(y, now)
-        if (p == null || rp == null || now - rp.heardAtMs > config.lateMaxMs) {
+        val rec = reportPaths.get(y, now)
+        if (rec == null || !rec.live || now - rec.heardAtMs > config.lateMaxMs) {
             count("lt_cmd_late_too_late")
             return
         }
-        val meta = RxMeta(hops = rp.hops, path = rp.path?.unhex(), pathHashSize = rp.hashSize)
-        val caps = mesh.capabilities
-        val hops = if (Caps.RX_PATH in caps && meta.path != null) meta.hopCount(caps) else rp.hops
-        val reverse = meta.reversePath(caps)
-        val cmd = mailbox.match(y, now + 1, now, setOf(pubkey)) { entryRoute(it, hops, reverse) != null }.firstOrNull() ?: return
+        for (a in mailbox.match(y, now + 1, now, setOf(pubkey), ack = true)) sendAck(a, y, rec, now)
+        val cmd = mailbox.match(y, now + 1, now, setOf(pubkey)) { planFor(it, rec, now).send != "none" }.firstOrNull() ?: return
         count("lt_cmd_late")
-        deliver(cmd, y, p, entryRoute(cmd, hops, reverse)!!, hops, now)
+        deliver(cmd, y, rec, now)
     }
 
-    private fun deliver(cmd: Mailbox.Command, y: String, p: ByteArray, route: Route, heardHops: Int?, now: Long) {
+    // ------------------------------------------------------------------ ACK entries (PROTOCOL.md 4.3)
+
+    /** The ACK budget (120 an hour) has room; it is consumed in [ackSend] when an ACK actually went out. */
+    private fun ackAllowed(now: Long): Boolean {
+        if (acksHour.allow(now, "")) return true
+        count("lt_ack_limited")
+        return false
+    }
+
+    /**
+     * A live ACK entry for report [y]: the near form zero-hop after a random 100 to 600 ms (skipped if the
+     * same Pa was heard on air), or the routed form along the reversed path (a claim round of 2 s before the
+     * first routed ACK of a flood, skipped on another bridge's "ack sent" note). Never a flood.
+     */
+    private fun sendAck(a: Mailbox.Command, y: String, rec: ReportPaths.Entry, now: Long): Boolean {
+        val plan = planFor(a, rec, now)
+        if (plan.send == "none") {
+            mailbox.discard(a)
+            mailboxChanged()
+            fl("tx_skip", "xa" to a.payload.copyOf(4), "what" to "ack", "reason" to if (rec.isDirect) "not_direct" else "no_path")
+            return false
+        }
+        if (!ackAllowed(now)) {
+            fl("tx_skip", "xa" to a.payload.copyOf(4), "what" to "ack", "reason" to "hourly_cap")
+            return false
+        }
+        mailbox.take(a, now) // one live ACK per locked key and report
+        mailboxChanged()
+        busyCount.incrementAndGet()
+        ackJob(y, scope.launch {
+            try { ackSend(a, y, rec, plan, null) } finally { busyCount.decrementAndGet() }
+        })
+        return true
+    }
+
+    /** The bytes on air for an ACK entry and its plan (near form, or routed form with the path appended). */
+    private fun ackDatagram(a: Mailbox.Command, plan: QuietMesh.Plan, hashSize: Int): ByteArray? {
+        val near = a.payload.copyOf(QuietMesh.ACK_LEN)
+        return when (plan.form) {
+            "near" -> near
+            "routed" -> {
+                val pa = if (a.payload.size == QuietMesh.ACK_BOTH_LEN) a.payload.copyOfRange(13, 26) else near
+                val hashes = plan.tagPath?.map { it.unhex() ?: return null } ?: return null
+                runCatching { QuietMesh.ackRouted(pa, hashSize, hashes) }.getOrNull()
+            }
+            else -> null
+        }
+    }
+
+    /**
+     * Sends ACK entry [a] for [y] by [planned]; [atMs] for a timed ACK at a slot (no jitter, no claim, and a
+     * radio error leaves it in flight for the retry). [Tx.CANCELLED]: skipped (heard on air, claim lost).
+     */
+    private suspend fun ackSend(a: Mailbox.Command, y: String, rec: ReportPaths.Entry, planned: Planned, atMs: Long?): Tx {
+        val plan = planned.plan
+        val hs = planned.hashSize
+        val dg = ackDatagram(a, plan, hs) ?: run { mailbox.release(a); return Tx.CANCELLED }
+        val pa = dg.copyOf(QuietMesh.ACK_LEN).hex()
+        val xa = dg.copyOf(4)
+        if (plan.form == "near") {
+            if (atMs == null) delay(random.nextLong(QuietMesh.ACK_JITTER_MIN_MS, QuietMesh.ACK_JITTER_MAX_MS + 1))
+            if (synchronized(lock) { pa in heardPa } || mailbox.payloadSent(dg)) {
+                mailbox.markSent(a, clock())
+                mailboxChanged()
+                fl("tx_skip", "xa" to xa, "what" to "ack_near", "reason" to "dup_on_air")
+                return Tx.CANCELLED
+            }
+        } else if (atMs == null && !rec.isDirect) {
+            // the first routed ACK of a flood: bridges that heard it over hops claim (fewest hops wins)
+            val t0 = clock()
+            val won = claimAndWait(y, rec.hops ?: 255, QuietMesh.CLAIM_ROUTED_ACK_MS, a, rec.p?.unhex())
+            val noted = synchronized(lock) { ackNotes[y] }?.let { it >= t0 - 1_000 } == true
+            if (!won || noted) {
+                mailbox.release(a)
+                fl("tx_skip", "xa" to xa, "what" to "ack_routed", "reason" to if (noted) "ack_note" else "lost_claim")
+                return Tx.CANCELLED
+            }
+        }
+        val route = routeOf(planned) ?: return Tx.CANCELLED
+        val what = if (plan.form == "near") "ack_near" else "ack_routed"
+        val r = transmit(Frames.CHANNEL_LIBRETAG, Frames.DATA_TYPE_LIBRETAG, dg, route, "libretag", ack = true,
+            what = what, idKey = "xa", id = xa, atMs = atMs)
+        if (r != Tx.OK) {
+            if (atMs == null || r != Tx.RADIO) mailbox.release(a)
+            return r
+        }
+        val t = clock()
+        acksHour.hit(t, "") // the budget counts ACKs on air, not ones skipped as heard or lost in a claim
+        mailbox.markPayloadSent(dg, t)
+        mailbox.markSent(a, t)
+        // R33: a use of a path restarts the 48 h of the record and of its lock; a routed ACK for a DIRECT
+        // arrival (copy 11) keeps the path under the new x, so the next entry naming it as via finds it
+        if (plan.send == "path") {
+            val tagPath = plan.tagPath.orEmpty()
+            if (rec.isDirect) reportPaths.storePath(rec.x, tagPath, hs, t) else reportPaths.touch(rec.x, t)
+            mailbox.touchLocks(rec.x, t)
+            a.vias.forEach { v -> reportPaths.touch(v, t); mailbox.touchLocks(v, t) }
+            fl("path_use", "x" to rec.x, "via" to a.via, "hops" to tagPath.size, "what" to what)
+        }
+        mailboxChanged()
+        count(if (plan.form == "near") "lt_ack_near" else "lt_ack_routed")
+        log(Activity.Direction.DOWN, "libretag", "ACK pre $y (${routeText(route)})")
+        ackSentNote(y, if (plan.form == "near") 1 else 2, a.id, a.at, planned.pathX.takeIf { plan.form == "routed" })
+        return Tx.OK
+    }
+
+    /** "Ack sent" note (PROTOCOL.md 4.3): ephemeral 24244 with the bridge key; nothing waits for it. */
+    private fun ackSentNote(y: String, form: Int, entryId: String, at: Long?, via: String? = null) {
+        val sk = bridgeKey ?: return
+        // a routed one names the path record it used: the tag's next routed copy names it as via
+        val tags = listOf(listOf("y", y), listOf("ack", form.toString()), listOf("e", entryId)) +
+            listOfNotNull(via?.let { listOf("via", it) }) + listOfNotNull(at?.let { listOf("at", it.toString()) })
+        val ev = NostrEvent.sign(sk, clock() / 1000, Lt2.KIND_CLAIM, tags, "")
+        scope.launch { relays.publish(ev.toJson()) }
+    }
+
+    /** "Miss" note: a timed entry fell due and was not sent (radio, blocked, late, no_path). */
+    private fun missNote(cmd: Mailbox.Command, reason: String) {
+        count("lt_miss_$reason")
+        fl("tx_skip", (if (cmd.ack) "xa" else "xc") to cmd.payload.copyOf(4), "what" to if (cmd.ack) "ack" else "cmd",
+            "at" to cmd.at, "reason" to reason, "miss" to true)
+        val sk = bridgeKey ?: return
+        val tags = listOf(listOf("e", cmd.id)) + listOfNotNull(cmd.group?.let { listOf("g", it) }) +
+            listOfNotNull(cmd.at?.let { listOf("at", it.toString()) }) + listOf(listOf("miss", reason))
+        val ev = NostrEvent.sign(sk, clock() / 1000, Lt2.KIND_CLAIM, tags, "")
+        scope.launch { relays.publish(ev.toJson()) }
+    }
+
+    // ------------------------------------------------------------------ commands
+
+    private fun planHops(p: Planned, rec: ReportPaths.Entry?) = when (p.plan.send) {
+        "zero-hop" -> 0
+        "path" -> p.plan.path.size
+        else -> rec?.hops ?: 255
+    }
+
+    private fun deliver(cmd: Mailbox.Command, y: String, rec: ReportPaths.Entry, now: Long) {
+        val plan = planFor(cmd, rec, now)
+        val route = routeOf(plan) ?: return
         stat { it.copy(recognised = it.recognised + 1) }
         if (openFloodBlocked(cmd, route, now)) {
             count("lt_open_floods_limited")
@@ -718,27 +1039,148 @@ class Bridge(
         }
         mailbox.take(cmd, now) // once per x and key, whatever the election says
         mailboxChanged()
-        val hops = when (route) {
-            Route.ZeroHop -> 0
-            is Route.Direct -> route.hops
-            Route.Flood -> heardHops ?: 255
-        }
+        val region = if (plan.send == "flood") floodRegion(plan.plan.scope, rec) else null
         scope.launch {
-            if (!claimAndWait(y, hops, config.electionMs, cmd, p)) {
+            // the claim round before every untimed send (1.5 s, PROTOCOL.md 4.1), zero-hop included
+            if (!claimAndWait(y, planHops(plan, rec), config.electionMs, cmd, rec.p?.unhex())) {
                 mailbox.release(cmd)
                 log(Activity.Direction.INFO, "libretag", "príkaz pre $y vyšle iný most")
+                fl("tx_skip", "xc" to cmd.payload.copyOf(4), "what" to "cmd", "reason" to "lost_claim")
                 return@launch
             }
-            if (send(cmd, route)) {
+            afterAck(y) // the ACK for this report goes first, the command 300 ms after it
+            if (send(cmd, route, region, null) == Tx.OK) {
                 log(Activity.Direction.DOWN, "libretag", "príkaz pre $y (${routeText(route)})")
+                sendRef(cmd, y, rec.heardAtMs)
+                afterCommandSend(cmd, plan, rec, null)
+            }
+        }
+    }
+
+    /** After a command went out: path use (R33) and the fallback (PROTOCOL.md 4.3). */
+    private fun afterCommandSend(cmd: Mailbox.Command, planned: Planned, rec: ReportPaths.Entry?, via: String?) {
+        val t = clock()
+        val plan = planned.plan
+        if (plan.send == "path" && rec != null) {
+            reportPaths.touch(rec.x, t)
+            mailbox.touchLocks(rec.x, t)
+            cmd.vias.forEach { v -> reportPaths.touch(v, t); mailbox.touchLocks(v, t) }
+            persist()
+        }
+        if (plan.fallback) armFallback(cmd, floodRegion(plan.scope, rec), via)
+    }
+
+    private fun sendRef(cmd: Mailbox.Command, x: String, heardAtMs: Long) {
+        val g = cmd.group ?: return
+        synchronized(lock) { sendRefs.getOrPut(g) { HashMap() }[x] = heardAtMs }
+    }
+
+    private fun armFallback(cmd: Mailbox.Command, region: String?, via: String?) {
+        if (cmd.group == null) {
+            count("lt_fallback_no_group") // nothing could tell its answer (PROTOCOL.md 4.3): no fallback
+            return
+        }
+        val f = Fallback(cmd, region, clock(), via)
+        synchronized(lock) { fallbacks[cmd.id] = f }
+        fl("fallback", "xc" to cmd.payload.copyOf(4), "armed" to f.armedAt)
+        f.job = scope.launch {
+            delay(config.fallbackAfterMs)
+            if (synchronized(lock) { fallbacks.remove(cmd.id) } == null) return@launch
+            if (synchronized(lock) { cmd.payload.hex() in heardFallback }) {
+                count("lt_fallback_dup")
+                fl("tx_skip", "xc" to cmd.payload.copyOf(4), "what" to "fallback", "reason" to "dup_on_air")
+                return@launch
+            }
+            if (openFloodBlocked(cmd, Route.Flood, clock())) {
+                count("lt_open_floods_limited")
+                fl("tx_skip", "xc" to cmd.payload.copyOf(4), "what" to "fallback", "reason" to "hourly_cap")
+                return@launch
+            }
+            val r = transmit(Frames.CHANNEL_LIBRETAG, QuietMesh.DATA_TYPE_RETRY, cmd.payload, Route.Flood, "libretag",
+                timed = cmd.timed, region = region, what = "fallback", idKey = "xc", id = cmd.payload.copyOf(4))
+            fl("fallback", "xc" to cmd.payload.copyOf(4), "fired" to (r == Tx.OK), "ms" to clock() - f.armedAt)
+            fl("path_use", "xc" to cmd.payload.copyOf(4), "via" to (via ?: cmd.via), "confirmed" to false)
+            if (r == Tx.OK) {
+                count("lt_fallback_fired")
+                if (cmd.open) synchronized(lock) { openFloods.addLast(clock()) }
+                log(Activity.Direction.DOWN, "libretag", "príkaz ${cmd.ys.first()}: záložný flood (0xFF6C)")
             }
         }
     }
 
     /**
-     * Publishes a kind 24244 claim for [y] (signed with the bridge key; untimed with the proof over
-     * the report [p] heard), waits [waitMs]; true if this bridge won among the claims that count
-     * ([counts]), ranked by (index in the entry's p, hops, hash).
+     * Is a live first hearing of [x] at [heardAt] the tag's answer for group [g] (R34)? x is a y of an untimed
+     * entry of g other than [sentId], and not a sibling copy of [via] (a y of the same entry as via counts only
+     * 120 s or more after via).
+     */
+    private fun isAnswer(g: String, x: String, heardAt: Long, sentId: String?, vias: List<String>, now: Long): Boolean {
+        val e = mailbox.groupEntryOf(g, x) ?: return false
+        if (sentId != null && e == sentId) return false
+        return vias.none { v ->
+            mailbox.groupEntryOf(g, v) == e && reportPaths.get(v, now)?.let { heardAt < it.heardAtMs + QuietMesh.SIBLING_GUARD_MS } != false
+        }
+    }
+
+    /**
+     * A report of the tag heard live (any route, any hop count): it cancels a fallback it answers, and closes
+     * the groups whose timed entries it makes useless (PROTOCOL.md 4 "Command groups", 4.3 "Group done").
+     */
+    private fun answers(x: String, heardAt: Long, now: Long) {
+        if (!config.groupAck) return
+        val groups = mailbox.groupsNaming(x)
+        if (groups.isEmpty()) return
+        synchronized(lock) { for (g in groups) groupHeard.getOrPut(g) { HashMap() }[x] = heardAt }
+        val armed = synchronized(lock) { fallbacks.values.toList() }
+        for (f in armed) {
+            val g = f.cmd.group ?: continue
+            if (g !in groups || !isAnswer(g, x, heardAt, f.cmd.id, listOfNotNull(f.via) + f.cmd.vias, now)) continue
+            if (synchronized(lock) { fallbacks.remove(f.cmd.id) } == null) continue
+            f.job?.cancel()
+            count("lt_fallback_cancelled")
+            fl("fallback", "xc" to f.cmd.payload.copyOf(4), "cancelled" to x, "ms" to now - f.armedAt)
+            fl("answer_seen", "xc" to f.cmd.payload.copyOf(4), "x" to x, "ms" to now - f.armedAt)
+            fl("path_use", "xc" to f.cmd.payload.copyOf(4), "via" to (f.via ?: f.cmd.via), "confirmed" to true)
+        }
+        for (g in groups) {
+            if (mailbox.groupDone(g)) continue
+            if (closesGroup(g, x, heardAt, now)) closeGroup(g, x, null, now, "ďalšie hlásenie trackera")
+        }
+    }
+
+    /**
+     * R34 for "group done": [x] answers group [g] when it is a y of an untimed entry of g and every report a
+     * send of g was for, or a timed entry of g names as `via`, that is a y of the same entry was heard 120 s
+     * or more before (a sibling copy of the same report is no answer; an unheard via has no time). Without
+     * any such report x is the one an untimed entry waits for, not the next report: nothing to close yet,
+     * and closing would refuse the timed entries the app publishes on x's grid afterwards.
+     */
+    /**
+     * A report of the group heard after [rec] (the via of a timed entry of [g]) that answers it (R34): a y of
+     * another untimed entry than the via's, or a sibling copy 120 s or more after it. Its x, or null.
+     */
+    private fun answeredSince(g: String, rec: ReportPaths.Entry, now: Long): String? {
+        val heard = synchronized(lock) { groupHeard[g]?.toMap() }.orEmpty()
+        val viaEntry = mailbox.groupEntryOf(g, rec.x)
+        return heard.entries.firstOrNull { (x, t) ->
+            x != rec.x && t > rec.heardAtMs && now - t <= config.timedMaxAfterReportMs &&
+                (viaEntry == null || mailbox.groupEntryOf(g, x) != viaEntry || t >= rec.heardAtMs + QuietMesh.SIBLING_GUARD_MS)
+        }?.key
+    }
+
+    private fun closesGroup(g: String, x: String, heardAt: Long, now: Long): Boolean {
+        val e = mailbox.groupEntryOf(g, x) ?: return false
+        val refs = HashMap<String, Long?>(synchronized(lock) { sendRefs[g]?.toMap() }.orEmpty())
+        for (v in mailbox.groupTimed(g).flatMap { it.vias }) if (refs[v] == null) refs[v] = reportPaths.get(v, now)?.heardAtMs
+        if (refs.isEmpty()) return false
+        return refs.none { (r, rh) ->
+            mailbox.groupEntryOf(g, r) == e && (r == x || rh == null || heardAt < rh + QuietMesh.SIBLING_GUARD_MS)
+        }
+    }
+
+    /**
+     * Publishes a kind 24244 claim for [y] (signed with the bridge key; untimed with the proof over the
+     * report [p] heard) without waiting for any relay (R23), waits [waitMs]; true if this bridge won among
+     * the claims that count ([counts]), ranked by (index in the entry's p, hops, hash).
      */
     private suspend fun claimAndWait(y: String, hops: Int, waitMs: Long, cmd: Mailbox.Command, p: ByteArray?): Boolean {
         val sk = bridgeKey ?: newKey()
@@ -746,12 +1188,16 @@ class Bridge(
         val proof = if (bridgeKey != null && !cmd.timed && p != null) Market.claimProof(p, pub) else null
         val mine = Election.Claim(pub, hops, proof)
         rememberOwnKey(pub)
-        relays.publish(Lt2.claimEvent(y, hops, clock() / 1000, sk, proof).toJson())
+        val ev = Lt2.claimEvent(y, hops, clock() / 1000, sk, proof)
+        scope.launch { relays.publish(ev.toJson()) }
+        val t0 = clock()
         delay(waitMs)
         val now = clock()
         val rivals = claims.of(y, now).filter { counts(it, cmd, p, now) }
         val index = { pk: String -> if (cmd.open) 0 else cmd.p.indexOf(pk).takeIf { it >= 0 } ?: cmd.p.size }
-        return Election.wins(mine, rivals, y, index)
+        val won = Election.wins(mine, rivals, y, index)
+        fl("claim", "y" to y, "own" to true, "hops" to hops, "won" to won, "wait_ms" to now - t0, "rivals" to rivals.size)
+        return won
     }
 
     private fun rememberOwnKey(pub: String) = synchronized(lock) {
@@ -775,89 +1221,67 @@ class Bridge(
     private fun isAnnounced(pubkey: String, now: Long) =
         synchronized(lock) { announced[pubkey] }?.let { it > now / 1000 } == true
 
-    /** Why a timed entry may not go out now (per-via gap, hourly cap, closed group), or null. */
+    /**
+     * Why a timed entry may not go out now (per-via gap, hourly cap), or null. ACKs are apart from the
+     * command budget and the 10-minute gap (R3); a multi-grid send names another `via` per grid.
+     */
     private fun timedBlocked(cmd: Mailbox.Command, now: Long): String? {
-        if (cmd.group != null && mailbox.groupDone(cmd.group)) return "trackér už odpovedal"
-        val last = mailbox.lastTimedTx(cmd.via!!)
-        if (last != null && now - last < config.timedViaGapMs) return "pre ${cmd.via} nedávno išiel časovaný príkaz"
-        if (mailbox.timedTxSince(now - 3600_000) >= config.timedPerHour) return "limit časovaných príkazov za hodinu"
+        if (cmd.ack) return null
+        val via = cmd.via ?: return null
+        val last = mailbox.lastTimedTx(via)
+        if (last != null && now - last < config.timedViaGapMs) return "via_gap"
+        if (mailbox.timedTxSince(now - 3600_000) >= config.timedPerHour) return "hourly_cap"
         return null
     }
 
+    enum class Tx { OK, RADIO, BUDGET, CANCELLED }
+
     /** Transmits a taken mailbox entry unless it was cancelled or heard on air meanwhile. */
-    private suspend fun send(cmd: Mailbox.Command, route: Route): Boolean {
+    private suspend fun send(cmd: Mailbox.Command, route: Route, region: String?, atMs: Long?): Tx {
         if (!mailbox.pending(cmd.id)) {
             if (!mailbox.wasSent(cmd.id)) log(Activity.Direction.INFO, "libretag", "príkaz ${cmd.ys.first()} zrušený, nevysielam")
-            return false
+            fl("tx_skip", "xc" to cmd.payload.copyOf(4), "what" to "cmd", "reason" to "cancelled")
+            return Tx.CANCELLED
         }
         val now = clock()
         if (mailbox.payloadSent(cmd.payload)) {
             mailbox.markSent(cmd, now)
             mailboxChanged()
             log(Activity.Direction.INFO, "libretag", "príkaz ${cmd.ys.first()}: rovnaký obsah už išiel, nevysielam")
-            return false
+            fl("tx_skip", "xc" to cmd.payload.copyOf(4), "what" to "cmd", "reason" to "dup_on_air")
+            return Tx.CANCELLED
         }
-        if (cmd.timed) timedBlocked(cmd, now)?.let {
+        if (cmd.group != null && cmd.timed && mailbox.groupDone(cmd.group)) {
             mailbox.release(cmd)
-            drop("libretag", "časovaný príkaz ${cmd.ys.first()}: $it")
-            return false
+            fl("tx_skip", "xc" to cmd.payload.copyOf(4), "what" to "cmd", "reason" to "group_done")
+            return Tx.CANCELLED
         }
         if (openFloodBlocked(cmd, route, now)) {
             mailbox.release(cmd)
             count("lt_open_floods_limited")
             drop("libretag", "command ${cmd.ys.first()}: open flood limit per hour")
-            return false
+            fl("tx_skip", "xc" to cmd.payload.copyOf(4), "what" to "cmd", "reason" to "hourly_cap")
+            return Tx.BUDGET
         }
-        if (!transmit(Frames.CHANNEL_LIBRETAG, Frames.DATA_TYPE_LIBRETAG, cmd.payload, route, "libretag", timed = cmd.timed)) {
-            mailbox.release(cmd)
-            return false
+        val r = transmit(Frames.CHANNEL_LIBRETAG, Frames.DATA_TYPE_LIBRETAG, cmd.payload, route, "libretag", timed = cmd.timed,
+            region = region, what = "cmd", idKey = "xc", id = cmd.payload.copyOf(4), atMs = atMs)
+        if (r != Tx.OK) {
+            if (r == Tx.BUDGET || !cmd.timed) mailbox.release(cmd)
+            return r
         }
         val t = clock()
         if (route == Route.Flood && cmd.open) synchronized(lock) { openFloods.addLast(t); pruneOpenFloods(t) }
         mailbox.markPayloadSent(cmd.payload, t)
-        if (cmd.timed) {
-            mailbox.addTimedTx(cmd.via!!, t)
-            cmd.group?.let { g -> synchronized(lock) { timedSent[g] = t to cmd } }
-        }
+        if (cmd.timed) mailbox.addTimedTx(cmd.via!!, t)
         mailbox.markSent(cmd, t)
         mailboxChanged()
-        return true
+        return Tx.OK
     }
 
     // ------------------------------------------------------------------ command groups (PROTOCOL.md 4)
 
-    /** A fresh report that shows the tracker answered (or moved past report `via`): drop the rest of the group. */
-    private fun groupAck(x: String, meta: RxMeta, heardAt: Long, now: Long) {
-        for (g in mailbox.groupsOfY(x)) { // (1) the tracker's own next report
-            if (mailbox.groupDone(g)) continue
-            val tooClose = mailbox.groupTimed(g).mapNotNull { it.via }.distinct()
-                .mapNotNull { reportPaths.get(it, now) }.any { heardAt < it.heardAtMs + ACK_AFTER_VIA_MS }
-            if (!tooClose) closeGroup(g, x, null, now, "ďalšie hlásenie trackera")
-        }
-        val sent = synchronized(lock) { timedSent.toMap() }
-        for ((g, v) in sent) { // (2) after this bridge's own timed transmission, heard the same way as report `via`
-            val (tSent, cmd) = v
-            if (mailbox.groupDone(g) || heardAt <= tSent || heardAt > tSent + config.ackWindowMs) continue
-            val rp = reportPaths.get(cmd.via!!, now) ?: continue
-            if (sameWay(rp, meta)) closeGroup(g, x, cmd.at, now, "hlásenie po našom príkaze")
-        }
-    }
-
-    private fun sameWay(rp: ReportPaths.Entry, meta: RxMeta): Boolean {
-        val caps = mesh.capabilities
-        val hops = meta.hopCount(caps) ?: return false
-        val rpHops = rp.hops ?: return false
-        if (rpHops == 0 && hops == 0) return true
-        val path = if (Caps.RX_PATH in caps) meta.path else null
-        val hs = meta.pathHashSize ?: 1
-        val rpPath = rp.path?.unhex() ?: return false
-        if (path == null || rpHops != hops || rp.hashSize != hs || path.size < hs || rpPath.size < hs) return false
-        return path.copyOf(hs).contentEquals(rpPath.copyOf(hs))
-    }
-
     private fun closeGroup(g: String, x: String, at: Long?, now: Long, why: String) {
         val n = mailbox.closeGroup(g, now)
-        synchronized(lock) { timedSent.remove(g) }
         mailboxChanged()
         log(Activity.Direction.INFO, "libretag", "skupina $g vybavená ($why), zrušených $n časovaných príkazov")
         val tags = listOf(listOf("g", g), listOf("done", x)) + listOfNotNull(at?.let { listOf("at", it.toString()) })
@@ -892,91 +1316,195 @@ class Bridge(
         log(Activity.Direction.INFO, "libretag", "skupina $g vybavená podľa iného mostu, zrušených $n časovaných príkazov")
     }
 
+    // ------------------------------------------------------------------ timed entries (slots, PROTOCOL.md 2.6, 4.3)
+
+    /** The earliest `at` (ms) of a waiting timed entry, for the app's exact alarm (R24); null when none waits. */
+    fun nextDueMs(now: Long = clock()): Long? = mailbox.nextTimedAtMs(now)
+
     /**
-     * Timed entries (0.7 checks): starts every entry whose claim time (`at` minus the lead) has
-     * come. It goes out once at `at`, zero-hop if this bridge heard its `via` report directly,
-     * otherwise flood, and only from a bridge that caught that report (it is near the tracker).
-     * Call about twice a second.
+     * Timed entries: starts every entry whose time (its `at` minus the claim lead) has come. A command goes
+     * out at `at` by the plan for its `via` (zero-hop, along the path, or a flood in the report's scope), only
+     * from a bridge that heard `via` and from the key `via` locked; a blind LOST entry floods in the country
+     * scope. It counts as sent only once the radio took the frame: a radio error is retried every 2 s until
+     * `at + 20 s` (R20); a miss, a block or a lateness is published as a miss note. Call about twice a
+     * second, and from the exact alarm.
      */
     fun timedTick() {
         val now = clock()
         reportPaths.prune(now)
-        synchronized(lock) { timedSent.entries.removeAll { now - it.value.first > config.ackWindowMs } }
         if (!config.libretagCommands || !config.timedCommands) return
-        for (cmd in mailbox.dueTimed(now + config.timedClaimLeadMs, now)) {
+        // ACKs first: a command for the same slot waits for its ACK (PROTOCOL.md 4.3)
+        val due = mailbox.dueTimed(now + config.timedClaimLeadMs, now).sortedWith(compareBy({ it.at }, { if (it.ack) 0 else 1 }))
+        for (cmd in due) {
             val y = cmd.ys.first()
-            // format 2: the route binds (a timed entry treats direct as near); not ours to send, the y stays open
-            val viaPath = reportPaths.get(cmd.via!!, now)
-            if (viaPath != null && entryRoute(cmd, viaPath.hops, null) == null) {
+            val atMs = cmd.at!! * 1000
+            // the via this bridge heard whose lock holds the entry's key (one via per copy of the anchor)
+            val recs = cmd.vias.mapNotNull { reportPaths.get(it, now) }
+            val rec = recs.firstOrNull { cmd.pubkey in mailbox.locked(it.x) } ?: recs.firstOrNull()
+            if (cmd.blind) {
+                startBlind(cmd, now)
+                continue
+            }
+            if (rec == null) {
+                mailbox.discard(cmd) // not ours: no sign that this bridge is near the tracker
+                mailboxChanged()
+                log(Activity.Direction.INFO, "libretag", "časovaný príkaz pre $y: report ${cmd.via} som nepočul")
+                continue
+            }
+            if (cmd.pubkey !in mailbox.locked(rec.x)) {
                 mailbox.discard(cmd)
                 mailboxChanged()
-                log(Activity.Direction.INFO, "libretag", "timed command for $y asks for a nearer bridge, not sending")
+                count("lt_cmd_unsigned")
+                drop("libretag", "timed command for $y: not signed by the key report ${rec.x} committed to")
+                continue
+            }
+            if (!atPlausible(atMs, rec)) {
+                mailbox.discard(cmd)
+                mailboxChanged()
+                drop("libretag", "časovaný príkaz pre $y: čas mimo okna hlásenia ${rec.x}")
+                continue
+            }
+            val plan = planFor(cmd, rec, now)
+            if (plan.send == "none") {
+                mailbox.discard(cmd) // format 2: the route binds; not ours to send, the y stays open
+                mailboxChanged()
+                if (bridgePubkey != null && bridgePubkey in cmd.p) missNote(cmd, "no_path")
+                log(Activity.Direction.INFO, "libretag", "timed entry for $y asks for a nearer bridge, not sending")
                 continue
             }
             mailbox.take(cmd, now) // one delivery per event and per tag
             mailboxChanged()
-            val atMs = cmd.at!! * 1000
-            if (atMs < now - config.timedMaxLateMs) {
+            if (now > atMs + QuietMesh.TIMED_RETRY_UNTIL_MS) {
                 mailbox.release(cmd)
-                log(Activity.Direction.INFO, "libretag", "časovaný príkaz pre $y: čas už prešiel")
+                missNote(cmd, "late") // the bridge was not running at `at`
                 continue
             }
-            val rp = reportPaths.get(cmd.via!!, now)
-            if (rp == null) {
-                mailbox.release(cmd)
-                log(Activity.Direction.INFO, "libretag", "časovaný príkaz pre $y: report ${cmd.via} som nepočul")
-                continue
-            }
-            if (cmd.pubkey !in mailbox.locked(cmd.via)) {
-                mailbox.release(cmd)
-                count("lt_cmd_unsigned")
-                drop("libretag", "timed command for $y: not signed by the key report ${cmd.via} committed to")
-                continue
-            }
-            if (!atPlausible(atMs, rp.heardAtMs)) {
-                mailbox.release(cmd)
-                drop("libretag", "časovaný príkaz pre $y: čas mimo okna hlásenia ${cmd.via}")
-                continue
-            }
-            if (mailbox.payloadSent(cmd.payload)) {
+            if (!cmd.ack && mailbox.payloadSent(cmd.payload)) {
                 mailbox.markSent(cmd, now)
                 mailboxChanged()
+                continue
+            }
+            if (cmd.group != null && config.groupAck && !mailbox.groupDone(cmd.group)) {
+                // the tracker reported again after this entry's anchor: the slot is useless (R34)
+                answeredSince(cmd.group, rec, now)?.let { x -> closeGroup(cmd.group, x, null, now, "ďalšie hlásenie trackera pred slotom") }
+            }
+            if (cmd.group != null && mailbox.groupDone(cmd.group)) {
+                mailbox.release(cmd)
+                fl("tx_skip", "xc" to cmd.payload.copyOf(4), "what" to "cmd", "at" to cmd.at, "reason" to "group_done")
                 continue
             }
             val blocked = timedBlocked(cmd, now)
             if (blocked != null) {
                 mailbox.release(cmd)
                 drop("libretag", "časovaný príkaz pre $y: $blocked") // no claim either: we would not send
+                fl("tx_skip", "xc" to cmd.payload.copyOf(4), "what" to "cmd", "at" to cmd.at, "reason" to blocked)
+                missNote(cmd, "blocked")
                 continue
             }
-            val route = entryRoute(cmd, rp.hops, null) ?: lt2CommandRoute(rp.hops, mesh.capabilities)
-            if (openFloodBlocked(cmd, route, now)) {
+            val route = routeOf(plan)!!
+            if (cmd.ack && !ackAllowed(now)) { // the ACK budget (120 an hour) holds for timed ACKs too
+                mailbox.release(cmd)
+                missNote(cmd, "blocked")
+                continue
+            }
+            if (!cmd.ack && openFloodBlocked(cmd, route, now)) {
                 mailbox.release(cmd)
                 count("lt_open_floods_limited")
-                drop("libretag", "timed command for $y: open flood limit per hour")
+                missNote(cmd, "blocked")
                 continue
             }
-            val hops = when (route) {
-                Route.ZeroHop -> 0
-                is Route.Direct -> route.hops
-                Route.Flood -> rp.hops ?: 255
+            busyCount.incrementAndGet()
+            val job = scope.launch {
+                try { runTimed(cmd, rec, plan, route, atMs) } finally { busyCount.decrementAndGet() }
             }
-            scope.launch {
-                val wait = maxOf(atMs - clock(), 0L)
-                if (!claimAndWait(y, hops, maxOf(wait, config.electionMs), cmd, null)) {
-                    mailbox.release(cmd)
-                    log(Activity.Direction.INFO, "libretag", "príkaz pre $y vyšle iný most")
-                    return@launch
-                }
-                if (clock() > atMs + config.timedMaxLateMs) {
-                    mailbox.release(cmd)
-                    log(Activity.Direction.INFO, "libretag", "časovaný príkaz pre $y: čas už prešiel")
-                    return@launch
-                }
-                if (send(cmd, route)) {
-                    log(Activity.Direction.DOWN, "libretag", "časovaný príkaz pre $y (${routeText(route)})")
-                }
+            if (cmd.ack) ackJob(slotKey(cmd), job)
+        }
+    }
+
+    /** The window of a timed entry: its slot, under the anchor key that signs both the ACK and the command. */
+    private fun slotKey(cmd: Mailbox.Command) = "${cmd.at}:${cmd.pubkey}"
+
+    private suspend fun runTimed(cmd: Mailbox.Command, rec: ReportPaths.Entry, plan: Planned, route: Route, atMs: Long) {
+        val y = cmd.ys.first()
+        if (cmd.ack) {
+            // an ACK at a slot: no claim, sent at `at` (never more than 2 s early)
+            delay(maxOf(atMs - clock(), 0L))
+            if (!timedRetry(cmd, atMs) { ackSend(cmd, y, rec, plan, atMs) != Tx.RADIO }) {
+                mailbox.release(cmd)
+                missNote(cmd, "radio")
             }
+            return
+        }
+        // the claim goes out the lead before `at` (without waiting for a relay, R23); decided at `at`
+        delay(maxOf(atMs - config.timedClaimLeadMs - clock(), 0L))
+        val wait = maxOf(atMs - clock(), 0L)
+        if (!claimAndWait(y, planHops(plan, rec), maxOf(wait, config.electionMs), cmd, null)) {
+            mailbox.release(cmd)
+            log(Activity.Direction.INFO, "libretag", "príkaz pre $y vyšle iný most")
+            return
+        }
+        val region = if (plan.send == "flood") floodRegion(plan.plan.scope, rec) else null
+        afterAck(slotKey(cmd)) // an ACK for the same slot goes first, the command 300 ms after it
+        var result = Tx.RADIO
+        val ok = timedRetry(cmd, atMs) {
+            result = send(cmd, route, region, atMs)
+            result == Tx.OK || result == Tx.CANCELLED || result == Tx.BUDGET
+        }
+        when {
+            ok && result == Tx.OK -> {
+                log(Activity.Direction.DOWN, "libretag", "časovaný príkaz pre $y (${routeText(route)})")
+                sendRef(cmd, rec.x, rec.heardAtMs)
+                afterCommandSend(cmd, plan, rec, rec.x)
+            }
+            result == Tx.BUDGET -> missNote(cmd, "blocked")
+            !ok -> {
+                mailbox.release(cmd)
+                missNote(cmd, "radio")
+            }
+        }
+    }
+
+    /** Runs [attempt] at once and after a radio error every 2 s until `at + 20 s`; true when it settled. */
+    private suspend fun timedRetry(cmd: Mailbox.Command, atMs: Long, attempt: suspend () -> Boolean): Boolean {
+        var tries = 0
+        while (true) {
+            tries++
+            if (attempt()) return true
+            if (clock() + QuietMesh.TIMED_RETRY_MS > atMs + QuietMesh.TIMED_RETRY_UNTIL_MS) return false
+            if (!mailbox.pending(cmd.id)) return false
+            count("lt_timed_retry")
+            delay(QuietMesh.TIMED_RETRY_MS)
+        }
+    }
+
+    /** Blind LOST (PROTOCOL.md 4.3): flood at `at` in the country scope without `via` heard; 3 per via in 24 h. */
+    private fun startBlind(cmd: Mailbox.Command, now: Long) {
+        val via = cmd.via ?: return
+        if (bridgePubkey == null || bridgePubkey !in cmd.p) { mailbox.discard(cmd); return }
+        mailbox.take(cmd, now)
+        mailboxChanged()
+        val atMs = cmd.at!! * 1000
+        if (now > atMs + QuietMesh.TIMED_RETRY_UNTIL_MS) { mailbox.release(cmd); missNote(cmd, "late"); return }
+        if (mailbox.blindTxSince(via, now - 86400_000L) >= QuietMesh.BLIND_PER_DAY) {
+            mailbox.release(cmd)
+            missNote(cmd, "blocked")
+            return
+        }
+        val plan = planFor(cmd, null, now, blind = true)
+        busyCount.incrementAndGet()
+        scope.launch {
+            try {
+                delay(maxOf(atMs - clock(), 0L))
+                var result = Tx.RADIO
+                val ok = timedRetry(cmd, atMs) {
+                    result = send(cmd, Route.Flood, floodRegion(plan.plan.scope, null), atMs)
+                    result != Tx.RADIO
+                }
+                if (ok && result == Tx.OK) {
+                    mailbox.addBlindTx(via, clock())
+                    log(Activity.Direction.DOWN, "libretag", "slepý LOST pre ${cmd.ys.first()} (flood)")
+                } else if (result == Tx.BUDGET) missNote(cmd, "blocked") else if (!ok) { mailbox.release(cmd); missNote(cmd, "radio") }
+            } finally { busyCount.decrementAndGet() }
         }
     }
 
@@ -998,15 +1526,9 @@ class Bridge(
         if (lt.isNotEmpty()) out["nm-lt"] = lt
         if (config.libretagCommands) {
             val since = maxOf(nowS - Lt2.COMMAND_MAX_TTL_MS / 1000, lastCommandAt - 600)
-            out["nm-cmd"] = if (config.acceptOpen) {
-                listOf(filter(Lt2.KIND_COMMAND, since))
-            } else {
-                // PROTOCOL.md 4.1: a bridge that serves no open entries asks only for its own and its networks'
-                listOfNotNull(
-                    bridgePubkey?.let { tagFilter(Lt2.KIND_COMMAND, "#p", listOf(it), since) },
-                    networks().takeIf { it.isNotEmpty() }?.let { tagFilter(Lt2.KIND_COMMAND, "#r", it, since) },
-                )
-            }
+            // every 4244, also with accept_open off (PROTOCOL.md 4.1): anchors carry no tag a filter could select,
+            // and without them no key locks and no ACK entry (4.3) goes out; open commands drop on arrival
+            out["nm-cmd"] = listOf(filter(Lt2.KIND_COMMAND, since))
             // announced bridges (their untimed claims count with a proof)
             out["nm-ann"] = listOf(buildJsonObject {
                 put("kinds", buildJsonArray { add(JsonPrimitive(Market.ANNOUNCE_KIND)) })
@@ -1052,20 +1574,28 @@ class Bridge(
             put("direct", Caps.TX_PATH_DATA in caps)
         }.toString()
         return networks().ifEmpty { listOf("") }.map { net ->
-            val tags = Market.announceTags(net, now / 1000, region = c.regionName.takeIf { c.region && it.isNotEmpty() },
+            val tags = Market.announceTags(net, now / 1000, regions = regions(),
                 relays = relays.publishUrls, acceptOpen = c.acceptOpen, receipts = c.receipts,
-                anchorLeadS = c.anchorLeadMs / 1000, lateMaxS = c.lateMaxMs / 1000)
+                anchorLeadS = c.anchorLeadMs / 1000, lateMaxS = c.lateMaxMs / 1000,
+                radio = radio.announced())
             NostrEvent.sign(sk, now / 1000, Market.ANNOUNCE_KIND, tags, content)
         }
     }
 
-    /** Publishes the announcements at start and every [BridgeConfig.announceIntervalMs]; true when it did. */
+    @Volatile private var announcedRadio: Pair<String, Long>? = null
+
+    /**
+     * Publishes the announcements at start, every [BridgeConfig.announceIntervalMs] (an hour) and after a
+     * change of the radio state (the minute tick calls it, so within a minute, R13); true when it did.
+     */
     suspend fun announceIfDue(now: Long = clock()): Boolean {
         val c = config
         if (!c.announce || !c.libretagCommands || bridgeKey == null) return false
         val last = lastAnnounceMs
-        if (last != null && now - last < c.announceIntervalMs) return false
+        val radioNow = radio.announced()
+        if (last != null && now - last < c.announceIntervalMs && radioNow == announcedRadio) return false
         lastAnnounceMs = now
+        announcedRadio = radioNow
         for (ev in announcements(now)) publishKept(ev.toJson(), "ann:" + ev.id, "libretag", "lt_announced")
         log(Activity.Direction.UP, "libretag", "bridge announcement published")
         return true
@@ -1086,9 +1616,25 @@ class Bridge(
         })
     }
 
+    /** Smallest (receive time - created_at) of ephemeral events this hour: the clock offset against the relays. */
+    @Volatile private var clockMinMs: Long? = null
+    @Volatile private var clockLoggedAt = 0L
+
+    /** Hourly `clock` line of the field log (9.9): this phone's offset against the relays' event times. */
+    fun clockTick(now: Long = clock()) {
+        if (now - clockLoggedAt < 3600_000L) return
+        clockLoggedAt = now
+        clockMinMs?.let { fl("clock", "offset_ms" to it) }
+        clockMinMs = null
+    }
+
     suspend fun onRelayEvent(raw: JsonObject, relay: String = "") {
         val ev = NostrEvent.fromJson(raw) ?: return
         val now = clock()
+        if (ev.kind == Lt2.KIND_CLAIM && ev.pubkey !in synchronized(lock) { ownClaimKeys.toSet() }) {
+            val d = now - ev.createdAt * 1000
+            if (kotlin.math.abs(d) < 600_000) clockMinMs = minOf(clockMinMs ?: d, d)
+        }
         when (ev.kind) {
             Lt2.KIND_REPORT -> {
                 val (y, content) = Lt2.parseReport(ev) ?: return
@@ -1100,6 +1646,15 @@ class Bridge(
                 }
             }
             Lt2.KIND_CLAIM -> {
+                // "ack sent" note of another bridge: a routed ACK for the same y is skipped (PROTOCOL.md 4.3)
+                if (ev.tags.any { it.size >= 2 && it[0] == "ack" }) {
+                    if (ev.pubkey in synchronized(lock) { ownClaimKeys.toSet() }) return
+                    val y = ev.tags.firstOrNull { it.size >= 2 && it[0] == "y" }?.get(1)?.takeIf { isLowerHex(it, Lt2.TAG_LEN) } ?: return
+                    if (now / 1000 - ev.createdAt > 60 || !ev.verify()) return
+                    synchronized(lock) { ackNotes[y] = now }
+                    return
+                }
+                if (ev.tags.any { it.size >= 2 && it[0] == "miss" }) return
                 if (ev.tags.any { it.size >= 2 && it[0] == "done" }) {
                     if (ev.pubkey !in synchronized(lock) { ownClaimKeys.toSet() }) onDoneClaim(ev, now)
                     return
@@ -1121,14 +1676,17 @@ class Bridge(
         if (!config.libretagCommands) return
         val c = config
         val cmd = Mailbox.parse(ev, now, c.timedCommands, c.timedMaxLateMs, c.futureMaxMs, relay) ?: return
+        fl("mailbox", "id" to ev.id, "kind" to entryKind(cmd), "y" to cmd.ys, "via" to cmd.vias.ifEmpty { null }, "at" to cmd.at,
+            "route" to cmd.route, "fb" to cmd.fb.takeIf { !it }, "g" to cmd.group, "p" to cmd.p.map { it.take(8) }.ifEmpty { null },
+            "created_at" to ev.createdAt, "known_at" to now)
         notForUs(cmd)?.let {
             count("lt_not_for_us")
             return
         }
         // signed mailbox (PROTOCOL.md 4.2): once a report was heard, only a key that locked or still may lock
         var entry = cmd
-        if (cmd.timed) {
-            if (!mayLock(cmd.via!!, ev.pubkey, now)) {
+        if (cmd.timed && !cmd.blind) {
+            if (cmd.vias.none { mayLock(it, ev.pubkey, now) }) {
                 count("lt_mailbox_unsigned")
                 return drop("libretag", "timed command for ${cmd.via}: not from the key the report committed to")
             }
@@ -1147,8 +1705,8 @@ class Bridge(
             if (room.size != cmd.ys.size) entry = cmd.withYs(room)
         }
         if (cmd.timed) {
-            val rp = reportPaths.get(cmd.via!!, now)
-            if (rp != null && !atPlausible(cmd.at!! * 1000, rp.heardAtMs)) return drop("libretag", "časovaný príkaz mimo okna hlásenia ${cmd.via}")
+            val rp = cmd.vias.firstNotNullOfOrNull { reportPaths.get(it, now) }
+            if (rp != null && !atPlausible(cmd.at!! * 1000, rp)) return drop("libretag", "časovaný príkaz mimo okna hlásenia ${rp.x}")
         }
         if (!ev.verify()) return
         lastCommandAt = maxOf(lastCommandAt, ev.createdAt)
@@ -1157,7 +1715,7 @@ class Bridge(
         if (entry.anchor) {
             val added = entry.ys.count { mailbox.addAnchor(it, ev.pubkey, ev.id, now, entry.expiresAtMs) }
             count(if (added > 0) "lt_anchor_added" else "lt_anchor_again")
-            if (added > 0) changes.incrementAndGet()
+            if (added > 0) persist() // anchors are saved at once: a kill must not cost the next report its lock
             return
         }
         if (mailbox.add(entry, now, if (entry.timed) c.timedPerViaMax else null, c.mailboxRelayShare)) {
@@ -1171,10 +1729,19 @@ class Bridge(
      * Why this bridge does not store [cmd] (PROTOCOL.md 4.1), or null: an entry naming other bridges
      * only; an open one while open entries are off; an `r` outside the configured networks.
      */
+    private fun entryKind(c: Mailbox.Command) = when {
+        c.anchor -> "anchor"
+        c.ack -> "ack"
+        c.timed -> "timed"
+        else -> "cmd"
+    }
+
     private fun notForUs(cmd: Mailbox.Command): String? {
         val c = config
         if (cmd.open) {
-            if (!c.acceptOpen) return "open"
+            // an ACK entry can never cause a flood: it passes a bridge that serves no open entries (PROTOCOL.md 4.3);
+            // so does an anchor, which only names keys, or no ACK entry could ever lock
+            if (!c.acceptOpen && !cmd.ack && !cmd.anchor) return "open"
         } else if (bridgePubkey == null || bridgePubkey !in cmd.p) {
             return "other bridges"
         }
@@ -1183,9 +1750,12 @@ class Bridge(
         return null
     }
 
-    /** A1: a check comes after report `via` and before its heartbeat (24 h + 1 h). */
-    private fun atPlausible(atMs: Long, viaHeardAtMs: Long) =
-        atMs >= viaHeardAtMs - config.timedMaxLateMs && atMs <= viaHeardAtMs + config.timedMaxAfterReportMs
+    /**
+     * A1: a slot comes after report `via` and before its heartbeat (24 h + 1 h) from the last use of the
+     * `via` record: a standing tag keeps its anchor while ACKs at slots and path uses renew the record (R33).
+     */
+    private fun atPlausible(atMs: Long, rec: ReportPaths.Entry) =
+        atMs >= rec.heardAtMs - config.timedMaxLateMs && atMs <= rec.lastUseMs + config.timedMaxAfterReportMs
 
     /** NIP-09 kind 5 for mailbox events: cancels an entry signed by the same key (PROTOCOL.md 4). */
     private fun onDeletion(ev: NostrEvent, now: Long) {
@@ -1258,48 +1828,89 @@ class Bridge(
         val now = clock()
         if (synchronized(lock) { ledger[out.eventId]?.let { it.heard || it.sent } } == true) return
         if (!dmHour.allow(now, "") || !dmDevice.allow(now, out.device)) return drop("dm4.ref", "limit DM za hodinu")
-        if (!transmit(Frames.CHANNEL_NOSTR, Frames.DATA_TYPE_NOSTR, out.payload, route, "dm4.ref")) return
+        if (transmit(Frames.CHANNEL_NOSTR, Frames.DATA_TYPE_NOSTR, out.payload, route, "dm4.ref") != Tx.OK) return
         dmHour.hit(now, ""); dmDevice.hit(now, out.device)
         synchronized(lock) { ledger[out.eventId]?.sent = true }
         changes.incrementAndGet()
         log(Activity.Direction.DOWN, "dm4.ref", "${out.label} (${routeText(route)})")
     }
 
-    /** One own transmission within the airtime budget. */
+    /**
+     * One own transmission within the airtime budget (ACKs apart from it: their own hourly cap). Logs `tx`
+     * with what it was and how it went, and feeds the radio health ([RadioHealth.onSend]).
+     */
     private suspend fun transmit(
         channel: String, dataType: Int, payload: ByteArray, route: Route, profile: String, timed: Boolean = false,
-    ): Boolean =
+        region: String? = if (route == Route.Flood) regions().firstOrNull() else null, ack: Boolean = false,
+        what: String? = null, idKey: String = "xc", id: ByteArray? = null, atMs: Long? = null,
+    ): Tx =
         txLock.withLock {
             val now = clock()
             val pathBytes = (route as? Route.Direct)?.path?.size ?: 0
             val preset = mesh.preset ?: config.preset
-            val ms = Airtime.ms(Airtime.channelPacketBytes(payload.size, pathBytes, config.region), preset) *
+            val ms = Airtime.ms(Airtime.channelPacketBytes(payload.size, pathBytes, region != null && route == Route.Flood), preset) *
                 Airtime.transmissions(route)
+            val how = when (route) { Route.Flood -> "flood"; Route.ZeroHop -> "zero-hop"; is Route.Direct -> "path" }
+            val path = (route as? Route.Direct)?.let { FieldLog.pathList(it.path, it.hashSize) }
+            val skip = { reason: String ->
+                fl("tx_skip", idKey to id, "what" to what, "how" to how, "at" to atMs?.div(1000), "reason" to reason)
+            }
             // #libretag has its own budget: a flood of LibreTag commands cannot silence DMs or Roadbeacon
             val budget = if (channel == Frames.CHANNEL_LIBRETAG) ltBudget else budget
-            if (!budget.allow(now, ms)) {
+            if (!ack && !budget.allow(now, ms)) {
                 count("tx_airtime_exhausted")
                 drop(profile, "rozpočet airtime vyčerpaný (${budget.usedMs(now).toInt()} ms za hodinu)")
-                return@withLock false
+                skip("airtime")
+                return@withLock Tx.BUDGET
             }
             // timed transmissions use at most their share, the rest stays for commands that answer a report
-            val timedBudget = timed && channel == Frames.CHANNEL_LIBRETAG
+            val timedBudget = timed && !ack && channel == Frames.CHANNEL_LIBRETAG
             if (timedBudget && !ltTimedBudget.allow(now, ms)) {
                 count("tx_airtime_timed_exhausted")
                 drop(profile, "airtime share for timed commands used up (${ltTimedBudget.usedMs(now).toInt()} ms per hour)")
-                return@withLock false
+                skip("airtime")
+                return@withLock Tx.BUDGET
             }
-            if (!mesh.send(channel, dataType, payload, route)) {
-                drop(profile, "rádio odmietlo")
-                return@withLock false
+            val r = mesh.send(channel, dataType, payload, route, region)
+            val t = clock()
+            radioEvent(radio.onSend(r.ok, r.error, t), t)
+            if (channel == Frames.CHANNEL_LIBRETAG) {
+                fl("tx", idKey to id, "what" to what, "how" to how, "path" to path, "region" to region,
+                    "dtype" to dataType, "len" to payload.size, "at" to atMs?.div(1000),
+                    "late_ms" to atMs?.let { t - it }, "airtime_s" to ms / 1000, "ok" to r.ok, "error" to r.error)
             }
-            budget.spend(now, ms)
+            if (!r.ok) {
+                drop(profile, "rádio odmietlo" + (r.error?.let { " ($it)" } ?: ""))
+                return@withLock Tx.RADIO
+            }
+            if (!ack) budget.spend(now, ms)
             if (timedBudget) ltTimedBudget.spend(now, ms)
             count("tx_airtime_ms", ms.toLong())
             changes.incrementAndGet()
             stat { it.copy(toRadio = it.toRadio + 1, airtimeMs = (this.budget.usedMs(now) + ltBudget.usedMs(now)).toInt()) }
-            true
+            Tx.OK
         }
+
+    // ------------------------------------------------------------------ radio health (SPEC 3.2, R37)
+
+    /** MeshCore Open says whether its radio is usable (`device.connected`, the session's NoRadio state). */
+    fun onRadioApi(connected: Boolean, now: Long = clock()) = radioEvent(radio.onApi(connected, now), now)
+
+    /** An answer to the `radio.stats` probe counts as radio activity. */
+    fun onRadioProbe(answered: Boolean, now: Long = clock()) = radioEvent(radio.onProbe(answered, now), now)
+
+    /** The minute tick: silence of the radio itself for [BridgeConfig.rxSilenceMs]. */
+    fun radioTick(now: Long = clock()) = radioEvent(radio.tick(now), now)
+
+    private fun radioEvent(t: RadioHealth.Transition?, now: Long) {
+        t ?: return
+        count(if (t.up) "radio_up" else "radio_down")
+        fl(if (t.up) "radio_up" else "radio_down", "reason" to t.reason, "since" to t.since / 1000)
+        log(Activity.Direction.INFO, "radio", if (t.up) "rádio funguje" else "rádio nefunguje (${t.reason})")
+        changes.incrementAndGet()
+        // the announcement says so within a minute (R13): at once here, the minute tick retries
+        scope.launch { runCatching { announceIfDue(clock()) } }
+    }
 
     // ------------------------------------------------------------------ durable publishing
 
@@ -1397,6 +2008,8 @@ class Bridge(
                 put("main", budget.budgetMs / 1000); put("libretag", ltBudget.budgetMs / 1000)
             })
             put("radio_silence_s", (now - maxOf(lastActivity, startedAt)) / 1000.0)
+            put("radio", if (radio.up) "up" else "down")
+            put("radio_since", radio.since / 1000)
             put("mailbox_tags", mailbox.size)
             put("outbox", outbox.size)
             put("counters", buildJsonObject { counters.toSortedMap().forEach { (k, v) -> put(k, v) } })
@@ -1443,6 +2056,8 @@ class Bridge(
             outbox = outbox.export(),
             ltTimedAirtime = ltTimedBudget.export().map { listOf(it.first.toDouble(), it.second) },
             openFloods = synchronized(lock) { pruneOpenFloods(now); openFloods.toList() },
+            radio = if (radio.up) "up" else "down",
+            radioSince = radio.since,
         )
     }
 
@@ -1463,6 +2078,7 @@ class Bridge(
             s.openFloods.filter { it <= now && now - it < 3600_000L }.sorted().forEach { openFloods.addLast(it) }
         }
         lastCommandAt = s.lastCommandAt
+        if (s.radioSince > 0) radio.restore(s.radio == "up", s.radioSince)
         reportPaths.restore(s.paths, now)
         outbox.restore(s.outbox, now)
         stat { it.copy(mailbox = mailbox.size, outbox = outbox.size) }
@@ -1493,8 +2109,6 @@ class Bridge(
         const val LEDGER_TTL_MS = 30L * 86400_000
         /** An awake (non-sleeping) device's last route stays usable this long. */
         const val AWAKE_ROUTE_MS = 3600_000L
-        /** A report this soon after report `via` may be a copy of it, never its answer. */
-        const val ACK_AFTER_VIA_MS = 120_000L
 
         /** Announcement `adapter`: this bridge talks to the radio through MeshCore Open's Local API. */
         const val ADAPTER = "meshcore-open"

@@ -12,12 +12,12 @@ class BridgeAheadTest {
     @Test fun candidateCounters() {
         val ys = BridgeTargets.nextYs(100, yOf)
         assertEquals(setOf(101L, 102L, 103L, 104L, 112L, 128L), ys.values.toSet())
-        assertEquals(12, ys.size)
+        assertEquals(6 * 5, ys.size) // every copy on air: j = 0, 1, 9, 10, 11
         // on a checkpoint: the next two multiples of 16, and the epoch
         val at = BridgeTargets.nextYs(127, yOf).values.toSet()
         assertEquals(setOf(128L, 129L, 130L, 131L, 144L), at)
         assertEquals(emptyMap<String, Long>(), BridgeTargets.nextYs(-1, yOf))
-        assertEquals(true, BridgeTargets.nextYs(5, yOf).size <= 14)
+        assertEquals(true, BridgeTargets.nextYs(5, yOf).size <= 35)
     }
 
     private val bridge = "b".repeat(64)

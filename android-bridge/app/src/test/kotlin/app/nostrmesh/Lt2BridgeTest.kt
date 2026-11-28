@@ -153,8 +153,7 @@ class Lt2BridgeTest {
         assertEquals(Frames.DATA_TYPE_LIBRETAG, s.dataType)
         assertEquals(pc.hex(), s.payload.hex())
         assertEquals(Route.ZeroHop, s.route)
-        val claim = r.ofKind(Lt2.KIND_CLAIM).single()
-        assertEquals(listOf(listOf("y", y), listOf("hops", "0")), claim.tags)
+        assertEquals("the claim round before every untimed send (PROTOCOL.md 4.1), zero-hop too", 1, r.ofKind(Lt2.KIND_CLAIM).size)
         assertEquals(0, b.mailbox.size)
         // the same report heard again later: nothing
         now += 10_000

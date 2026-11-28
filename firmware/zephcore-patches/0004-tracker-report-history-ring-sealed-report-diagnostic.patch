@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Mon, 16 Nov 2026 09:00:13 +0100
-Subject: [PATCH 04/42] tracker: report history ring (sealed report +
+Subject: [PATCH 04/50] tracker: report history ring (sealed report +
  diagnostics without position), log and history commands
 
 ---

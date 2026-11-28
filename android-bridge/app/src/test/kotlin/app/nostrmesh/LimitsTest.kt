@@ -52,6 +52,7 @@ class LimitsTest {
         val m = FakeMesh(caps)
         val r = FakeRelays()
         val clock = { t0 + testScheduler.currentTime }
+        m.clock = clock
         return Rig(Bridge(this, m, r, cfg, emptyList(), clock = clock, random = Random(7), newKey = keySource()), m, r, clock)
     }
 
@@ -236,12 +237,13 @@ class LimitsTest {
         (0 until 3).forEach { i -> g.b.onRelayEvent(timed(60 + i, n, y(i), n + 900L * (i + 1), Lt2.tag(pn), pcN(i), grp).toJson()) }
         g.b.onRelayEvent(plain(70, n, listOf(Lt2.tag(pn1)), pcN(9), grp).toJson())
         fireAt(g, n + 900)
-        assertEquals(1, g.m.sent.size)
-        advanceTimeBy(60_000)
+        assertEquals(1, g.m.sent.count { it.dataType == 0xFF4C })
+        advanceTimeBy(60_000) // no answer in 12 s: the path send's fallback flood went out
+        assertEquals(listOf(0xFF4C, 0xFF6C), g.m.sent.map { it.dataType })
         g.b.hear(pn1, RxMeta(hops = 3, path = "aabbcc".unhex(), pathHashSize = 1))
         advanceUntilIdle()
         fireAt(g, n + 1800); fireAt(g, n + 2700)
-        assertEquals(listOf(pcN(0), pcN(9)).map { it.hex() }, g.m.sent.map { it.payload.hex() })
+        assertEquals(listOf(pcN(0), pcN(9)).map { it.hex() }, g.m.sent.filter { it.dataType != 0xFF6C }.map { it.payload.hex() })
         val done = g.r.ofKind(Lt2.KIND_CLAIM).single { c -> c.tags.any { it[0] == "done" } }
         assertEquals(listOf(listOf("g", grp), listOf("done", Lt2.tag(pn1))), done.tags)
     }

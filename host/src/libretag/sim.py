@@ -212,7 +212,7 @@ def simulate_days(events: list[DayEvent], days: float, zones=None, interval_s: i
                   seed: int = 1, cfg=None, keys: Keys | None = None, check_s: int | None = None,
                   commands: list[int] | None = None, checks_out: list[SimCheck] | None = None,
                   report_every: int = 1, track_s: int = TRACK_MIN_S, lost_s: int | None = None,
-                  floods_per_report: int = 1) -> tuple[list[SimReport], list[int]]:
+                  floods_per_report: int = 1, link=None) -> tuple[list[SimReport], list[int]]:
     """The firmware's wake loop with `wake.decide`, minus the radio: returns the reports sent (with
     their n after epoch skips) and the times of silent wake-ups. Sleep while quiet is cut so the
     heartbeat wake-up falls exactly on last report + heartbeat (that is what next_in promises).
@@ -233,7 +233,13 @@ def simulate_days(events: list[DayEvent], days: float, zones=None, interval_s: i
     24 h flood count (2 with the retransmission after 8 s or a border copy). While 200 or more: the next
     interval in every mode is max(interval_s, 1 h), and on the keyed IDLE schedule a wake-up that
     would report only listens (the heartbeat and a command's ack still report). LOST doubles its
-    interval after 2 h while the fixes stay within 100 m of the first fix of the stretch."""
+    interval after 2 h while the fixes stay within 100 m of the first fix of the stretch.
+
+    0.10.0 `link` (a `link.LinkSim`): the tag's link policy rides on the loop. Every wake-up that looks
+    is a report for it (quiet still sends its hello): the first is the boot report, a mode change and
+    a command answer are events, and a hello left pending gets its check `link.check_after_s` later,
+    before the next wake-up. Floods, copies 10, routed copies and repeater transmissions are counted
+    in `link.count` (the scenarios of firmware/lt_core/test/link_test.c)."""
     from .wake import (CHECK_S, Action, Reason, WakeCfg, WakeIn, WakeState, check_guard_ms, check_jitter, decide,
                        report_next_in, wake_reports)
 
@@ -296,6 +302,10 @@ def simulate_days(events: list[DayEvent], days: float, zones=None, interval_s: i
         elif cmd and o.action == Action.SILENT:
             o.action = Action.REPORT_QUIET  # command taken at a check: report n + 1 at once (CMD_ACK)
             st.last_tx_s = t
+        if link is not None and o is not None:
+            period = (interval_s * max(1, report_every) if e.mode == Mode.IDLE else
+                      (lost_s if e.mode == Mode.LOST else track_s))
+            link.wake(t, e.mode, e.at, period, in_zone=o.reason == Reason.ZONE, cmd=cmd)
         if o is None:
             pass
         elif o.action == Action.SILENT:
@@ -330,6 +340,10 @@ def simulate_days(events: list[DayEvent], days: float, zones=None, interval_s: i
             hb = st.last_tx_s + cfg.heartbeat(st.reason)
             hb_wake = hb <= nxt
             nxt = max(t + 1, min(nxt, hb))
+        if link is not None and link.state.pending and t + link.check_after_s < nxt:
+            tc = t + link.check_after_s
+            cur = [x for x in ev if x.t <= tc]
+            link.check(tc, cur[-1].at if cur else None, interval_s * max(1, report_every))
         if o is not None and o.action != Action.SILENT:
             r = reports[-1]
             if o.action == Action.REPORT_QUIET:

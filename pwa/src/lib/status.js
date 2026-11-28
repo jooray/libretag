@@ -1,5 +1,5 @@
 // Status of a tag: port of the Android app's Status.kt / TagText.kt / Timeline.kt, pure and tested.
-import { checkOffsets } from './lt2.js';
+import { slotKey, slotOffsets } from './quietmesh.js';
 import { clock, ageShort, agoAt, at, heardRow, coord, distance, duration, every } from './format.js';
 import { t } from './i18n.js';
 import { distanceM, zoneOf } from './geo.js';
@@ -108,20 +108,36 @@ export function allowedMissed(tag, now) {
   return lossRate(tag.positions, gapPlan(tag), now) >= LOSSY_RATE ? 2 : 1;
 }
 
-/** Checks of the current quiet stretch (0.7): only when the report said CHECKS and the interval is known. */
-export function checkPlan(tag) {
-  const p = lastPos(tag);
+/** The slot grid of anchor report n at t0 (ms) for this tag's interval (PROTOCOL.md 2.6), or null without keys. */
+export function gridOf(tag, g) {
   const im = intervalMinOf(tag);
-  // never anchored on an approximate time (0.8.1): only the heartbeat counts then
-  if (!p || !p.checks || im == null || !tag.chain?.canCommand || p.approxUntil != null) return null;
-  const every = reportEveryOf(tag);
-  const between = !p.quiet && p.mode === 'IDLE' && every > 1; // 0.7.3: it listens between normal reports
-  if (!p.quiet && !between) return null;
-  const n = p.n;
-  const ce = tag.chain.cmd(Math.floor(n / 64));
-  const untilS = p.nextInS ?? (between ? im * 60 * every : HEARTBEAT_MS / 1000);
-  return { n, t0: p.receivedAt, intervalMin: im, checkS: checkSOf(tag), offsetsS: checkOffsets(ce, n, im * 60, 200, untilS) };
+  if (!g || im == null || !tag.chain?.canCommand) return null;
+  let ce;
+  try { ce = tag.chain.cmd(Math.floor(g.n / 64)); } catch { return null; }
+  if (!ce) return null;
+  tag._grids ??= new Map();
+  const key = g.n + ':' + g.t0 + ':' + im;
+  if (!tag._grids.has(key)) tag._grids.set(key, slotOffsets(slotKey(ce, g.n), im * 60, Math.min(400, Math.floor(50 * 60 / im) + 2)));
+  return { n: g.n, t0: g.t0, intervalMin: im, checkS: checkSOf(tag), offsetsS: tag._grids.get(key), vias: g.vias ?? [] };
 }
+
+/** Every grid a command is sent on (the confirmed anchor and its candidates), IDLE only. */
+export function sendGrids(tag, now = Date.now()) {
+  const a = tag.anchor;
+  if (!a || modeNow(tag, now) !== 'IDLE') return [];
+  return [...(a.a ? [a.a] : []), ...(a.cands ?? [])].map((g) => gridOf(tag, g)).filter(Boolean);
+}
+
+/** The tag's listening slots: the confirmed grid of its anchor, while known and in IDLE (else no time is shown). */
+export function checkPlan(tag, now = Date.now()) {
+  const a = tag.anchor;
+  if (!a?.a || a.known === false || modeNow(tag, now) !== 'IDLE') return null;
+  return gridOf(tag, a.a);
+}
+
+/** "schedule not known": the browser has no grid it is sure of. */
+export const scheduleUnknown = (tag, now = Date.now()) =>
+  !!lastPos(tag) && tag.chain?.canCommand && modeNow(tag, now) === 'IDLE' && (!tag.anchor?.a || tag.anchor.known === false);
 
 export function nextCheck(plan, now) {
   if (!plan) return null;
@@ -310,6 +326,8 @@ export function slip(tag, s, now = Date.now()) {
     if (p.sentAt) return { state: 'sent', text: t('slip.sent', { c, t: at(p.sentAt, now) }) };
     if (s.kind === 'SILENT') return { state: 'wait', text: t('slip.waiting_silent', { c, name: tag.name }) };
     if (s.nextCheckAt) return { state: 'wait', text: t('slip.waiting_check', { c, t: clock(s.nextCheckAt, now) }) };
+    // 2.6: no grid the browser is sure of: no time; entries still go out on the grids it has
+    if (scheduleUnknown(tag, now)) return { state: 'wait', text: t('slip.schedule_unknown', { name: tag.name }) };
     if (s.nextAt) return { state: 'wait', text: t('slip.waiting', { c, t: clock(s.nextAt, now) }) };
     return { state: 'wait', text: t('slip.waiting_first', { c }) };
   }

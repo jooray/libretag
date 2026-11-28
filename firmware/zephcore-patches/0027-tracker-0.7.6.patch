@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Tue, 17 Nov 2026 09:22:32 +0100
-Subject: [PATCH 27/42] tracker 0.7.6
+Subject: [PATCH 27/50] tracker 0.7.6
 
 ---
  zephcore/src/lt_version.h | 2 +-

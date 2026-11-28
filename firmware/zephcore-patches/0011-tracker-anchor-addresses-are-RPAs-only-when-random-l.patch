@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Mon, 16 Nov 2026 12:34:10 +0100
-Subject: [PATCH 11/42] tracker: anchor addresses are RPAs only when random;
+Subject: [PATCH 11/50] tracker: anchor addresses are RPAs only when random;
  low-battery DM as dm4x.ref (NIP-40 expiration); gps shows timers
 
 ---

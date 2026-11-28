@@ -243,8 +243,10 @@ object TagText {
             val at = reach.ahead
             // sent at a check that passed without an answer: it waits for the next check
             val sentStale = p.sentForCheck != null && p.sentAt != null && now - p.sentAt > CHECK_SENT_KEEP_MS
+            // R20: a bridge said it could not send the last slot
+            val missed = p.missAt != null && p.missAt > (p.sentAt ?: 0L) && now - p.missAt < CHECK_SENT_KEEP_MS * 10
             val state = when {
-                p.notConfirmed -> SlipState.FAILED
+                p.notConfirmed || missed -> SlipState.FAILED
                 p.sentAt != null && !sentStale -> SlipState.SENT
                 else -> SlipState.WAITING
             }
@@ -253,14 +255,18 @@ object TagText {
                 return Slip(state, time?.let { ctx.getString(R.string.slip2_row, c, it) } ?: c)
             }
             return Slip(state, when (state) {
-                SlipState.FAILED -> at?.let { ctx.getString(R.string.slip2_retry, c, Format.clock(ctx, it.at, now)) }
+                SlipState.FAILED -> if (missed) ctx.getString(R.string.slip2_not_sent, c, Format.clock(ctx, p.missAt!!, now))
+                    else at?.let { ctx.getString(R.string.slip2_retry, c, Format.clock(ctx, it.at, now)) }
                     ?: ctx.getString(R.string.slip2_retry_later, c)
                 SlipState.SENT -> ctx.getString(R.string.slip2_sent, c, Format.at(ctx, p.sentAt!!, now))
                 else -> when {
                     reach.kind == StatusLines.ReachKind.FIRST -> ctx.getString(R.string.slip2_out_first, c)
+                    // 2.6: no grid the app is sure of: no time, it still goes out on the grids it has
+                    Status.scheduleUnknown(t, now) -> ctx.getString(R.string.slip2_schedule_unknown, t.name)
+                    p.mailbox && p.accepted == 0 && now - p.queuedAt > NO_RELAY_AFTER_MS -> ctx.getString(R.string.slip2_no_relay, c)
                     at == null -> ctx.getString(R.string.slip2_out_heard, c)
                     at.deadline -> ctx.getString(R.string.slip2_out_latest, c, Format.clock(ctx, at.at, now))
-                    else -> ctx.getString(R.string.slip2_out, c, Format.clock(ctx, at.at, now))
+                    else -> ctx.getString(R.string.slip2_next_try, c, Format.clock(ctx, at.at, now))
                 }
             })
         }
@@ -271,6 +277,18 @@ object TagText {
         val at = Format.at(ctx, l.confirmedAt, now)
         return Slip(SlipState.CONFIRMED, if (compact) ctx.getString(R.string.slip2_row, cmdName(ctx, k), at)
             else ctx.getString(R.string.slip2_confirmed, cmdName(ctx, k), at))
+    }
+
+    /**
+     * The link line of the detail (A4): "In range of your node", "In range of a bridge", over one or
+     * two repeaters, or out of range; null before a quiet mesh report.
+     */
+    fun link(ctx: Context, t: Tracker): String? = when (app.libretag.data.QuietPlan.link(t)) {
+        app.libretag.data.QuietPlan.Link.NEAR_NODE -> ctx.getString(R.string.link_near_node)
+        app.libretag.data.QuietPlan.Link.NEAR_BRIDGE -> ctx.getString(R.string.link_near_bridge)
+        app.libretag.data.QuietPlan.Link.ROUTED -> ctx.getString(R.string.link_routed)
+        app.libretag.data.QuietPlan.Link.FAR -> ctx.getString(R.string.link_far)
+        app.libretag.data.QuietPlan.Link.UNKNOWN -> null
     }
 
     /** Route of a report: "via mesh, 1 hop", "via Nostr (bridge)", "from the tag's memory (USB)". */
@@ -295,4 +313,6 @@ object TagText {
     const val SLIP_KEEP_MS = 6 * 3600_000L
     /** a command sent at a check shows "sent" this long; without an answer it waits for the next check */
     const val CHECK_SENT_KEEP_MS = 3 * 60_000L
+    /** "no relay took it yet" only after the first publish had time */
+    const val NO_RELAY_AFTER_MS = 20_000L
 }

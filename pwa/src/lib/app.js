@@ -9,6 +9,8 @@ import { makeTag, tagsFromBackup } from './keys.js';
 import { FIRST_SYNC, NOSTR_REPORT_KIND, REPORT_P_LEN, REPORT_P_LEN_STEALTH, ReportWindow, WINDOW_AHEAD } from './lt2.js';
 import { fetchAllReports, findBeyondWindow } from './sync.js';
 import { CHECK_S_DEFAULT } from './status.js';
+import { ackEntries, ackPlan, moreRepublish, still } from './acks.js';
+import { anchorOnReport, emptyAnchor } from './quietmesh.js';
 import { LOST_MIN, QUEUE_KINDS, TRACK_MIN, splitForPeriod, anchorEntries, buildCommand, cancelEvents, mailboxEntries, newGroup, nextSeq, notYetOut,
   pruneAnchors, sentOf, signEntry } from './mailbox.js';
 import { mergePayloads, plaintextOf } from './merge.js';
@@ -16,7 +18,7 @@ import { checkMnemonic, normalizeMnemonic } from './mnemonic.js';
 import { lazySigner, restoreSession } from './signer.js';
 import { cacheKey, clearCache, openCache, readCacheBlob, saveHandoff, serializeTag, takeHandoff } from './vault.js';
 import { clearSession, loadSession, saveSession } from './session.js';
-import { GUARD_M, guardOf, intervalMinOf, mapTarget, reportEveryOf, statusOf, sortTags } from './status.js';
+import { GUARD_M, guardOf, intervalMinOf, lastPos, mapTarget, reportEveryOf, statusOf, sortTags } from './status.js';
 import { exactNs, mergeReport, reportTimeMs, upgrades } from './reports.js';
 import { distanceM, zoneStep } from './geo.js';
 import { counterBack } from './gaps.js';
@@ -577,7 +579,7 @@ export class App {
         pending: s.pending, lastCommand: s.lastCommand, modeUntil: s.modeUntil,
         modeIntervalS: s.modeIntervalS, intervalMin: s.intervalMin ?? null, updated: s.updated ?? 0, imported: !!s.imported,
         extra: s.extra ?? {}, zones: s.zones ?? [], alarm: s.alarm ?? null, inZone: s.inZone ?? null, syncedTo: s.syncedTo ?? null,
-        mbAnchors: s.mbAnchors ?? {}, leftPlace: s.leftPlace ?? null, leftAt: s.leftAt ?? null, guardAlerted: !!s.guardAlerted,
+        mbAnchors: s.mbAnchors ?? {}, anchor: s.anchor ?? null, lastAck: s.lastAck ?? null, leftPlace: s.leftPlace ?? null, leftAt: s.leftAt ?? null, guardAlerted: !!s.guardAlerted,
         counterBackAt: s.counterBackAt ?? null });
     }
     this.emit();
@@ -803,14 +805,15 @@ export class App {
     const tm = reportTimeMs(ev);
     const hit = await this._window(t).open(p, live, tm.until != null);
     if (!hit) return false;
-    await this._addReport(t, hit.n, hit.report, tm.at, tm.until);
+    await this._addReport(t, hit.n, hit.report, tm.at, tm.until, hit.j, bytesToHex(p.slice(0, 4)), live);
     return true;
   }
 
   /** approxUntil (ms): a bridge drained the report late, the time lies in [receivedAt, approxUntil] (0.8.1) */
-  async _addReport(t, n, r, receivedAt, approxUntil = null) {
+  async _addReport(t, n, r, receivedAt, approxUntil = null, j = -1, x = null, live = false) {
     const isNew = n > t.lastN;
-    const pos = { n, receivedAt, ...r };
+    const prev = lastPos(t);
+    const pos = { n, receivedAt, ...r, j, ...(x ? { x } : {}) };
     delete pos.neighbours; delete pos.wifi;
     pos.neighbourCount = r.neighbours.length;
     if (approxUntil != null) pos.approxUntil = Math.max(approxUntil, receivedAt);
@@ -830,13 +833,23 @@ export class App {
     }
     // the guard: a fix further than the radius from the guarded spot raises the alarm once
     const guard = guardOf(t);
-    if (isNew && guard && r.hasFix && !t.guardAlerted && distanceM(guard.lat, guard.lon, r.lat, r.lon) > (guard.r_m || GUARD_M)) {
+    if (isNew && guard && r.hasFix && !t.guardAlerted && approxUntil == null && distanceM(guard.lat, guard.lon, r.lat, r.lon) > Math.max(guard.r_m || GUARD_M, 3 * (r.haccM ?? 0))) {
       t.alarm = { guard: true, at: receivedAt };
       t.guardAlerted = true;
     }
+    // the ACK first (it decides whether the anchor gets a candidate), then the anchor (PROTOCOL.md 2.6, 3.3, 4.3)
+    const ack = isNew && approxUntil == null && x != null && this.firstSyncDone.has(t.id) ? ackPlan(t, prev, pos, Date.now()) : null;
+    if (approxUntil == null && (isNew || upgrade)) {
+      const standing = still(prev, pos);
+      const gap = prev ? receivedAt - prev.receivedAt : 0;
+      t.anchor = anchorOnReport(t.anchor ?? emptyAnchor(), n, j, receivedAt, !!r.sync, ack?.live === true, standing, gap >= 24 * 3600_000);
+      for (const g of [t.anchor.a, ...(t.anchor.cands ?? [])]) if (g && g.n === n && x && !(g.vias ?? []).includes(x)) g.vias = [...(g.vias ?? []), x].slice(-5);
+    }
     let confirmed = false;
     const pend = t.pending;
-    if (pend && r.cmdAck && (pend.seq & 15) === r.cmdSeq && heardBy >= pend.queuedAt - 300_000) {
+    // R5: a newer report than the one the command was queued after, the command's bits, and the mode it asked for
+    const modeOk = !pend || ({ LOST: 'LOST', TRACK: 'TRACK', NORMAL: 'IDLE' }[pend.kind] ?? r.mode) === r.mode;
+    if (pend && isNew && r.cmdAck && (pend.seq & 15) === r.cmdSeq && modeOk && (pend.queuedAtN == null || n > pend.queuedAtN)) {
       confirmed = true;
       t.lastCommand = { kind: pend.kind, confirmedAt: receivedAt };
       if (pend.kind === 'LOST') { t.modeUntil = receivedAt + LOST_MIN * 60_000; t.modeIntervalS = 600; }
@@ -856,6 +869,7 @@ export class App {
     if (r.mode === 'IDLE' && isNew && !confirmed) { t.modeUntil = null; t.modeIntervalS = null; }
     this.persist();
     this.emit();
+    if (ack) this.publishAck(t, ack).catch(() => {});
     // keep the mailbox ahead of the tag while a command waits
     if (t.pending && (isNew || upgrade) && this.firstSyncDone.has(t.id)) this.publishPending(t).catch(() => {});
     // and the anchors for the next reports (PROTOCOL.md 4.2), whether a command waits or not
@@ -884,6 +898,35 @@ export class App {
     } finally { this._anchoring.delete(t.id); }
   }
 
+  // ---------------------------------------------------------------- the ACK (PROTOCOL.md 3.3, 4.3)
+
+  /** Publish the ACK entries ackPlan() made: one live entry, or timed ones for the next slots. */
+  async publishAck(t, plan) {
+    const nowSec = nowS();
+    const entries = ackEntries(t, plan, nowSec);
+    if (!entries.length) return 0;
+    const evs = [];
+    for (const e of entries) { try { evs.push(signEntry(e, t.chain, nowSec)); } catch { /* no key */ } }
+    const ok = evs.length ? await this.publish(evs) : 0;
+    if (ok) { t.lastAck = { n: plan.n, at: Date.now(), form: plan.form, live: plan.live }; this.persist(); }
+    if (ok && !plan.live) {
+      (this._timedAcks ??= new Map()).set(t.id, { plan, sent: sentOf(evs), lastAt: Math.max(...entries.map((e) => e.at ?? 0)) });
+      if (t.pending) await this.timedAcksWithMore(t); // a command came in while they went out
+    }
+    return ok;
+  }
+
+  /** Timed ACKs without MORE and a command queued after them: delete them and publish them again with MORE. */
+  async timedAcksWithMore(t) {
+    const set = this._timedAcks?.get(t.id);
+    const plan = moreRepublish(set, t, nowS());
+    if (!plan) return 0;
+    this._timedAcks.delete(t.id);
+    const dels = cancelEvents(set.sent, t.chain);
+    if (dels.length) await this.publish(dels).catch(() => 0);
+    return this.publishAck(t, plan);
+  }
+
   // ---------------------------------------------------------------- commands
 
   /** Queue a command: sealed for the next reports (and checks), published to the mailbox signed with sk_n (PROTOCOL.md 4.2). */
@@ -893,12 +936,13 @@ export class App {
     const seq = nextSeq(t);
     t.cmdSeq = seq;
     this._stopQueue(t.id);
-    t.pending = { seq, kind, body: [...buildCommand(kind, seq, arg, durationMin, opts)].map((b) => b.toString(16).padStart(2, '0')).join(''),
+    t.pending = { seq, kind, queuedAtN: t.lastN, body: [...buildCommand(kind, seq, arg, durationMin, opts)].map((b) => b.toString(16).padStart(2, '0')).join(''),
       g: newGroup(), queuedAt: Date.now(), notConfirmed: false, reportsSince: 0,
       ...(kind === 'TRACK' ? { intervalS: arg > 0 ? arg : 300, durationMin: durationMin > 0 ? durationMin : TRACK_MIN } : {}),
       ...(kind === 'INTERVAL' ? { wakeMin: arg, every: opts.every ?? 1, checkS: opts.checkS ?? CHECK_S_DEFAULT } : {}) };
     this.persist(); this.emit();
     this.publishAnchors(t).catch(() => {});
+    this.timedAcksWithMore(t).catch(() => {});
     return this.publishPending(t);
   }
 
@@ -971,6 +1015,8 @@ export class App {
 
   /** A claim for one of our command tags: mark that command sent. Returns the tag id or null. */
   markSentFromClaim(ev) {
+    // "ack sent", miss and done notes and ACK claims share kind 24244 and the y: not a command claim
+    if (ev.tags.some((x) => ['ack', 'miss', 'done'].includes(x[0]))) return null;
     const claimed = ev.tags.filter((x) => x[0] === 'y').map((x) => x[1]);
     const t = this.tags.find((x) => x.pending && !x.pending.sentAt && (x.pending.ys ?? []).some((y) => claimed.includes(y)));
     if (!t) return null;

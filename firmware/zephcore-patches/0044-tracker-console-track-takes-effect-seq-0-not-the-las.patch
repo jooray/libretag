@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Tue, 24 Nov 2026 14:17:53 +0100
+Subject: [PATCH 44/50] tracker: console track takes effect (seq 0, not the
+ last mesh command's seq)
+
+---
+ zephcore/src/main_tracker.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index f357f24..1a3096c 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -6691,7 +6691,7 @@ static void cli_exec(char *l)
+ 		save_cfg();
+ 		out("OK\r\n");
+ 	} else if (!strcmp(c, "track") && argc == 3) {
+-		lt_command_t cmd = {.seq = last_cmd_seq, .op = LT_OP_SET_MODE};
++		lt_command_t cmd = {.seq = 0, .op = LT_OP_SET_MODE} /* 0 = not a mesh command: never a duplicate of the last one */;
+ 		uint16_t iv = (uint16_t)atoi(argv[1]), du = (uint16_t)atoi(argv[2]);
+ 		cmd.args[0] = LT_MODE_TRACK;
+ 		cmd.args[1] = iv & 0xFF;

@@ -39,10 +39,10 @@ def make_radio(rc: RadioCfg):
         from .localapi import Identity, LocalApiRadio
 
         types = {frames.CHANNEL_NOSTR: [frames.DATA_TYPE_NOSTR], frames.CHANNEL_ROAD: [frames.DATA_TYPE_ROAD],
-                 frames.CHANNEL_LIBRETAG: [frames.DATA_TYPE_LIBRETAG]}
+                 frames.CHANNEL_LIBRETAG: [frames.DATA_TYPE_LIBRETAG, 0xFF6C]}  # 0xFF6C: fallback sends
         ident = Identity(rc.identity) if rc.identity else Identity()
         return LocalApiRadio(rc.url, {c: types.get(c, [frames.DATA_TYPE_NOSTR]) for c in rc.channels}, ident,
-                             region=rc.region or None)
+                             regions=list(rc.regions))
     sys.exit(f"unknown adapter {rc.adapter}")
 
 
@@ -100,16 +100,28 @@ def cmd_run(a):
         # always subscribed: LT2 uplink dedup (4243), command mailbox (4244), claims (24244), downlink
         pool = RelayPool(cfg.publish, cfg.subscribe, on_event=lambda ev, url: holder["b"].on_relay_event(ev, url),
                          auth_signer=signer)
+        from . import fieldlog
+
+        fieldlog.configure(cfg.fieldlog.dir or None, cfg.bridge.name or "", cfg.fieldlog.keep_days)
         br = Bridge(cfg, make_radio(cfg.radio), pool, Ledger(cfg.ledger_path), registry)
         holder["b"] = br
         pool.start()
         await br.start()
+        from importlib.metadata import version as _version
+
+        caps = sorted(getattr(br.radio, "capabilities", ()) or ())
+        fieldlog.ev("start", version=_version("libretag"), adapter=cfg.radio.adapter, regions=br.regions() or None,
+                    relays=list(pool.relays), pubkey=br.lt2.pubkey, capabilities=caps or None,
+                    zero_hop=bool(getattr(br.radio, "supports_direct", False)),
+                    path=bool(getattr(br.radio, "supports_path", False)))
         logging.info("bridge up: uplink %s, downlink %s, LT2 mailbox %s, airtime %.2f + %.2f %%/h, %d relays%s, "
                      "ledger %s, watchdog %s", "on" if cfg.uplink.enabled else "off",
                      "ON" if cfg.downlink.enabled else "off", "on" if cfg.libretag.mailbox else "off",
                      cfg.airtime.budget_pct, cfg.libretag.airtime_pct, len(pool.relays),
                      " (NIP-42 AUTH)" if signer else "", cfg.ledger_path,
-                     f"{cfg.watchdog.rx_silence_s / 60:.0f} min" if cfg.watchdog.rx_silence_s > 0 else "off")
+                     f"radio silence {cfg.watchdog.rx_silence_s / 60:.0f} min, probe {cfg.watchdog.probe_s:.0f} s, "
+                     f"alert hook {'set' if cfg.watchdog.alert_cmd else 'none'}, recover hook "
+                     f"{'set' if cfg.watchdog.recover_cmd else 'none'}")
         lt = br.lt2
         if lt.pubkey:
             logging.info("bridge key %s, networks %s, receipts %s, peers %d, open entries %s, signed mailbox "
@@ -121,15 +133,26 @@ def cmd_run(a):
         else:
             logging.warning("no [bridge] key: claims go out under fresh keys and count at no other bridge, "
                             "no announcement, no receipts (nostrmesh bridge-key makes one)")
-        if cfg.radio.adapter == "local_api" and not cfg.radio.region:
-            logging.warning("no [radio] region: commands flood in the node's default scope")
-        elif cfg.radio.adapter != "local_api":
-            logging.warning("the %s adapter cannot scope a flood: commands flood unscoped", cfg.radio.adapter)
+        if cfg.radio.adapter in ("local_api", "kiss") and not cfg.radio.regions:
+            logging.warning("no [radio] regions: replies and fallbacks flood in the node's default scope")
+        elif cfg.radio.adapter == "companion_serial":
+            logging.warning("companion_serial floods in the node's own scope, and its received frames carry no "
+                            "path: zero-hop ACKs and commands only, no routed ACKs and no path sends")
+        if cfg.radio.adapter == "local_api":
+            for cap, what in (("tx_path_data", "zero-hop and path sends (no ACKs at all)"),
+                              ("rx_meta", "route types (DIRECT arrivals look unknown)"),
+                              ("rx_path", "received paths (no routed ACKs, no path sends)"),
+                              ("rx_scope", "the scope of received floods (replies in the widest region)"),
+                              ("rx_queued", "queued frames (only the 20 s age rule marks them approx)")):
+                if caps and cap not in caps:
+                    logging.warning("the node service lacks %s: %s", cap, what)
         try:
-            await br.fatal.wait()  # the watchdog: the supervisor (launchd, systemd) restarts us
+            await br.fatal.wait()  # set only on a fatal error; a dead radio is handled without exiting
             logging.error("exiting: %s", br.fatal_reason)
+            fieldlog.ev("stop", reason=br.fatal_reason)
             return EXIT_WATCHDOG
         finally:
+            fieldlog.ev("stop", reason="shutdown")
             br.write_status()
             await br.stop()
             await pool.stop()

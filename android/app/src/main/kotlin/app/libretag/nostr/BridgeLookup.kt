@@ -43,9 +43,68 @@ class BridgeLookup(
     private fun validKnown(pk: String, nowS: Long): List<Announcement> =
         known[pk]?.filter { it.expires > nowS }.orEmpty()
 
+    @Volatile private var lastView: View? = null
+
+    /** The last view the relays gave (P6: a late entry goes out at once with the targets the app already has). */
+    fun cachedView(): View? = lastView
+
     /** Receipts for [recent] (y -> report counter) and the announcements of their authors. */
     suspend fun view(recent: Map<String, Long>, timeoutMs: Long = QUERY_TIMEOUT_MS): View {
         if (recent.isEmpty()) return View.EMPTY
+        return viewOf(recent, timeoutMs).also { if (it.receipts.isNotEmpty()) lastView = it }
+    }
+
+    /**
+     * The announced bridges with a receipt for report [y], asked for at most [timeoutMs] (a live ACK
+     * entry names the bridge that heard the copy only when the receipt is there within 500 ms).
+     */
+    suspend fun receiptAuthors(y: String, timeoutMs: Long): List<String> = try {
+        val nowS = now()
+        (withTimeoutOrNull(timeoutMs) {
+            query(listOf(buildJsonObject {
+                put("kinds", buildJsonArray { add(JsonPrimitive(BridgeTargets.RECEIPT_KIND)) })
+                put("#y", buildJsonArray { add(JsonPrimitive(y)) })
+            }), timeoutMs)
+        } ?: emptyList()).mapNotNull { o -> NostrEvent.fromJson(o)?.let { BridgeTargets.parseReceipt(it, nowS) } }
+            .map { it.pubkey }.distinct().filter { validKnown(it, nowS).isNotEmpty() }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /** A bridge with a valid announcement (for a blind Lost entry), preferring one that heard the tag lately. */
+    fun anyKnownBridge(): String? {
+        val nowS = now()
+        lastView?.receipts?.map { it.pubkey }?.firstOrNull { validKnown(it, nowS).isNotEmpty() }?.let { return it }
+        return known.keys.firstOrNull { validKnown(it, nowS).isNotEmpty() }
+    }
+
+    /**
+     * The bridges that heard [ys] (receipts), with their newest announcement asked again (not from
+     * the cache): what "bridge offline" needs (SPEC.md 3.2, R13).
+     */
+    suspend fun hearers(ys: Collection<String>, timeoutMs: Long = QUERY_TIMEOUT_MS): List<Announcement> {
+        if (ys.isEmpty()) return emptyList()
+        return try {
+            val nowS = now()
+            val receipts = query(listOf(buildJsonObject {
+                put("kinds", buildJsonArray { add(JsonPrimitive(BridgeTargets.RECEIPT_KIND)) })
+                put("#y", buildJsonArray { ys.forEach { add(JsonPrimitive(it)) } })
+            }), timeoutMs).mapNotNull { o -> NostrEvent.fromJson(o)?.let { BridgeTargets.parseReceipt(it, nowS) } }
+            val authors = receipts.map { it.pubkey }.distinct()
+            if (authors.isEmpty()) return emptyList()
+            val anns = fetchAnnouncements(authors, timeoutMs, nowS)
+            remember(anns)
+            anns.groupBy { it.pubkey }.map { (_, l) -> l.maxBy { it.createdAt } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private suspend fun viewOf(recent: Map<String, Long>, timeoutMs: Long): View {
         return try {
             val nowS = now()
             val receipts = query(listOf(buildJsonObject {

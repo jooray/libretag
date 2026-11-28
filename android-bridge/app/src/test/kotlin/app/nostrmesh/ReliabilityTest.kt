@@ -175,7 +175,7 @@ class ReliabilityTest {
     companion object {
         /** `Bridge.status` and `Bridge.summary` in host/src/nostrmesh/bridge.py (test_status_keys there). */
         val HOST_STATUS_KEYS = setOf("at", "started_at", "interval_s", "total", "last_hour", "airtime_window_s",
-            "airtime_cap_s", "radio_silence_s", "mailbox_tags", "outbox", "counters")
+            "airtime_cap_s", "radio_silence_s", "radio", "radio_since", "mailbox_tags", "outbox", "counters")
         val HOST_SUMMARY_KEYS = setOf("heard", "published", "dropped", "spam_rejected", "sent_to_radio", "airtime_s")
     }
 }

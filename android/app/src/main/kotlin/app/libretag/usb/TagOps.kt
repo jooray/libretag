@@ -114,6 +114,8 @@ object TagOps {
             if (!c.set(ConsoleCommands.reportEvery(t.reportEvery))) return@session WriteResult.FAILED
             if (!c.set(ConsoleCommands.check(t.checkS))) return@session WriteResult.FAILED
             if (!c.set(ConsoleCommands.still(t.stillAfterEff, t.stillHbH))) return@session WriteResult.FAILED
+            // 0.10.0: firmware before it does not know the command; nothing else depends on it
+            if (app.usb.supports("ackpatience") && !c.set(ConsoleCommands.ackPatience(if (t.reportAtOnce) 2 else 1))) return@session WriteResult.FAILED
             if (t.people && !c.command(ConsoleCommands.ANCHOR_CLEAR).any { it.startsWith("OK") || it.startsWith("ERR unknown") }) return@session WriteResult.FAILED
             WriteResult.OK
         } ?: WriteResult.FAILED

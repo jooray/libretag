@@ -1,6 +1,6 @@
 # LibreTag: tracker over MeshCore (working specification)
 
-Status: working draft, updated 2026-11-17 (first version 2026-11-13). Based on the owner's initial notes, the first round of research and the prototype. What is built: "Prototype status" in section 10. Current versions: tracker firmware 0.7.8, Android app 0.8.8, web app (PWA) 0.4.0, Android bridge 0.3.2, protocol LT2 (`PROTOCOL.md`).
+Status: working draft, updated 2026-11-26 (first version 2026-11-13; the quiet mesh, 3.2, is the design of firmware 0.10.0, app 0.14.0, Android bridge 0.6.0, Python bridge 0.7.0 and PWA 0.5.0). Based on the owner's initial notes, the first round of research and the prototype. What is built: "Prototype status" in section 10. Current versions: tracker firmware 0.7.8, Android app 0.8.8, web app (PWA) 0.4.0, Android bridge 0.3.2, protocol LT2 (`PROTOCOL.md`).
 
 ## 1. What we are building
 
@@ -122,7 +122,7 @@ A command is authenticated with an HMAC derived from the pairing secret and boun
 
 ### Command delivery
 
-**Principle: minimum transmission.** Most packets pass through many repeaters, and every packet loads the whole network. So in normal mode the tracker transmits only the report and the base station **transmits nothing**. No ACK for a report and no "nothing for you". The base station transmits only when it has a command for the tracker, and the tracker answers (ACK, position) only to a command.
+**Principle: minimum transmission.** Most packets pass through many repeaters, and every packet loads the whole network. So in normal mode the tracker transmits only the report and the base station **transmits nothing**, with one exception since 0.10.0: the zero-hop ACK that spares the tag a flood (3.2). No ACK for a report and no "nothing for you". The base station transmits only when it has a command for the tracker, and the tracker answers (ACK, position) only to a command.
 
 The owner does not know when the tracker is awake. So we turn it around, like LoRaWAN Class A: commands wait in a queue on the **base station** (the node that receives the reports). When the base station receives a report and has a command for the tracker, it sends it immediately. If it has no command, it stays silent and the tracker goes to sleep when the window ends.
 
@@ -183,6 +183,152 @@ Goal: spam the network as little as possible. Everything should be configurable 
 - Instead of more fixed commands, one general command `SET_PARAM` (key u8, value u16/u32), plus `SET_PROFILE`.
 - Via DM the same as text: `set move_m 150`, `profile car`.
 - The tracker confirms the change in the next report, as today (cmd_seq).
+
+### 3.2 Quiet mesh (firmware 0.10.0, app 0.14.0, Android bridge 0.6.0, Python bridge 0.7.0, PWA 0.5.0)
+
+Released together, with no compatibility to older versions. Wire formats: `PROTOCOL.md` 2.6, 2.7, 3.3 to 3.5, 4.3. Reasoning: `docs/design/quiet-mesh.md`.
+
+**Goal.** Use the MeshCore repeaters as little as possible. Zero-hop and a bridge near the tag come first. Floods, and anything else that makes repeaters transmit (direct routes included), are kept to the minimum, and the defaults load the network as little as they can. Listening for commands about once an hour is enough.
+
+**Summary.**
+
+1. In IDLE the tag's regular report goes out zero-hop (copy 9, the "hello"): a full report that no repeater forwards.
+2. Only the owner can confirm it. The app opens the report and answers with a 13 B ACK sealed with the command chain. The owner's node, or the bridge that heard the report directly, transmits it zero-hop. A bridge cannot make an ACK.
+3. A flood is the fallback, on events: the tag moved and nobody confirmed, the confirmed link went away, a command has to be answered, tracking. Never on a timer shorter than 24 h for a tag that stands still.
+4. Floods are scoped as narrowly as the tag can justify (area, country, unscoped) and widen only when nothing repeats them. Every escalation step is a new copy `j`, because repeaters drop a payload they have seen.
+5. Between zero-hop and a flood there is one more step: for a standing tag one or two repeaters from a bridge, a path learned from its flood. Used only where it replaces a flood one for one.
+
+**The principle "the base station transmits nothing" has one exception:** the ACK, a 21 B zero-hop packet (or one along a path of at most two repeaters) that saves the tag a flood.
+
+#### The tag
+
+The tag runs four machines side by side.
+
+**Wake cycle.** One pass per wake-up: BootWait (30 s, then 2, 4, 8 min up to 1 h after faults in a row), Sleep, CheckListen (a slot that does not report: receiver only, **transmits nothing** unless a command came), Look (GPS search, with the slot window beside it), Decide, Send (near, path or flood), Listen (60 s at most), Answer (3.5 of PROTOCOL). Below 3250 mV the tag neither transmits nor listens. Every phase has a deadline in the main loop (`PH_TX` 15 s per packet, `PH_LISTEN` listen + 30 s, a check window + search + 30 s, a Bluetooth scan + 10 s); past it the tag logs `stall` and leaves the phase normally, without a reset.
+
+**Mode.** IDLE, TRACK (60 min from the app), LOST (1440 min), LISTEN, as before. TRACK and LOST have no slots; they listen 60 s after each report.
+
+**Link.** NEAR, ROUTED or FAR, kept in the state file with `hold` and the path.
+
+| Event | From | Result |
+|---|---|---|
+| near ACK in the listen window or at a slot | any | NEAR; `t_ack`, `hold`, `ref_fix`; the path is dropped |
+| routed ACK (ROUTED bit, 1 or 2 entries, DIRECT with an empty path, no near ACK for this report) | FAR, ROUTED | ROUTED; path and `path_fix` stored |
+| `hold` ran out and the hello got no ACK; or moved and the hello was not ACKed in its window nor at the next check; or a report that has to arrive got no ACK in 12 s | NEAR | FAR |
+| moved, one routed copy not confirmed, home network changed | ROUTED | FAR, path forgotten |
+| a command | any | no change |
+| reboot | | link kept; the boot report has to arrive, so the link is tested within 12 s |
+
+"Has to arrive": an event (boot, command answer, mode change, low battery, console report), heartbeat due, no-fix backoff due, `hold` ran out (or `hold` 0), every TRACK and LOST report.
+
+| Link | A routine report | A report that has to arrive | Timers |
+|---|---|---|---|
+| NEAR | copy 9 | copy 9; no ACK in 12 s: copy 0, then copy 10 if nothing repeats it | `hold` from the last ACK |
+| ROUTED | copy 9 | copy 11 along the path; no routed ACK in 12 s + 1.5 s per hop: forget the path, flood | heartbeat 24 h, no-fix backoff |
+| FAR | copy 9 | copy 0 at `lvl`; copy 10 one level wider if nothing repeats it within 8 s | heartbeat 24 h, no-fix backoff 3, 6, 12, 24 h |
+
+At every IDLE wake-up that reports:
+
+```
+need_flood = event
+          or (NEAR and (hold == 0 or now - t_ack >= hold_s))
+          or (FAR or ROUTED) and (moved or heartbeat due or (no fix and backoff due))
+
+if (FAR or ROUTED) and need_flood:   ROUTED: copy 11, wait; FAR: copy 0 (flood)
+else:                                copy 9, listen
+   ACK in the window -> NEAR (or ROUTED), done
+   no ACK:
+     need_flood                   -> 12 s after the hello: copy 0, link FAR
+     NEAR and moved (or left a zone or parking place)
+                                  -> decided at the next check: an ACK there settles it,
+                                     else a fresh fix and a flood of report n + 1, link FAR
+     otherwise                    -> nothing; a late ACK at a check still counts
+```
+
+- `hold_s`: `hold` × 3 h from the ACK, never less than one report period plus 5 minutes. `hold` 0 (a guarded tag) makes every report one that has to arrive.
+- `moved`: a fix farther than `MOVE_M` (300 m, or 3 × the accuracy if larger) from `ref_fix` (the fix at the last ACK or the last flooded report), not inside a home zone. No fix is "unknown".
+- `ack_patience` (`SET_IDLE` offset 9): 1 (default) = an IDLE tag that moved waits for the next check; 2 = it decides 12 s after the hello. A guarded tag decides after 12 s anyway. TRACK, LOST and command answers always decide after 12 s (12 s + 1.5 s per hop after a routed copy).
+- **Moved without GPS.** A NEAR tag whose hello got no ACK and that has no fix sends one discover (zero-hop) at the next check and compares the repeaters that answer with the set it kept at its last ACK. No repeater in common while either set is non-empty counts as moved: it floods at that check. Wi-Fi boards compare the scan with the one kept at the last ACK (`lt_wzone_match`, stay threshold). Otherwise "unknown", and the tag waits for `hold`.
+- **No fix, FAR:** a flood after a gap of 1, 2, 4, 8 report periods, at most 24 h; a fix, an ACK, a command or a mode change resets it. The wake decision itself stays fail-open (a hello still goes out every period).
+- **Parked:** the second report within `MOVE_M` of the first is a flood with `QUIET`, `PARKED` and `next_in` 24 h (over the path when ROUTED); after that hellos only until it moves or the heartbeat is due.
+- **Quiet:** in a zone or parked the tag sends its hello every report period. Quiet "owner" stays silent, with its 8 h heartbeat going through the rules above.
+- **Discover:** only when FAR or ROUTED and the previous wake-up had no fix, plus the moved-without-GPS one.
+- **Low battery:** the report below 10 % has to arrive; the `#nostr` DM goes out only when that report was not ACKed.
+- **Extra flood after a lost `hold` flood:** when the flood after `hold` was not heard repeated, the next report floods once more (counted in the budget).
+- **`home_silent`** (which triggers copy 1) is counted only after a full listen window.
+- **Early sleep.** After an ACK without `MORE` the listen window ends 20 s after the ACK for a report that notifies the owner or changes what the app shows (moved, left or arrived at a place, mode change, low battery, boot, command answer), 5 s after the ACK of a routine hello of a tag that has not moved. Without an ACK the window stays 60 s. A shortened window does not touch `home_silent`. At a slot that only listens, an ACK without `MORE` ends the window 1 s after the ACK (a command a bridge sends 300 ms behind it still lands); with `MORE` the window runs to its end.
+- **TRACK and LOST:** NEAR: copy 9, 12 s, else a flood. ROUTED: moved → FAR; else copy 11, 12 s + 1.5 s per hop, else a flood. FAR: a flood at once; an ACK to it makes the tag NEAR or ROUTED. BLE and Wi-Fi packets and the DM follow the route of their report.
+- **Answer to a command:** PROTOCOL 3.5. Entering TRACK or LOST by a command on a DIRECT route: the answer within 2 s with the last position, then the mode's first report with a GPS search. By a flood: one report after the search.
+
+**Schedule.** The anchor of PROTOCOL 2.6: it moves on a flood copy sent (origin: the flood) and on an ACK in the listen window of its own report; the previous grid stays 3 slots after a flood; a slot that passed while the tag was busy (GPS first fix, console, firmware update) is skipped; no grid after a reboot until the boot report.
+
+**Flood scope.** PROTOCOL 2.7. The first baked area is the first bridge's city, 25 km, with the ladder behind it. Measured with `scopetest`; the operators around the bridge are asked to carry the area scope.
+
+#### Budgets and limits
+
+| Limit | Value | When it is hit | What the app shows |
+|---|---|---|---|
+| IDLE fallback floods | 8 in 24 h (events and command answers excluded) | a tag moving out of range with frequent reports, a jammer on the ACK | "reports limited until …" from `next_in` of the 8th flood |
+| unscoped floods in IDLE | 1 in 24 h | | |
+| all floods | 200 in 24 h | TRACK at 2 min out of range for 6 h or more | the interval drops to 1 h, `next_in` says so |
+| counters | 64 per epoch; checkpoints at multiples of 16 (state and key page floor); no advance when the previous run sent nothing | a reboot costs at most 31 counters and lands on one of two known counters | the app anchors both |
+| bridge ACKs | 1 live per locked key and report, 1 per timed slot, 120 an hour | | |
+| bridge timed sends | 1 per `via` per 10 min (not for ACKs or the second entry of a multi-grid send), 20 an hour | | "not sent" from the miss note |
+| relay (owner's relay policy) | burst 120, then 60 kind 4244 a minute per address; anchors and ACK entries counted apart from commands | an app with several tags reconnecting | |
+| battery | no transmission and no listening below 3250 mV | | "battery probably empty since …" after a low-battery report |
+
+#### Defaults
+
+| Setting | Value |
+|---|---|
+| Wake-up interval / report every | 60 min / 3 (firmware and app) |
+| Listen after a report | 60 s; after an ACK without `MORE` 20 s or 5 s more (early sleep) |
+| Check window | 30 s (scaled by preset), about once an hour |
+| ACK decision | 12 s for TRACK, LOST, command answers, a guarded tag; the next check for a moved IDLE tag (`ack_patience` 1) |
+| `hold` | 12 h (4); choices 0, 6, 12, 24 h; 0 while guarding |
+| `MOVE_M` | 300 m or 3 × accuracy |
+| Parked | at the second report in one place, heartbeat 24 h |
+| Zone / owner heartbeat | 24 h / 8 h |
+| No fix, FAR | flood gap 1, 2, 4, 8 periods, at most 24 h |
+| Retransmission after 8 s | never; copy 10 for floods that matter |
+| TRACK / LOST interval | 5 min / 10 min, floor 2 min |
+| Scope | area, country, unscoped |
+| Direct routing | on, for a standing tag at most 2 repeaters from a bridge (`direct_max_hops` 2; 0 = off); never from the owner's node |
+| Bridge `late_max_s` | 40 s |
+| Bridge publish delay | 0.3 to 0.8 s for a report heard directly or over 1 or 2 hops with a path and no untimed command waiting; else 2 to 5 s |
+| Bridge fallback after a zero-hop (`both`) or path send | 12 s without an answer, then one flood with data type `0xFF6C` |
+| Claim round | 1.5 s; 2 s before the first routed ACK of a flood |
+| Path record at the bridge | 48 h from the last use |
+| Timed ACK | 2 slots near, 1 routed, none once a newer report exists |
+| Grids a command is published for | the confirmed anchor plus one candidate while an ACK is unsettled (two after a lost report); only the latest slot with fallback, except Lost and Track |
+| Own-node slot send | aimed at `t_k + 1 s` by an alarm, retried every 3 s to `t_k + 20 s` |
+| Bridge timed send that fails | retried to `at + 20 s`, then a miss note |
+| Bridge announcement | every hour and within a minute of a radio state change |
+| Waiting command in the app | ends at its lifetime (Beep 1 h, Bluetooth 4 h, Track, Normal and scan 12 h, Lost and settings 48 h) with a notice |
+| Guard distance | max(300 m, 3 × accuracy), exact reports only |
+| Default relays | the owner's relay and primal; nos.lol removed from the app and both bridges |
+
+#### Bridges
+
+- **Reports.** A `GRP_DATA` on a DIRECT route is a live report like a flood. The hop count of a DIRECT arrival is unknown; 0 hops only for a flood with an empty path. `heard_direct`: a DIRECT arrival, or a flood with 0 hops. All four route types are accepted. A report goes into the outbox at hearing time with a not-before time, so a crash during the publish delay loses nothing. A frame more than 20 s old, or marked `queued` by the node, is published with `approx` and never locks or sends.
+- **Entries.** ACK entries, the route plan, the fallback (none for an entry without `g`), group done, blind entries, path records and the reply scope of PROTOCOL 4.3 (a scope the bridge cannot name: its narrowest region). A bridge that serves no open entries still reads every kind 4244, for the anchors (PROTOCOL 4.1). The hourly cap on open floods is checked before the claim round; the ACK budget counts ACKs that went on air. A `no_path` miss note comes only from a bridge the entry names in `p`. A timed entry counts as sent only after the radio took the frame; it is retried every 2 s until `at + 20 s`, and a miss note follows a block or a miss. The Android bridge publishes claims without waiting, and times due entries with an exact alarm and a wake lock held from 10 s before `at` until the send returned.
+- **Radio health.** "Node service up, radio down" counts as down. The radio is down when the Local API says so, when a send comes back `not_connected` or times out twice in a row, or when nothing came from the radio itself (a received packet, or the answer to a `radio.stats` probe every 5 minutes) for `rx_silence_s`; frames of the Local API session alone do not count. One step before that is `radio_degraded`: late answers or unanswered heartbeats reported by the node service. On `radio_down` the bridge logs the reason, publishes the announcement with `radio down` within a minute, answers due timed entries with a miss note (`radio`), and runs the operator's alert hook (`[watchdog] alert_cmd`, also on `radio_up`). It does not exit. Recovery, each step once per back-off (5, 15, 60 min): reboot the node by command while it still answers but stalls (`radio_degraded` for 10 minutes); reopen the port; the RTS and DTR reset; the recover hook (`[watchdog] recover_cmd`, e.g. switching the USB port's power with `uhubctl` where the hub supports it); finally the alert says a person has to power-cycle the node. The Android bridge has the same detection and announcement, without the hooks. A companion firmware with its own watchdog for the bridge node is a later step, taken only if switching the port's power cannot be done or the outage comes back.
+
+#### The owner's node and the app
+
+- **Own node** (MeshCore Open with the Local API): sends zero-hop only (`tx_path_data`, `"path": ""`). The app sends a near ACK through it only when the server offers `rx_meta` (route type of received packets), so it knows a copy came directly. Frames marked `queued` (`rx_queued`) are approximate: stored and notified, no ACK, no anchor, no command. A server without `rx_queued` gives no such mark; then every frame delivered in the first 20 s after the node connects counts as queued. Sends that must not wait use `tx_now` and report `sentAt`; payloads of at most 32 B are exempt from the 2 s send gap. Channel data that arrives during the channel sync after a connect is delivered to the API.
+- **ACK sender.** For every report opened with an exact time that is the newest: from the own node, for copy 9 or a flood with 0 hops, the near ACK zero-hop within a second; from a relay, the ACK entry of PROTOCOL 4.3 at once (no receipt wait beyond 500 ms). A report older than 40 s by its radio time (corrected by the measured clock offset) gets a timed ACK instead. Forms by copy: copy 9 near; a flood copy both forms unless the fix moved more than `MOVE_M` from the previous report's, then near only; copy 11 routed with `via` and `p`, both taken from the last `["ack", "2"]` note (its author and its `via`). `MORE` is set while a command waits; timed ACKs that went out before a command was queued are deleted and published again with `MORE`. Never a flood, never a path from the own node. The app logs, for every ACK, the age of the report when it opened it, live or timed, and whether an "ack sent" note or the next report's `SYNC` settled it.
+- **Anchor and slots.** PROTOCOL 2.6. The app shows "Next try at hh:mm", "Sent at hh:mm" once a bridge or the node transmitted, "Confirmed at hh:mm", "Not sent at hh:mm" from a miss note, or "Waiting for <tag> to report. Its schedule is not known right now."
+- **Reports.** A second copy of a report within 120 s adds its path and triggers what the first one could not (an own-node command, an ACK), never a second notification. A report older than the newest changes only the history: it confirms nothing, does not clear the silent latch, moves no anchor and gets no ACK.
+- **Silence.** NEAR tag: `max(next + tolerance, t_ack + hold + period) + 30 min`. FAR: `next_in` of the last flood plus tolerance. ROUTED: the FAR deadline plus one check interval. View-only share: `next_in` of the last report plus 24 h. Before raising "silent" for a tag last heard through a bridge, the app reads that bridge's announcement: older than 2 h, or `radio down`, gives "The bridge that hears <tag> is offline (since hh:mm)", not an alarm. Also: "reports limited until …" (budget), "battery probably empty since …" (after a low-battery report), "Lost mode ended, renew?" (the end time the app set), "<Tag> is heard but does not get the answers" (ACKs sent, no "ack sent" notes, or floods from the same place after `hold`), "Your MeshCore node is off" at the first missed hello that came through it.
+- **Commands.** One waits per tag. Lifetime and the "did not reach" notice, the confirmed rule and the random `cmd_seq` of PROTOCOL 3. Republished at app start; retried every 30 s until a relay accepts; "sent to the mailbox" counts relays that accepted. Own-node slot sends by alarm 5 s ahead, aimed at `t_k + 1 s`, retried on `not_connected` or `rate_limited` every 3 s until `t_k + 20 s`; the clock offset against the relays is measured and applied when above 2 s. Grids are kept on the bridges' clock (a timed entry's `at` is read by a bridge): a report time from the own node moves by the offset before it anchors a grid, and an own-node slot send moves back by it onto the phone's clock.
+- **PWA:** the same ACK entries and status wording while it is open.
+
+#### Not in this release
+
+- Listening slots tied to wall-clock time, so the app needs no recent report at all. Decided after the field tests, by how often the app's anchor and the tag's differed while the tag was reachable.
+- The node watchdog firmware for bridge nodes (see Radio health).
+- An ACK over Bluetooth; filling the area table from bridge announcements.
 
 ## 4. Report format
 
@@ -375,6 +521,8 @@ According to the research (NIP-GART, kind 694), GART is an **emergency SOS app, 
 It does not suit ordinary position reporting: status `ACTIVE` triggers a full-screen alarm. It would make sense as an **alarm**: when the tracker goes into LOST, or when the base station detects a theft (geofence), the **base station** (which knows the plaintext) sends kind 694 `ACTIVE` to the GART group. The tracker does not need to do anything for this. Low priority.
 
 ### 6.4 Automatic switching of radio parameters by position
+
+**0.10.0:** on top of the country region below, a flood first uses the scope of a bridge area the tag is in, and the level widens to the country and then unscoped only when nothing repeats it (3.2, PROTOCOL 2.7). Near a border to a neighbour on the same radio with another region or none, the country level is skipped (area, then unscoped).
 
 Networks in different countries run on different presets (frequency, BW, SF, CR) and may require a regional transport code. The tracker has to change this **autonomously from the GNSS position**:
 

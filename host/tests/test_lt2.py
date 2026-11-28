@@ -166,7 +166,7 @@ def test_wifi_second_tail():
     aps2 = [lt2.WifiAp(bytes.fromhex(b), rs, s) for b, rs, s in few["aps"]]
     f, _ = lt2.wifi_select(aps2, few["n"])
     assert Report(has_fix=False, hacc_m=255, battery_pct=77, nb_total=2, neighbours=[(bytes.fromhex("a1b2"), 6.25)],
-                  checks=True, next_in_s=3600, wifi=f).encode() == pt
+                  sync=True, next_in_s=3600, wifi=f).encode() == pt
 
 
 def test_rpa():
@@ -181,16 +181,16 @@ def test_ble_scan_command():
 
 
 def test_07_report_flags():
-    """0.7: CHECKS (flags bit 7) and parked (byte 2 bit 3, mode stays in bits 0..2)."""
+    """Flags bit 7 (CHECKS in 0.7, SYNC since 0.10.0) and parked (byte 2 bit 3, mode stays in bits 0..2)."""
     by_n = {r["n"]: Report.decode(bytes.fromhex(r["pt"])) for r in VEC["reports"]}
     parked, owner, plain = by_n[203], by_n[204], by_n[205]
-    assert parked.quiet and parked.quiet_parked and not parked.quiet_owner and parked.checks
+    assert parked.quiet and parked.quiet_parked and not parked.quiet_owner and parked.sync
     assert parked.mode == lt2.Mode.IDLE and bytes.fromhex(VEC["reports"][-3]["pt"])[2] & 0x0F == 0x08
     assert owner.quiet and owner.quiet_owner and not owner.quiet_parked and owner.cmd_seq == 6
-    assert plain.checks and not plain.quiet
+    assert plain.sync and not plain.quiet
     for r in VEC["reports"][:6]:
         rep = Report.decode(bytes.fromhex(r["pt"]))
-        assert not rep.checks and not rep.quiet_parked
+        assert not rep.sync and not rep.quiet_parked
         assert rep.encode().hex() == r["pt"]
 
 

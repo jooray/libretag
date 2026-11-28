@@ -318,6 +318,26 @@ def test_open_flood_cap_and_targeted_entries_not_counted():
     assert br.stats.c["lt_cmd_open_flood_cap"] == 1
 
 
+def test_open_flood_cap_checked_before_the_claim():
+    """A capped bridge publishes no claim: it would win the round and keep a bridge that may send silent."""
+    async def go():
+        br = make(key=ME, open_floods_per_hour=1, **FREE)
+        await br.start()
+        for i in (563, 564):
+            p, pc = report(i), command(i)
+            await br.on_relay_event(v2(pc, [p[:4]]).to_dict(), "wss://a")
+            br.clock_ref["t"] += 1
+            await br.on_datagram(heard(p, 4))
+            await br.drain()
+        await br.stop()
+        return br
+
+    br = run(go())
+    assert [d.payload for d in br.radio.sent] == [command(563)]
+    claims = [e for e in br.pool.published if e["kind"] == lt2.NOSTR_CLAIM_KIND and any(t[0] == "hops" for t in e["tags"])]
+    assert len(claims) == 1 and br.stats.c["lt_cmd_open_flood_cap"] == 1
+
+
 def test_timed_entries_keep_out_of_the_untimed_share():
     p, pc = report(570), command(570)
 
@@ -345,10 +365,12 @@ def test_timed_entries_keep_out_of_the_untimed_share():
 def test_receipt_on_first_live_hearing_only_when_enabled():
     p = report(580)
 
-    async def go(receipts=True, key=ME, stale=False):
+    async def go(receipts=True, key=ME, stale=False, hops=0, direct=False):
         br = make(key=key, receipts=receipts)
         await br.start()
-        dg = heard(p, 2, rx_time=T0 - 1)
+        dg = heard(p, hops, rx_time=T0 - 1)
+        if direct:
+            dg.route_type, dg.hops = "direct", None
         dg.stale = stale
         await br.on_datagram(dg)
         await br.on_datagram(heard(p, 1))
@@ -356,9 +378,12 @@ def test_receipt_on_first_live_hearing_only_when_enabled():
         await br.stop()
         return of_kind(br, market.RECEIPT_KIND)
 
-    r = run(go())
+    r = run(go())  # on by default, a flood with 0 hops
     assert len(r) == 1 and r[0]["pubkey"] == pk(ME) and r[0]["created_at"] == T0 - 1
-    assert r[0]["tags"] == [["y", p[:4].hex()], ["hops", "1-3"], ["expiration", str(T0 - 1 + 48 * 3600)]]
+    assert r[0]["tags"] == [["y", p[:4].hex()], ["hops", "0"], ["expiration", str(T0 - 1 + 48 * 3600)]]
+    r = run(go(direct=True))  # a DIRECT arrival: the hop count is unknown
+    assert r[0]["tags"] == [["y", p[:4].hex()], ["route", "direct"], ["expiration", str(T0 - 1 + 48 * 3600)]]
+    assert run(go(hops=2)) == []  # no receipt for a flood heard over repeaters
     assert run(go(receipts=False)) == []
     assert run(go(key=None)) == []
     assert run(go(stale=True)) == []
@@ -381,7 +406,8 @@ def test_announcement_published_at_start_and_learned_from_relays():
     a = of_kind(br, market.ANNOUNCE_KIND)
     assert len(a) == 1 and a[0]["pubkey"] == pk(ME)
     parsed = market.parse_announcement(Event.from_dict(a[0]), T0)
-    assert parsed["network"] == "sk" and parsed["signed"] == [0, 60]  # make() sets anchor_lead_s 0 and "pow" not in parsed
+    assert parsed["network"] == "sk" and parsed["signed"] == [0, 40]  # make() sets anchor_lead_s 0
+    assert parsed["radio"] == ("up", T0)
     assert not any(t[0] == "pow" for t in a[0]["tags"])
     assert set(br.lt2.announced) == {pk(OTHER)}
     assert br.lt2.known(pk(OTHER)) and not br.lt2.known(pk(THIRD))
@@ -399,13 +425,13 @@ def test_no_key_no_announcement_and_claims_under_fresh_keys():
     assert of_kind(br, market.ANNOUNCE_KIND) == [] and br.lt2.pubkey is None
 
 
-def test_filtered_subscriptions_without_open_entries():
+def test_subscriptions_without_open_entries_still_get_anchors():
+    """accept_open off still reads every 4244: anchors carry no tag a filter could select, and without
+    them no key locks and no ACK entry goes out (PROTOCOL.md 4.1, 4.3). Open commands drop on arrival."""
     br = make(key=ME, networks=["sk"], accept_open=False)
-    subs = br.lt2.subscriptions(T0)
-    assert subs["nm-lt-cmd"] == [
-        {"kinds": [lt2.NOSTR_COMMAND_KIND], "#p": [pk(ME)], "since": int(T0 - 48 * 3600)},
-        {"kinds": [lt2.NOSTR_COMMAND_KIND], "#r": ["sk"], "since": int(T0 - 48 * 3600)}]
-    assert make().lt2.subscriptions(T0)["nm-lt-cmd"] == [{"kinds": [lt2.NOSTR_COMMAND_KIND], "since": int(T0 - 48 * 3600)}]
+    every = [{"kinds": [lt2.NOSTR_COMMAND_KIND], "since": int(T0 - 48 * 3600)}]
+    assert br.lt2.subscriptions(T0)["nm-lt-cmd"] == every
+    assert make().lt2.subscriptions(T0)["nm-lt-cmd"] == every
 
 
 def test_publish_delay_floor_above_claim_wait():
@@ -428,8 +454,8 @@ def test_local_api_region_checked_against_the_node_catalogue(tmp_path):
 
     cat = {"regions": [{"name": "sk"}, {"name": "sk-ke"}, {"name": "cz"}]}
 
-    def radio(region, answer):
-        r = LocalApiRadio("ws://127.0.0.1:8787/api/v1", {}, identity=Identity(tmp_path / "id.json"), region=region)
+    def radio(regions, answer):
+        r = LocalApiRadio("ws://127.0.0.1:8787/api/v1", {}, identity=Identity(tmp_path / "id.json"), regions=regions)
 
         def request(m, p=None, timeout=None):
             if answer is None:
@@ -440,11 +466,11 @@ def test_local_api_region_checked_against_the_node_catalogue(tmp_path):
         r._check_region()
         return r
 
-    r = radio("sk", cat)
-    assert r.region == "sk" and r.region_checked
-    assert radio("slovakia", cat).region is None  # the node would refuse every send: its default scope instead
-    r = radio("sk", None)                          # no answer: kept, checked again at the next hello
-    assert r.region == "sk" and not r.region_checked
+    r = radio(["sk-ke", "sk"], cat)
+    assert r.regions == ["sk-ke", "sk"] and r.region_checked
+    assert radio(["slovakia", "sk"], cat).regions == ["sk"]  # the node would refuse every send with it: dropped
+    r = radio(["sk"], None)                                  # no answer: kept, checked again at the next hello
+    assert r.regions == ["sk"] and not r.region_checked
 
 
 def test_strfry_mailbox_policy():
@@ -453,10 +479,22 @@ def test_strfry_mailbox_policy():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert mod.MIN_BITS == 0  # the signed mailbox needs no work; the rate limit stays
-    free = mod.Policy(per_minute=2)
-    assert [free.decide({"type": "new", "event": {"id": "ff", "kind": 4244, "tags": []}, "sourceInfo": "9"}, t)["action"]
-            for t in (0, 1, 2)] == ["accept", "accept", "reject"]
-    pol = mod.Policy(min_bits=16, per_minute=2)  # an operator may still ask for work
+    assert (mod.BURST, mod.PER_MINUTE) == (120, 60)
+    free = mod.Policy(per_minute=60, burst=2)
+    cmd = {"id": "ff", "kind": 4244, "tags": [], "content": "x" * 40}
+    assert [free.decide({"type": "new", "event": cmd, "sourceInfo": "9"}, t)["action"]
+            for t in (0, 0.1, 0.2)] == ["accept", "accept", "reject"]
+    assert free.decide({"type": "new", "event": cmd, "sourceInfo": "9"}, 1.3)["action"] == "accept"  # 1 a second
+    # anchors and ACK entries (13 B, 10-minute expiration) count apart from commands
+    ack = {"id": "fe", "kind": 4244, "content": "AAAAAAAAAAAAAAAAAA==",
+           "tags": [["a", "1"], ["expiration", "600"]]}
+    anchor = {"id": "fd", "kind": 4244, "content": "", "tags": []}
+    assert [free.decide({"type": "new", "event": e, "sourceInfo": "9"}, 1.3)["action"] for e in (ack, anchor, ack)] \
+        == ["accept", "accept", "reject"]
+    burst = mod.Policy()
+    assert sum(burst.decide({"type": "new", "event": cmd, "sourceInfo": "7"}, 0)["action"] == "accept"
+               for _ in range(200)) == 120
+    pol = mod.Policy(min_bits=16, per_minute=60, burst=2)  # an operator may still ask for work
     good = {"id": "0000" + "f" * 60, "kind": 4244, "tags": [["nonce", "1", "16"]]}
 
     def req(ev, src="1.2.3.4"):
@@ -466,8 +504,8 @@ def test_strfry_mailbox_policy():
     assert pol.decide(req({**good, "tags": [["nonce", "1", "12"]]}), 0)["action"] == "reject"   # target too low
     assert pol.decide(req({**good, "id": "0001" + "f" * 60}), 0)["action"] == "reject"         # 15 bits
     assert pol.decide(req({**good, "tags": []}), 0)["action"] == "reject"
-    assert [pol.decide(req(good), t)["action"] for t in (0, 1, 2)] == ["accept", "accept", "reject"]
-    assert pol.decide(req(good, "5.6.7.8"), 2)["action"] == "accept"
+    assert [pol.decide(req(good), t)["action"] for t in (0, 0, 0)] == ["accept", "accept", "reject"]
+    assert pol.decide(req(good, "5.6.7.8"), 0)["action"] == "accept"
     assert pol.decide(req(good), 61)["action"] == "accept"
 
 

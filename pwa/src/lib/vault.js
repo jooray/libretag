@@ -42,6 +42,7 @@ export const serializeTag = (t) => ({
   updated: t.updated ?? 0, imported: !!t.imported, extra: t.extra ?? {}, zones: t.zones ?? [],
   alarm: t.alarm ?? null, inZone: t.inZone ?? null, leftPlace: t.leftPlace ?? null, leftAt: t.leftAt ?? null,
   guardAlerted: !!t.guardAlerted, counterBackAt: t.counterBackAt ?? null, syncedTo: t.syncedTo ?? null, mbAnchors: t.mbAnchors ?? {},
+  anchor: t.anchor ?? null, lastAck: t.lastAck ?? null,
   positions: t.positions.slice(-400),
 });
 

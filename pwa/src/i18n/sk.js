@@ -99,6 +99,7 @@ export default {
   'slip.waiting_check': '{c} · čaká sa na kontrolu (~{t})',
   'slip.waiting_silent': '{c} · čaká sa ({name} sa neozýva)',
   'slip.waiting_first': '{c} · čaká sa na prvé hlásenie',
+  'slip.schedule_unknown': 'Čaká sa na hlásenie od {name}. Kedy sa ozve, teraz nevieme.',
   'slip.confirmed': '{c} · potvrdené {t}',
   'slip.failed': '{c} · nepotvrdené. Skúsi sa znova s ďalším hlásením.',
   'slip.cancel': 'Zrušiť príkaz',

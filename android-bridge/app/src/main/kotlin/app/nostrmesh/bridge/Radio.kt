@@ -34,9 +34,11 @@ object Caps {
 }
 
 /**
- * What the server said about one received datagram. [path] is the flood path as it arrived (first
- * hop first), only when the server advertises `rx_path`. [receivedAtMs] is the server's receive
- * time; older than a few seconds means a replay from the `since` cursor.
+ * What the server said about one received datagram. [path] is the path as it arrived (first hop first,
+ * the repeater that heard the sender first), only when the server advertises `rx_path`. [routeType] is
+ * `flood`, `tflood`, `direct` or `tdirect` (`rx_meta`). [receivedAtMs] is the server's receive time; older
+ * than a few seconds means a replay from the `since` cursor. [queued] (`rx_queued`), [transportCode] and
+ * [scope] (`rx_scope`) are null when the server does not give them.
  */
 data class RxMeta(
     val hops: Int? = null,
@@ -46,9 +48,19 @@ data class RxMeta(
     val snrDb: Double? = null,
     val rssiDbm: Double? = null,
     val receivedAtMs: Long? = null,
+    val queued: Boolean? = null,
+    val transportCode: Int? = null,
+    val scope: String? = null,
 ) {
-    /** Repeaters between the sender and this radio; 0 = heard directly; null = unknown. */
+    /** Arrived on a DIRECT route (zero-hop, or the last hop of a path): the hop count is unknown (R36). */
+    val isDirect: Boolean get() = routeType == "direct" || routeType == "tdirect"
+
+    /**
+     * Repeaters between the sender and this radio: 0 only for a flood with an empty path, null for any
+     * DIRECT arrival (a zero-hop packet and one that came along a path look the same) and when unknown.
+     */
     fun hopCount(caps: Set<String>): Int? {
+        if (isDirect) return null
         if (Caps.RX_PATH in caps && path != null) {
             if (path.isEmpty()) return 0
             val hs = pathHashSize ?: return null
@@ -57,23 +69,42 @@ data class RxMeta(
         return hops
     }
 
-    /** The path back to the sender (hops reversed), when the server reported one. */
+    /** Heard directly: a DIRECT arrival, or a flood with 0 hops (PROTOCOL.md 3.4). */
+    fun heardDirect(caps: Set<String>): Boolean = isDirect || hopCount(caps) == 0
+
+    /** A DIRECT packet that still carries path entries is for the next repeater, not for us. */
+    val forUs: Boolean get() = !(isDirect && path != null && path.isNotEmpty())
+
+    /** The route as the plan names it; a server without `rx_meta` gives none, read as a flood. */
+    val route: String get() = routeType?.takeIf { it in ROUTE_TYPES } ?: "flood"
+
+    /** The path of a flood as hex hashes (first hop first), or null when the server did not give it. */
+    fun floodPath(caps: Set<String>): List<String>? {
+        if (isDirect || Caps.RX_PATH !in caps) return null
+        return app.nostrmesh.libretag.QuietMesh.hashes(path, pathHashSize ?: if (path?.isEmpty() == true) 1 else null)
+    }
+
+    /** The path back to the sender of a flood (hops reversed), when the server reported one. */
     fun reversePath(caps: Set<String>): Route.Direct? {
-        if (Caps.RX_PATH !in caps) return null
+        if (isDirect || Caps.RX_PATH !in caps) return null
         val p = path ?: return null
         val hs = pathHashSize ?: return null
         if (p.isEmpty() || p.size % hs != 0) return null
         val hops = p.toList().chunked(hs).reversed().flatten().toByteArray()
         return Route.Direct(hops, hs)
     }
+
+    companion object {
+        val ROUTE_TYPES = setOf("flood", "tflood", "direct", "tdirect")
+    }
 }
 
 /**
  * Route for a downlink to a device that just spoke (SPEC 6.2, review point 1): zero-hop when it
- * was heard directly (also for an allowed flood, as lt2svc.py does), else flood when the caller
- * allows it (LibreTag LOST), else direct along the reversed path up to [maxHops], otherwise
- * nothing. Without `tx_path_data` an old server would flood whatever we ask, so only an allowed
- * flood remains.
+ * was heard as a flood with 0 hops, else flood when the caller allows it, else direct along the
+ * reversed path up to [maxHops], otherwise nothing. A DIRECT arrival has an unknown hop count (R36),
+ * so it never gets a zero-hop answer here. Without `tx_path_data` an old server would flood whatever
+ * we ask, so only an allowed flood remains.
  */
 fun downlinkRoute(meta: RxMeta, caps: Set<String>, floodAllowed: Boolean, maxHops: Int = 3): Route? {
     val pathOk = Caps.TX_PATH_DATA in caps
@@ -87,44 +118,16 @@ fun downlinkRoute(meta: RxMeta, caps: Set<String>, floodAllowed: Boolean, maxHop
 
 /**
  * Rate-limit key of a heard #libretag packet (host lt2svc.first_hop_key): "direct" when heard
- * without a repeater, hash size + first repeater hash when the server reports the path, null when
- * it does not (only the global #libretag limit applies).
+ * directly (a DIRECT arrival or a flood with 0 hops), hash size + first repeater hash when the
+ * server reports the path, null when it does not (only the global #libretag limit applies).
  */
 fun firstHopKey(meta: RxMeta, caps: Set<String>): String? {
-    val hops = meta.hopCount(caps)
-    if (hops == 0) return "direct"
+    if (meta.heardDirect(caps)) return "direct"
     if (Caps.RX_PATH !in caps) return null
     val p = meta.path ?: return null
     val hs = meta.pathHashSize ?: return null
     if (p.isEmpty() || p.size < hs) return null
     return "$hs:" + p.copyOf(hs).joinToString("") { "%02x".format(it) }
-}
-
-/**
- * Route for an LT2 command (PROTOCOL.md 4, since 0.7.3): zero-hop when the tracker's report was
- * heard directly and the server can send zero-hop, otherwise flood (region-scoped as the server
- * does). Never direct along a path: the tracker may have moved, and commands are rare enough that
- * the flood costs little.
- */
-fun lt2CommandRoute(hops: Int?, caps: Set<String>): Route =
-    if (hops == 0 && Caps.TX_PATH_DATA in caps) Route.ZeroHop else Route.Flood
-
-/**
- * Route for a mailbox entry (PROTOCOL.md 4.1), or null when the entry's route does not allow this
- * bridge to send it. The route binds:
- * `near` = zero-hop only when heard directly; `direct` = as near, or (untimed only) along [reverse],
- * the reversed path of a report heard over 1 to [directMaxHops] hops; `flood` = zero-hop when heard directly, else flood. A timed
- * entry treats `direct` as `near` (its path is hours old).
- */
-fun lt2EntryRoute(
-    fmt: Int, route: String, timed: Boolean, hops: Int?, reverse: Route.Direct?, caps: Set<String>,
-    directMaxHops: Int = 3,
-): Route? {
-    val zeroHop = hops == 0 && Caps.TX_PATH_DATA in caps
-    if (fmt != 2 || route == "flood") return lt2CommandRoute(hops, caps)
-    if (zeroHop) return Route.ZeroHop
-    if (route != "direct" || timed || hops == null || hops !in 1..directMaxHops || Caps.TX_PATH_DATA !in caps) return null
-    return reverse?.takeIf { it.hops == hops }
 }
 
 /** LoRa modem settings; [cr] is the coding-rate denominator (5 = 4/5 … 8 = 4/8). */

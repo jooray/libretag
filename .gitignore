@@ -16,6 +16,8 @@ local.properties
 firmware/lt_core/test/nostr_test
 firmware/lt_core/test/*.o
 firmware/lt_core/test/region_test
+firmware/lt_core/test/qm_test
+firmware/lt_core/test/link_test
 
 # private, kept in the vault
 docs/monetization.md
@@ -32,3 +34,6 @@ docs/audit-*.json
 
 # private working documents (reviews, audits, research, release procedure)
 /docs/internal/
+
+# explainer video sources and intermediates (local only)
+/web/video/

@@ -52,7 +52,7 @@ extern "C" {
 #define LT_F_QUIET 0x10
 #define LT_F_QUIET_OWNER 0x20
 #define LT_F_BLE_SUM 0x40
-#define LT_F_CHECKS 0x80          /* 0.7: listens at checks while quiet */
+#define LT_F_SYNC 0x80            /* 0.10.0: the tag's schedule anchor is report n - 1 (was CHECKS in 0.7 to 0.9) */
 #define LT_B2_PARKED 0x08         /* 0.7: byte 2 bit 3, with QUIET and not QUIET_OWNER: parked */
 #define LT_B2_MODE 0x03           /* 0.9.4: byte 2 bits 0-1 mode (was bits 0-2, values 0-3 only) */
 #define LT_B2_BOOT 0x04           /* 0.9.4: byte 2 bit 2, the first report since a boot */
@@ -65,6 +65,9 @@ extern "C" {
 #define LT_J_HIST_SILENT 3 /* history record of a wake-up without a report, never on air */
 #define LT_J_WIFI 4
 #define LT_J_BLE 5         /* + k, k = 0..3 */
+#define LT_J_NEAR 9        /* 0.10.0: zero-hop, the hello */
+#define LT_J_WIDE 10       /* 0.10.0: flood one scope level wider than copy 0 */
+#define LT_J_ROUTED 11     /* 0.10.0: DIRECT along the stored path to a bridge */
 
 /* MeshCore header values */
 #define LT_MC_HDR_REPORT_FLOOD 0x19 /* ROUTE_FLOOD | GRP_DATA<<2 */
@@ -89,6 +92,7 @@ typedef enum {
 	LT_OP_BUZZ = 0x04,
 	LT_OP_BLE_SCAN = 0x05, /* u8 seconds (0 = 8, max 20), u8 options (bit 0 active), u8 packets (0 = 2, max 4) */
 	LT_OP_BLE_CONSOLE = 0x06, /* 0.9.2: open the Bluetooth console window; u8 window in 10 s (0 = 180 s, 30..600 s) */
+	LT_OP_SET_AREA = 0x07, /* 0.10.0: u8 slot (bit 7 delete), i24 lat, i24 lon, u8 radius km, 6 B scope */
 } lt_op_t;
 
 /* --- keys (PROTOCOL.md 1) --- */
@@ -133,7 +137,7 @@ typedef struct {
 	bool quiet;             /* last report before a quiet stretch */
 	bool quiet_owner;       /* its reason: owner's device nearby (else a home zone, or parked) */
 	bool quiet_parked;      /* 0.7: with quiet and not quiet_owner: parked (byte 2 bit 3) */
-	bool checks;            /* 0.7: flags bit 7 CHECKS */
+	bool sync;              /* 0.10.0: flags bit 7 SYNC (PROTOCOL.md 2.6) */
 	uint8_t next_in;        /* lt_next_in_encode() */
 	uint8_t energy;         /* lt_energy_encode() */
 	bool has_ble;           /* BLE summary in bytes 28..30 (at most 4 repeaters) */
@@ -378,17 +382,13 @@ void lt_wake_decide(const lt_wake_cfg_t *c, const lt_wake_in_t *w, lt_wake_state
 /* Heartbeat of a quiet reason (0 for none). */
 uint32_t lt_wake_heartbeat(const lt_wake_cfg_t *c, uint8_t reason);
 
-/* --- checks (0.7, PROTOCOL.md 2.1) ---
- * After report n (transmission start t0), check k is at t0 + lt_check_offset(); the receiver is on
- * from t_k - g_k to t_k + check_s + g_k, g_k = lt_check_guard_ms(t_k - t0). */
+/* --- checks (0.7, PROTOCOL.md 2.1); since 0.10.0 on the grid of the schedule anchor (2.6, lt_slot_*) ---
+ * Slot k of anchor n_a is at t0 + lt_slot_offset(); the receiver is on from t_k - g_k - e to
+ * t_k + window + g_k, g_k = lt_check_guard_ms(t_k - t0). */
 #define LT_CHECK_S_DEFAULT 30 /* 0.7.3 (60 in 0.7.2, 20 before); the receiver also stays on through the GPS search */
 #define LT_CHECK_S_MAX 180
 #define LT_CHECK_OFF 0xFF       /* SET_IDLE check_s: no listening (0 keeps the value) */
-#define LT_CHECK_SEND_AFTER_S 3 /* senders aim at t_k + 3 s (they may transmit earlier by their own latency estimate) */
-/* jit_i = (u16_le(HMAC(C_e(n), "LT2-w" || u32(n) || u16(i))[0:2]) mod span) - span/2, span = base/5 */
-int32_t lt_check_jitter(const uint8_t cmd_e[32], uint32_t n, uint16_t i, uint32_t base_s);
-/* t_k - t0 = sum over i = 1..k of (base + jit_i) */
-uint32_t lt_check_offset(const uint8_t cmd_e[32], uint32_t n, uint16_t k, uint32_t base_s);
+#define LT_CHECK_SEND_AFTER_S 1 /* 0.10.0: senders aim at t_k + 1 s, never earlier */
 /* 2 s + offset x 100 ppm, in ms */
 static inline uint32_t lt_check_guard_ms(uint32_t offset_s) { return 2000U + offset_s / 10U; }
 
@@ -623,6 +623,296 @@ int lt_channel_unwrap(const uint8_t key[16], uint16_t data_type, const uint8_t *
                       uint8_t *inner, size_t cap);
 /* Any GRP_DATA packet: points *payload at the GRP_DATA payload. Returns its length, 0 if not GRP_DATA. */
 size_t lt_packet_grp_payload(const uint8_t *raw, size_t len, const uint8_t **payload);
+
+/* =========================================================== quiet mesh (0.10.0)
+ * PROTOCOL.md 2.6, 2.7, 3.3 to 3.5; SPEC.md 3.2; reference host/src/libretag/quietmesh.py; vectors
+ * docs/vectors/quiet-mesh-v1.json. lt_quiet.c (encodings, schedule, areas, ladder), lt_link.c (the
+ * tag's link policy). */
+
+#define LT_CHANNEL_DATA_TYPE_RETRY 0xFF6C /* the fallback (second) send of a command */
+#define LT_MC_HDR_REPORT_DIRECT 0x1A      /* ROUTE_DIRECT | GRP_DATA<<2 */
+#define LT_MOVE_M 300                     /* moved: farther than this (or 3 x the accuracy) */
+
+static inline bool lt_j_report_on_air(uint8_t j)
+{
+	return j == LT_J_HOME || j == LT_J_BORDER || j == LT_J_NEAR || j == LT_J_WIDE || j == LT_J_ROUTED;
+}
+
+/* A freshly built flood packet ([hdr][path_len 0][payload]) as zero-hop: DIRECT, path_len with the
+ * hash size bits and count 0, no transport codes. Returns the length (unchanged) or 0. */
+size_t lt_packet_set_zero_hop(uint8_t *pkt, size_t len, uint8_t hash_size);
+/* The same packet DIRECT along a path of 1 or 2 hashes (send order, tag to bridge). Returns the new
+ * length or 0 (no room, bad path). */
+size_t lt_packet_set_path(uint8_t *pkt, size_t len, size_t cap, uint8_t hash_size, const uint8_t *hashes,
+                          uint8_t count);
+/* Route of a received raw packet: 0..3 (MeshCore ROUTE_*), the path length byte and a pointer to the
+ * path. false if it does not parse. */
+bool lt_packet_route(const uint8_t *raw, size_t len, uint8_t *route, uint8_t *path_len, const uint8_t **path);
+static inline bool lt_route_is_direct(uint8_t route) { return route == 0x02 || route == 0x03; }
+
+/* GRP_DATA channel payload under 0xFF4C or 0xFF6C: inner length (or -1), *dtype the type. */
+int lt_channel_unwrap_any(const uint8_t key[16], const uint8_t *payload, size_t len, uint8_t *inner, size_t cap,
+                          uint16_t *dtype);
+
+/* --- the ACK (PROTOCOL.md 3.3) --- */
+#define LT_ACK_LEN 13
+#define LT_ACK_HOLD 0x0F
+#define LT_ACK_MORE 0x10
+#define LT_ACK_ROUTED 0x20
+#define LT_ACK_RESERVED 0xC0
+#define LT_ACK_STEALTH_NEAR_LEN 19
+#define LT_ACK_STEALTH_ROUTED_LEN 35
+#define LT_ACK_ROUTED_MAX (LT_ACK_LEN + 1 + 2 * 3)
+#define LT_PATH_MAX 2      /* the tag takes 1 or 2 entries (direct_max_hops) */
+#define LT_HOLD_UNIT_S 10800U
+#define LT_HOLD_DEFAULT 4
+#define LT_HOLD_MIN_EXTRA_S 300U
+#define LT_ACK_DECIDE_MS 12000U /* decision point after a hello (immediate cases) */
+#define LT_ACK_PER_HOP_MS 1500U /* + 1.5 s per hop after a routed copy (field walk: 0.6-1.2 s a hop) */
+#define LT_WIDE_AFTER_MS 8000U  /* copy 10 when copy 0 was not heard repeated within 8 s */
+
+typedef struct {
+	uint8_t hold;        /* units of 3 h; 0 = every report has to arrive */
+	bool more;           /* a command follows: keep the window open */
+	bool routed;
+	uint8_t hash_size;   /* routed form: 1..3 */
+	uint8_t count;       /* routed form: 1 or 2 */
+	uint8_t path[LT_PATH_MAX * 3]; /* tag to bridge */
+} lt_ack_t;
+
+static inline uint8_t lt_ack_info(uint8_t hold, bool more, bool routed)
+{
+	return (uint8_t)((hold & LT_ACK_HOLD) | (more ? LT_ACK_MORE : 0) | (routed ? LT_ACK_ROUTED : 0));
+}
+/* xa = HMAC(C_e(n), "LT2-ax" || u32(n) || u16(k))[0:4] */
+void lt_ack_tag(const uint8_t cmd_e[32], uint32_t n, uint16_t k, uint8_t xa[LT_TAG_LEN]);
+/* Pa(n, k) = xa || info ^ ka[0] || mac8 (13 B) */
+void lt_ack_seal(const uint8_t cmd_e[32], uint32_t n, uint16_t k, uint8_t info, uint8_t out[LT_ACK_LEN]);
+/* the routed form a bridge builds: Pa || pl || path (tag to bridge). Returns the length or 0. */
+size_t lt_ack_routed(const uint8_t pa[LT_ACK_LEN], uint8_t hash_size, const uint8_t *path, uint8_t count,
+                     uint8_t out[LT_ACK_ROUTED_MAX]);
+/* The tag's check of an ACK datagram (channel content, or the stealth GRP_DATA payload): the 4 B tag
+ * first, then the mac, the reserved bits and the form (refusals as in the vectors). Whether the packet
+ * came DIRECT with an empty path is checked by lt_parse_ack_packet. */
+bool lt_ack_open(const uint8_t cmd_e[32], uint32_t n, uint16_t k, const uint8_t *dg, size_t len, bool stealth,
+                 lt_ack_t *a);
+/* hold_s of an ACK: 0 for hold 0 (every report), else max(hold x 3 h, period + 5 min) */
+uint32_t lt_hold_s(uint8_t hold, uint32_t period_s);
+
+/* --- schedule anchor and slots (PROTOCOL.md 2.6) --- */
+#define LT_PREV_GRID_SLOTS 3
+/* ks = HMAC(C_e(n_a), "LT2-slot" || u32(n_a)) */
+void lt_slot_key(const uint8_t cmd_e[32], uint32_t n_a, uint8_t ks[32]);
+/* jit_i = (u16_le(HMAC(ks, "LT2-w" || u16(i))[0:2]) mod span) - floor(span / 2), span = base / 5 */
+int32_t lt_slot_jitter(const uint8_t ks[32], uint16_t i, uint32_t base_s);
+/* t_k - t0 = sum over i = 1..k of (base + jit_i) */
+uint32_t lt_slot_offset(const uint8_t ks[32], uint16_t k, uint32_t base_s);
+/* the window around t_k in ms: from -(g_k + early) to window + g_k */
+static inline int32_t lt_slot_open_ms(uint32_t off_s, uint8_t early_s)
+{
+	return -(int32_t)(lt_check_guard_ms(off_s) + 1000U * early_s);
+}
+static inline int32_t lt_slot_close_ms(uint32_t off_s, uint16_t window_s)
+{
+	return (int32_t)(1000U * window_s + lt_check_guard_ms(off_s));
+}
+/* a command at slot k >= 1: kd = HMAC(ks, "LT2-c" || u16(k)), xc = HMAC(ks, "LT2-cx" || u16(k))[0:4] */
+void lt_slot_command_tag(const uint8_t ks[32], uint16_t k, uint8_t tag[LT_TAG_LEN]);
+void lt_seal_slot_command(const uint8_t ks[32], uint16_t k, const lt_command_t *c, uint8_t out[LT_CMD_P_LEN]);
+bool lt_open_slot_command(const uint8_t ks[32], uint16_t k, const uint8_t *p, size_t len, lt_command_t *c);
+/* the Bluetooth advert form of a slot command (PROTOCOL.md 3.1, rebuilt with ks) */
+bool lt_ble_slot_command_seal(const uint8_t ks[32], uint16_t k, const lt_command_t *c, uint8_t out[LT_BLE_CMD_LEN]);
+bool lt_ble_slot_command_open(const uint8_t ks[32], uint16_t k, const uint8_t *adv, size_t len, lt_command_t *c);
+
+/* The tag's anchor (times in ms of any monotonic clock). */
+typedef struct {
+	bool valid;
+	uint32_t n;      /* the anchor report */
+	int64_t t0_ms;   /* its first transmission (window ACK) or the flood's transmission */
+	uint8_t early_s; /* the receiver opens this much earlier at every slot (hello or routed copy then flood) */
+} lt_sgrid_t;
+
+typedef struct {
+	lt_sgrid_t anchor, prev;
+	uint8_t prev_slots_left;
+} lt_sched_t;
+
+static inline bool lt_sched_sync_for(const lt_sched_t *s, uint32_t n)
+{
+	return s->anchor.valid && s->anchor.n + 1U == n;
+}
+/* a flood copy of report n went out at t_flood; has_first: a hello or routed copy of n went out first
+ * at t_first in the same wake-up. Copy 10 or 1 of the same report does not move it again. */
+void lt_sched_on_flood_sent(lt_sched_t *s, uint32_t n, int64_t t_flood, bool has_first, int64_t t_first);
+/* an ACK for (n, 0) in the listen window of report n (first transmission t_first) */
+void lt_sched_on_window_ack(lt_sched_t *s, uint32_t n, int64_t t_first);
+/* a slot of the previous grid passed (listened or skipped) */
+void lt_sched_on_prev_slot(lt_sched_t *s);
+void lt_sched_on_reboot(lt_sched_t *s);
+
+/* --- bridge areas and the scope ladder (PROTOCOL.md 2.7) --- */
+#define LT_AREA_SCOPE_MAX 6     /* SET_AREA carries 6 B */
+#define LT_AREA_ROWS 4          /* rows in the state file */
+#define LT_LEVELS_MAX 3
+typedef struct {
+	int32_t lat_e7, lon_e7;     /* centre */
+	uint8_t radius_km;
+	char scope[16];             /* NUL terminated; "" = an empty row (SET_AREA carries 6 B) */
+	char net[3];                /* the home network the row is for: country ISO code, case ignored */
+} lt_area_t;
+
+extern const lt_area_t lt_areas_baked[];
+extern const size_t lt_areas_baked_n;
+
+/* The first row (rows in the given order: state-file rows first, then the baked ones) whose circle
+ * holds the last fix and whose network is the tag's home network. No fix ever: NULL. */
+const lt_area_t *lt_area_at(bool has_fix, int32_t lat_e7, int32_t lon_e7, const lt_area_t *rows, size_t n,
+                            const char *home_net);
+/* Flood scopes narrow to wide into out (NULL = unscoped, always last). Returns the count (1..3). */
+size_t lt_levels(const char *area_scope, const char *country_scope, bool same_radio_border,
+                 const char *out[LT_LEVELS_MAX]);
+/* SET_AREA arguments (14 B) <-> a row. Returns the slot (0..3, bit 7 = delete) or -1 when invalid. */
+int lt_set_area_decode(const uint8_t args[14], lt_area_t *row);
+void lt_set_area_encode(uint8_t slot, const lt_area_t *row, uint8_t args[14]);
+
+typedef struct {
+	uint8_t lvl;            /* index into the level list of the next flood */
+	bool widened;
+	uint32_t widened_at_s;
+} lt_ladder_t;
+/* After flood copy 0 at lad->lvl: returns the level of copy 10 to send now (-1 none); `important`: a
+ * flood that matters (copy 10 in the same wake-up), otherwise only the next flood goes wider. */
+int lt_ladder_after_flood(lt_ladder_t *lad, uint8_t n_levels, bool evidence, bool important, uint32_t now_s);
+/* back to the narrowest level after an ACK, on entering or leaving an area, 24 h after it widened */
+void lt_ladder_reset(lt_ladder_t *lad, uint32_t now_s, bool ack, bool area_changed);
+/* In IDLE an unscoped flood at most once in 24 h. */
+static inline bool lt_idle_unscoped_ok(bool had, uint32_t last_s, uint32_t now_s)
+{
+	return !had || now_s - last_s >= 86400U;
+}
+
+/* --- counter checkpoints (SPEC 3.2 budgets): multiples of 16 --- */
+#define LT_CHECKPOINT 16U
+/* the multiple of 16 above n: n_next and the key page floor once n went on air */
+static inline uint32_t lt_checkpoint_next(uint32_t n) { return (n / LT_CHECKPOINT + 1U) * LT_CHECKPOINT; }
+
+/* =========================================================== the tag's link policy (SPEC 3.2, lt_link.c) */
+
+typedef enum { LT_LINK_FAR = 0, LT_LINK_NEAR = 1, LT_LINK_ROUTED = 2 } lt_link_t;
+
+/* events: a report that has to arrive */
+#define LT_EV_BOOT 0x01
+#define LT_EV_CMD 0x02     /* the answer to a command */
+#define LT_EV_LOW 0x04     /* the report below 10 % */
+#define LT_EV_MODE 0x08    /* a mode change (also TRACK or LOST running out) */
+#define LT_EV_CONSOLE 0x10 /* console report or test */
+
+/* why a report went out (field log `why`, history) */
+enum {
+	LT_WHY_PERIOD = 0, LT_WHY_MOVED = 1, LT_WHY_HOLD = 2, LT_WHY_HEARTBEAT = 3, LT_WHY_NOFIX = 4, LT_WHY_BOOT = 5,
+	LT_WHY_CMD = 6, LT_WHY_LOW = 7, LT_WHY_MODE = 8, LT_WHY_CONSOLE = 9, LT_WHY_BUDGET_LAST = 10,
+	LT_WHY_PARKED = 11, LT_WHY_TRACK = 12, LT_WHY_AGAIN = 13, LT_WHY_COUNT = 14
+};
+extern const char *const lt_why_names[LT_WHY_COUNT];
+
+/* the first copy of a report */
+enum { LT_SEND_NONE = 0, LT_SEND_NEAR = 1, LT_SEND_PATH = 2, LT_SEND_FLOOD = 3 };
+
+#define LT_IDLE_BUDGET 8           /* IDLE fallback floods in a rolling 24 h */
+#define LT_HEARTBEAT_S 86400U      /* FAR or ROUTED: a flood every 24 h when nothing confirms */
+#define LT_PARKED_NEXT_S 86400U
+#define LT_BACKOFF_MAX_S 86400U
+
+typedef struct {
+	uint8_t link;              /* lt_link_t */
+	uint8_t hold;              /* of the last near ACK */
+	/* ROUTED: the path to the bridge and where it was learned */
+	uint8_t path_hs, path_n;
+	uint8_t path[LT_PATH_MAX * 3];
+	bool path_fix;
+	int32_t path_lat_e7, path_lon_e7;
+	/* ref_fix: the fix at the last ACK or the last flooded report */
+	bool ref_fix;
+	int32_t ref_lat_e7, ref_lon_e7;
+	/* times in uptime s; not valid across a reboot */
+	bool t_ack_ok;
+	uint32_t t_ack_s;
+	bool flood_ok;
+	uint32_t last_flood_s;     /* the last report flood (copy 0) */
+	uint8_t bk;                /* no-fix backoff step: the gap is period << bk, at most 24 h */
+	bool pending;              /* NEAR, moved, hello not ACKed: decided at the next check */
+	bool pending_nofix;        /* the same without a fix: one discover at the next check decides */
+	bool again;                /* R29: the hold flood was not heard repeated: the next report floods once more */
+	bool park_due;             /* FAR/ROUTED flooded because it moved: the next report in place floods once, PARKED */
+	uint8_t budget_n;
+	uint32_t budget_t[LT_IDLE_BUDGET]; /* IDLE fallback floods, oldest first */
+	bool unscoped_ok;
+	uint32_t last_unscoped_s;  /* the last unscoped flood in IDLE */
+	lt_ladder_t lad;
+} lt_link_state_t;
+
+typedef struct {
+	uint32_t now_s;
+	lt_mode_t mode;
+	uint8_t events;            /* LT_EV_* */
+	bool has_fix;
+	int32_t lat_e7, lon_e7;
+	uint8_t acc_m;             /* 255 unknown */
+	bool in_zone;              /* the fix is inside a home zone: never "moved" */
+	bool check_failed;         /* the check after a pending (moved) hello passed without an ACK */
+	bool nb_moved;             /* without a fix: the discover at that check shared no repeater with the last ACK */
+	uint32_t period_s;         /* one report period: IDLE interval x report_every, TRACK/LOST interval */
+	uint8_t ack_patience;      /* 1: a moved IDLE tag waits for the next check; 2: decides 12 s after the hello */
+	bool home_changed;         /* the home network changed since the last report */
+} lt_link_in_t;
+
+typedef struct {
+	uint8_t first;             /* LT_SEND_* of the first copy */
+	bool must;                 /* has to arrive: a decision follows when it is not confirmed */
+	bool flood_allowed;        /* a fallback flood may follow (not over the IDLE budget) */
+	bool important;            /* copy 10 when its flood is not heard repeated */
+	bool idle_fallback;        /* its flood counts in the IDLE budget */
+	uint8_t why;               /* LT_WHY_* */
+	uint32_t decide_ms;        /* after the first copy; 0 = no timed decision */
+	bool at_check;             /* decided at the next check (pending) */
+	bool moved, moved_known;
+	uint32_t moved_m;
+	bool parked;               /* this flood says QUIET, PARKED, next_in 24 h */
+	bool budget_hit;           /* a flood was due but the IDLE budget is used up: hellos only */
+	bool budget_last;          /* its flood takes the last of the budget */
+	uint32_t budget_free_s;    /* when the budget frees, from now (budget_last or budget_hit) */
+	bool path_dropped;         /* the path was forgotten by this decision (moved, home network) */
+} lt_link_out_t;
+
+void lt_link_init(lt_link_state_t *s);
+/* At a wake-up that reports: the first copy and what follows (may drop the path, sets pending). */
+void lt_link_decide(lt_link_state_t *s, const lt_link_in_t *in, lt_link_out_t *o);
+/* An ACK opened for the tag's last report (in its window or at a slot). near_taken: a near ACK was
+ * already taken for this report (a routed one is then ignored). Returns true if it changed the link. */
+bool lt_link_on_ack(lt_link_state_t *s, const lt_link_in_t *in, const lt_ack_t *a, bool near_taken);
+/* The decision point passed without an ACK (12 s timer or the check of a pending report): the link
+ * falls to FAR (ROUTED forgets the path). Returns true when a flood of the report goes out now. */
+bool lt_link_on_unconfirmed(lt_link_state_t *s, const lt_link_in_t *in, const lt_link_out_t *o);
+/* A report flood (copy 0) went out: level and budget bookkeeping. unscoped: at the widest level. */
+void lt_link_on_flood_sent(lt_link_state_t *s, const lt_link_in_t *in, const lt_link_out_t *o, bool unscoped);
+/* 8 s after copy 0: evidence (repeated, ACK, command). Returns the level of copy 10 (-1 none). */
+int lt_link_on_flood_result(lt_link_state_t *s, const lt_link_in_t *in, uint8_t n_levels, bool evidence,
+                            const lt_link_out_t *o);
+/* The listen window of a report closed (acked: an ACK came in it): a moved NEAR hello becomes pending. */
+void lt_link_on_window_end(lt_link_state_t *s, const lt_link_out_t *o, bool acked);
+/* The check after a pending hello is over (acked: an ACK for (n, k) came; nb_moved: without a fix the
+ * discover shared no repeater with the set at the last ACK). Returns true: flood report n + 1 now. */
+bool lt_link_on_check_end(lt_link_state_t *s, bool acked, bool nb_moved);
+/* next_in of a flood copy of this report: the next flood the tag already knows about */
+uint32_t lt_link_flood_next_in(const lt_link_state_t *s, const lt_link_in_t *in, const lt_link_out_t *o);
+/* a fix, an ACK, a command or a mode change resets the no-fix backoff */
+static inline void lt_link_reset_backoff(lt_link_state_t *s) { s->bk = 0; }
+/* the level of the next flood for n_levels levels (the ladder, the IDLE unscoped rule) */
+uint8_t lt_level_next(lt_link_state_t *s, uint32_t now_s, lt_mode_t mode, uint8_t n_levels);
+/* IDLE fallback floods left in the rolling 24 h */
+uint8_t lt_link_budget_left(lt_link_state_t *s, uint32_t now_s);
+/* moved test: a fix farther than max(LT_MOVE_M, 3 x accuracy) from the reference */
+bool lt_moved(int32_t ref_lat_e7, int32_t ref_lon_e7, int32_t lat_e7, int32_t lon_e7, uint8_t acc_m, uint32_t *dist_m);
 
 #ifdef __cplusplus
 }

@@ -17,11 +17,21 @@ object BleCommand {
     /** k for a wake-up that is not a check after report n (normal reporting, the heartbeat, LOST) */
     const val K_NEXT = 0xFFFF
 
-    /** The payload after the company id, or null when the plaintext has bytes after offset 8 (mesh only). */
+    /**
+     * The payload after the company id, or null when the plaintext has bytes after offset 8 (mesh
+     * only). [k] = [K_NEXT]: sealed with C_e(n) of the tag's last report n; k >= 1: slot k of the
+     * grid of anchor n, sealed from the slot key (PROTOCOL.md 2.6, 3.1).
+     */
     fun payload(cmdE: ByteArray, n: Long, cmd: Command, k: Int): ByteArray? {
+        val p = if (k == K_NEXT || k == 0) LibreTag.sealCommand(cmdE, n, cmd, k)
+            else QuietMesh.sealSlotCommand(QuietMesh.slotKey(cmdE, n), k, cmd)
+        return of(p, cmd)
+    }
+
+    /** The advert form of a sealed command [p] (29 B), or null when [cmd] has bytes after offset 8. */
+    fun of(p: ByteArray, cmd: Command): ByteArray? {
         val pt = cmd.encode()
         if (pt.copyOfRange(1 + CT_LEN, pt.size).any { it.toInt() != 0 }) return null
-        val p = LibreTag.sealCommand(cmdE, n, cmd, k)
         return byteArrayOf(LibreTag.TYPE_COMMAND.toByte()) + p.copyOf(TAG_LEN) +
             p.copyOfRange(TAG_LEN + 1, TAG_LEN + 1 + CT_LEN) + p.copyOfRange(p.size - MAC_LEN, p.size)
     }

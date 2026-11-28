@@ -91,6 +91,21 @@ class MailboxKeys(private val file: File?) {
         return out
     }
 
+    /** Mark the keys of these events of (tracker, seq) as cancelled (a replaced timed ACK); returns them. */
+    @Synchronized
+    fun cancelIds(tracker: String, seq: Int, ids: Set<String>): List<MailboxKey> {
+        val out = mutableListOf<MailboxKey>()
+        for (i in list.indices) {
+            val k = list[i]
+            if (k.tracker == tracker && k.seq == seq && k.id in ids && !k.cancelled) {
+                list[i] = k.copy(cancelled = true)
+                out += list[i]
+            }
+        }
+        if (out.isNotEmpty()) save()
+        return out
+    }
+
     /** Cancelled keys whose deletion has not reached a relay yet and whose event has not expired. */
     @Synchronized
     fun toDelete(nowS: Long): List<MailboxKey> = list.filter { it.cancelled && it.exp > nowS }

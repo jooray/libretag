@@ -12,8 +12,8 @@ has its own (`[libretag] airtime_pct`), so a flood of LibreTag commands cannot s
 DMs, and both live in the ledger, so a restart does not reset them.
 
 Reliability: an event no relay accepted waits in the ledger's outbox and is retried until it expires
-(14 d); a radio silent for `[watchdog] rx_silence_s` makes `run` exit with status 3 so the supervisor
-restarts the bridge; an hourly heartbeat goes to the log and to `[status] path` (`nostrmesh status`).
+(14 d); the radio's own health (radio_health.py, R37) is watched, announced and recovered without
+exiting; an hourly heartbeat goes to the log and to `[status] path` (`nostrmesh status`).
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from libretag.lt2 import NOSTR_CLAIM_KIND, NOSTR_COMMAND_KIND, NOSTR_REPORT_KIND
 from libretag.meshcore import lora_airtime_s
 
-from . import frag, frames, inbox, road
+from . import fieldlog, frag, frames, inbox, road
 from .config import MAX_AGE_S, Config
 from .errors import FrameError
 from .ledger import Ledger
@@ -39,10 +39,12 @@ from .lt2svc import LibreTagService
 from .nostr import Event
 from .policy import AirtimeBudget, RateLimit
 from .radio import Datagram, Radio, RadioError
+from .radio_health import TICK_S as HEALTH_TICK_S, RadioHealth
 from .registry import Registry
 
 log = logging.getLogger("nostrmesh.bridge")
 
+LT_DATA_TYPES = (frames.DATA_TYPE_LIBRETAG, 0xFF6C)  # 0xFF6C: a command's fallback send (PROTOCOL.md 3.4)
 ACCEPT = {(frames.CHANNEL_NOSTR, frames.DATA_TYPE_NOSTR), (frames.CHANNEL_ROAD, frames.DATA_TYPE_ROAD)}
 LT2_KINDS = {NOSTR_REPORT_KIND, NOSTR_COMMAND_KIND, NOSTR_CLAIM_KIND, 5,  # 5: NIP-09 deletion of a 4244
              38244}  # bridge announcements (PROTOCOL.md 4.1)
@@ -130,8 +132,10 @@ class Bridge:
         self._last_heartbeat = now
         self._heartbeat_base: dict[str, float] = {}
         self.resolver = None         # async (host, port) -> addrinfo list; None = the loop's getaddrinfo
+        self.health = RadioHealth(self, now)
         self.lt2 = LibreTagService(self)
         self.last_tx = 0.0
+        self.last_send_error: RadioError | None = None
         self.tx_lock = asyncio.Lock()
         self.device_queue: dict[bytes, list[Outgoing]] = defaultdict(list)
         self.road_positions: dict[str, tuple[float, float]] = {}  # report id -> (lat, lon)
@@ -142,6 +146,7 @@ class Bridge:
         self.loop: asyncio.AbstractEventLoop | None = None
         self._periodic_task: asyncio.Task | None = None
         self._timed_task: asyncio.Task | None = None
+        self._health_task: asyncio.Task | None = None
         self.inbox_cache = inbox.InboxCache()
         self._preset_warned: tuple | None = None
 
@@ -169,6 +174,27 @@ class Bridge:
         self._periodic_task = asyncio.create_task(self._periodic())
         if self.cfg.libretag.mailbox and self.cfg.libretag.timed_commands:
             self._timed_task = asyncio.create_task(self.lt2.timed_loop())
+        self.health.last_traffic = self.health.last_probe = self.clock()
+        self._health_task = asyncio.create_task(self._health_loop())
+
+    async def _health_loop(self):
+        while True:
+            await asyncio.sleep(HEALTH_TICK_S)
+            try:
+                await self.health.tick(self.clock())
+            except Exception:  # noqa: BLE001
+                log.exception("radio health")
+
+    def on_radio_state(self, state: str, reason: str, now: float) -> None:
+        """radio_health: the radio went down or came back. Announce it at once, tell the operator."""
+        self._spawn(self.health.alert(state, reason))
+        self.lt2.on_radio_state(state, now)
+        self.write_status(now)
+
+    def regions(self) -> list[str]:
+        """Flood scopes this bridge serves, narrow first: the node's checked list (Local API), else [radio]."""
+        r = getattr(self.radio, "regions", None)
+        return list(r) if isinstance(r, list) else list(self.cfg.radio.regions)
 
     async def _announce_when_ready(self, wait_s: float = 20.0):
         """The announcement says what the radio can do (zero-hop, preset), which a Local API node tells only
@@ -182,7 +208,7 @@ class Bridge:
         self.lt2.announce(self.clock())
 
     async def stop(self):
-        for t in (self._periodic_task, self._timed_task):
+        for t in (self._periodic_task, self._timed_task, self._health_task):
             if t:
                 t.cancel()
         for t in list(self.tasks):
@@ -210,27 +236,14 @@ class Bridge:
         if drained:
             self.ledger.kv_set("radio_last_drained", str(drained))
         await self.retry_outbox(now)
-        self.check_watchdog(now)
         if now - self._last_heartbeat >= self.cfg.status.interval_s:
             self.heartbeat(now)
 
     # ------------------------------------------------------------ watchdog and heartbeat
 
     def radio_silence_s(self, now: float) -> float:
-        last = max(self.last_rx, getattr(self.radio, "last_activity", 0.0) or 0.0)
-        return now - last
-
-    def check_watchdog(self, now: float) -> bool:
-        """True (and `fatal` set) when nothing came from the radio for `rx_silence_s`."""
-        lim = self.cfg.watchdog.rx_silence_s
-        if lim > 0 and self.radio_silence_s(now) > lim:
-            self.fatal_reason = f"no radio frame for {self.radio_silence_s(now) / 60:.0f} min"
-            log.error("watchdog: %s, exiting so the supervisor restarts the bridge", self.fatal_reason)
-            self.stats.inc("watchdog_exit")
-            if self.fatal is not None:
-                self.fatal.set()
-            return True
-        return False
+        """Since the last traffic of the radio itself (a packet or a probe answer), not of the session."""
+        return now - max(self.last_rx, self.health.last_traffic)
 
     HEARD = ("rx_lt2_report",)
     DROPPED = ("rx_rate_limited", "lt_rx_rate_limited", "lt_rx_first_hop_limited", "tx_airtime_exhausted", "tx_radio_budget", "dn_rate_limited",
@@ -258,6 +271,8 @@ class Bridge:
             "airtime_window_s": {"main": round(self.airtime.used(now), 3), "libretag": round(self.lt_airtime.used(now), 3)},
             "airtime_cap_s": {"main": self.airtime.cap_s, "libretag": self.lt_airtime.cap_s},
             "radio_silence_s": round(self.radio_silence_s(now), 1),
+            "radio": {"state": self.health.state, "since": int(self.health.since), "reason": self.health.reason or None,
+                      "degraded": self.health.degraded},
             "mailbox_tags": self.ledger.mailbox_size(),
             "outbox": self.ledger.outbox_size(),
             "counters": dict(sorted(self.stats.c.items())),
@@ -347,37 +362,58 @@ class Bridge:
                         "using the node's preset", node[0], node[1] / 1000, node[2], cfg[0], cfg[1] / 1000, cfg[2])
         return node
 
-    def airtime_s(self, datagram_len: int, route_len: int = 0, path_hash_size: int = 1) -> float:
+    def airtime_s(self, datagram_len: int, route_len: int = 0, path_hash_size: int = 1,
+                  region: str | None = None) -> float:
         sf, bw, cr = self.preset()
         n = 1 + 1 + route_len * path_hash_size + grp_data_len(datagram_len)
-        if getattr(self.radio, "region", None):
-            n += 4
+        if region:
+            n += 4  # transport codes of a scoped flood
         return lora_airtime_s(n, sf, bw, cr, self.cfg.airtime.preamble)
 
     def budget_for(self, channel: str) -> AirtimeBudget:
         return self.lt_airtime if channel == frames.CHANNEL_LIBRETAG else self.airtime
 
     async def radio_send(self, channel: str, data_type: int, payload: bytes, route: list[bytes] | None = None,
-                         path_hash_size: int = 1, budget_checked: bool = False) -> bool:
-        """Flood (route None) or direct/zero-hop (route list). Refuses when the airtime budget is spent."""
+                         path_hash_size: int = 1, budget_checked: bool = False, region: str | None = None,
+                         spend: bool = True, priority_now: bool = False, log_fields: dict | None = None) -> bool:
+        """Flood (route None; in `region` when given) or direct/zero-hop (route list). Refuses when the airtime
+        budget is spent. `spend` False: counted in the stats, not in a budget (ACKs have their own cap).
+        On a radio error `last_send_error` holds it. `log_fields` go on the field log's `tx` line."""
         now = self.clock()
-        secs = self.airtime_s(len(payload), len(route or ()), path_hash_size)
+        secs = self.airtime_s(len(payload), len(route or ()), path_hash_size, region if route is None else None)
         budget = self.budget_for(channel)
-        if not budget_checked and not budget.allow(now, secs):
+        lf = dict(log_fields or {})
+        how = "flood" if route is None else "path" if route else "zero-hop"
+        base = dict(channel=channel, dtype=data_type, len=len(payload), how=how, path=route,
+                    phs=path_hash_size if route else None, region=region if route is None else None, airtime_s=secs)
+        if "xa" not in lf and "xc" not in lf:
+            base["xc"] = payload[:4]
+        if spend and not budget_checked and not budget.allow(now, secs):
             self.stats.inc("tx_airtime_exhausted")
             log.warning("airtime budget for %s spent (%.1f s in the window), staying silent", channel, budget.used(now))
+            fieldlog.ev("tx", **base, **lf, ok=False, error="airtime")
             return False
+        self.last_send_error = None
         try:
             if route is None:
-                await self.loop.run_in_executor(None, self.radio.send, channel, data_type, payload)
+                await self.loop.run_in_executor(None, lambda: self.radio.send(channel, data_type, payload, region))
+            elif priority_now and getattr(self.radio, "supports_priority", False):
+                await self.loop.run_in_executor(None, lambda: self.radio.send_direct(
+                    channel, data_type, payload, route, path_hash_size, priority_now=True))
             else:
                 await self.loop.run_in_executor(None, self.radio.send_direct, channel, data_type, payload,
                                                 route, path_hash_size)
         except RadioError as e:
+            self.last_send_error = e
+            self.health.on_send_error(e, self.clock())
             self.stats.inc("tx_radio_budget" if type(e).__name__ == "BudgetExceeded" else "dn_radio_error")
             log.warning("radio send failed: %s", e)
+            fieldlog.ev("tx", **base, **lf, ok=False, error=str(e)[:160])
             return False
-        budget.spend(now, secs)
+        self.health.on_send_ok(self.clock())
+        fieldlog.ev("tx", **base, **lf, ok=True, result=getattr(self.radio, "last_tx_result", None))
+        if spend:
+            budget.spend(now, secs)
         self.stats.inc("tx_airtime_ms", int(secs * 1000))
         return True
 
@@ -395,13 +431,15 @@ class Bridge:
             self._flush_device(pk)
 
     async def on_datagram(self, dg: Datagram) -> Event | None:
-        lt = (dg.channel, dg.data_type) == (frames.CHANNEL_LIBRETAG, frames.DATA_TYPE_LIBRETAG)
+        lt = dg.channel == frames.CHANNEL_LIBRETAG and dg.data_type in LT_DATA_TYPES
         if not lt and (dg.channel, dg.data_type) not in ACCEPT:
             self.last_rx = self.clock()
+            self.health.on_rx(self.last_rx)
             self.stats.inc("rx_ignored")
             return None
         now = self.clock()
         self.last_rx = now
+        self.health.on_rx(now)
         if lt:  # own limit (lt2svc), so a #libretag flood does not use up the other channels' share
             self.lt2.on_datagram(dg, now)
             return None

@@ -86,6 +86,12 @@ def make(radio=None, now=T0, ledger=None, key=None, auto_anchor=True, **lt):
     if key is not None:
         cfg.bridge.key = key.hex()
     cfg.libretag.publish_delay_max_s = 0.01
+    cfg.libretag.fast_publish_min_s = cfg.libretag.fast_publish_max_s = 0.005
+    cfg.libretag.fallback_after_s = 0.05
+    cfg.libretag.ack_jitter_min_s = cfg.libretag.ack_jitter_max_s = 0.001
+    cfg.libretag.claim_routed_ack_s = 0.02
+    cfg.libretag.timed_retry_s = 0.01
+    cfg.watchdog.rx_silence_s = 0  # radio health has its own tests (test_quietmesh_bridge.py)
     cfg.libretag.claim_wait_s = 0.02
     cfg.libretag.anchor_lead_s = 0
     for a, v in lt.items():
@@ -112,13 +118,13 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def mailbox_event(pc, ys, route="near", created_at=T0 - 100, exp=None, sk=None):
+def mailbox_event(pc, ys, route="near", created_at=T0 - 100, exp=None, sk=None, binding=False, extra=()):
     """Signed by the owner's sk_n (of ys[0]) unless sk is given. Format 1 ignored the route and flooded
     when the report was not heard directly; these tests keep that behaviour, so "near" becomes "flood"
-    (binding routes are tested in test_bridge_market.py)."""
-    route = "flood" if route == "near" else route
+    unless `binding` (binding routes are tested in test_bridge_market.py and test_quietmesh_bridge.py)."""
+    route = "flood" if route == "near" and not binding else route
     tags = [["v", "2"]] + [["y", y.hex()] for y in ys] + [["route", route],
-                                                          ["expiration", str(exp or T0 + 48 * 3600)]]
+                                                          ["expiration", str(exp or T0 + 48 * 3600)]] + list(extra)
     return sign_event(sk or owner_sk(ys[0]), created_at, lt2.NOSTR_COMMAND_KIND, tags, base64.b64encode(pc).decode())
 
 
@@ -194,7 +200,7 @@ def test_uplink_dedup_waits_for_events_arriving_during_delay():
     async def go():
         br = make(publish_delay_max_s=0.2)
         await br.start()
-        await br.on_datagram(heard(p))
+        await br.on_datagram(heard(p, 3))  # over 3 hops: the slow publish delay
         ev = sign_event(k(3), T0, lt2.NOSTR_REPORT_KIND, [["y", p[:4].hex()]], base64.b64encode(p).decode())
         await asyncio.sleep(0.01)
         for u in ("wss://a", "wss://b"):
@@ -243,15 +249,20 @@ def test_mailbox_known_before_rule_and_one_send_per_x():
 
 
 @pytest.mark.parametrize("hops,route,radio_cls,expect", [
-    (0, "near", MemoryDirectRadio, ("zero-hop", [])),   # heard directly: zero-hop reaches it
-    (1, "near", MemoryDirectRadio, ("flood", None)),     # otherwise flood (0.7.3), never along a path
-    (3, "near", MemoryDirectRadio, ("flood", None)),
-    (20, "near", MemoryDirectRadio, ("flood", None)),    # no hop limit any more
-    (None, "near", MemoryDirectRadio, ("flood", None)),
-    (0, "near", MemoryRadio, ("flood", None)),           # adapter cannot send zero-hop
-    (2, "near", MemoryRadio, ("flood", None)),
-    (5, "flood", MemoryDirectRadio, ("flood", None)),
-    (0, "flood", MemoryDirectRadio, ("zero-hop", [])),
+    (0, "near", MemoryDirectRadio, ("zero-hop", [])),   # near: zero-hop, only for a report heard directly
+    (1, "near", MemoryDirectRadio, None),                # over a repeater: left for a nearer bridge
+    (None, "near", MemoryDirectRadio, None),
+    (0, "near", MemoryRadio, None),                      # adapter cannot send zero-hop
+    (0, "flood", MemoryDirectRadio, ("zero-hop", [])),   # flood: the cheapest way from where it was heard
+    (1, "flood", MemoryDirectRadio, ("direct", [b"\x20"])),        # along the reversed path
+    (2, "flood", MemoryDirectRadio, ("direct", [b"\x21", b"\x20"])),
+    (3, "flood", MemoryDirectRadio, ("flood", None)),     # beyond direct_max_hops 2: a flood
+    (20, "flood", MemoryDirectRadio, ("flood", None)),
+    (None, "flood", MemoryDirectRadio, ("flood", None)),  # route not reported
+    (0, "flood", MemoryRadio, ("flood", None)),
+    (2, "flood", MemoryRadio, ("flood", None)),           # no path sends on this adapter
+    (1, "direct", MemoryDirectRadio, ("direct", [b"\x20"])),
+    (3, "direct", MemoryDirectRadio, None),               # direct never floods
 ])
 def test_mailbox_route_rules(hops, route, radio_cls, expect):
     p, pc = report(20), command(20)
@@ -260,7 +271,7 @@ def test_mailbox_route_rules(hops, route, radio_cls, expect):
     async def go():
         br = make(radio=radio_cls())
         await br.start()
-        await br.on_relay_event(mailbox_event(pc, [p[:4]], route).to_dict(), "wss://a")
+        await br.on_relay_event(mailbox_event(pc, [p[:4]], route, binding=True).to_dict(), "wss://a")
         br.clock_ref["t"] += 1
         await br.on_datagram(dg)
         await br.drain()
@@ -268,6 +279,9 @@ def test_mailbox_route_rules(hops, route, radio_cls, expect):
         return br
 
     br = run(go())
+    if expect is None:
+        assert br.radio.sent == [] and br.stats.c["lt_cmd_route_too_far"] == 1
+        return
     how, path = expect
     assert len(br.radio.sent) == 1 and br.radio.sent[0].payload == pc
     assert br.radio.sent[0].path == path and br.stats.c[f"lt_cmd_sent_{how}"] == 1
@@ -292,7 +306,7 @@ def test_mailbox_skips_stale_or_replayed_report_and_command_heard_on_air():
 
     br = run(go())
     assert br.radio.sent == []
-    assert br.stats.c["lt_cmd_report_stale"] == 1 and br.stats.c["lt_cmd_heard_on_air"] == 1
+    assert br.stats.c["lt_rx_stale"] == 1 and br.stats.c["lt_cmd_heard_on_air"] == 1  # 50 s old: approx
 
 
 def test_mailbox_validation_expiration_cap_and_size_cap():
@@ -535,7 +549,8 @@ def local_api(caps, region=None):
     from pathlib import Path
     from nostrmesh.localapi import Identity
     ident = Identity(Path(tempfile.mkdtemp()) / "id.json")
-    r = LocalApiRadio("ws://127.0.0.1:8787/api/v1", {"#libretag": [0xFF4C]}, identity=ident, region=region)
+    r = LocalApiRadio("ws://127.0.0.1:8787/api/v1", {"#libretag": [0xFF4C]}, identity=ident,
+                      regions=[region] if region else None)
     got = []
     r._on_rx = got.append
     r.client._ws = FakeWs(r)
@@ -578,10 +593,10 @@ def test_local_api_with_path_capabilities():
 
 def test_local_api_region_only_with_the_regions_capability():
     r, _ = local_api(["tx_path_data"], region="sk")
-    r.send("#libretag", 0xFF4C, b"x")
+    r.send("#libretag", 0xFF4C, b"x", "sk")
     assert "region" not in r.client._ws.sent[-1]  # the server cannot scope: its default scope
     r, _ = local_api(["regions"], region="sk")
-    r.send("#libretag", 0xFF4C, b"x")
+    r.send("#libretag", 0xFF4C, b"x", "sk")
     assert [p for p in r.client._ws.sent if "payload" in p][-1]["region"] == "sk"
     with pytest.raises(RadioError):
         r.send_direct("#libretag", 0xFF4C, b"x", [])  # no tx_path_data: nothing goes out
@@ -653,10 +668,10 @@ def test_timed_entry_sent_at_time_by_flood():
     br, early, at = run(go())
     assert early == ([], 0)
     assert [d.payload for d in br.radio.sent] == [pc]
-    assert br.radio.sent[0].path is None  # flood: the tracker may have moved since report n
+    assert br.radio.sent[0].path == [b"\x21", b"\x20"]  # along the reversed path of report n (2 repeaters)
     c = claims_of(br)
     assert len(c) == 1 and c[0]["tags"] == [["y", xc(1).hex()], ["hops", "2"]] and c[0]["created_at"] < at
-    assert br.stats.c["lt_cmd_timed_sent"] == 1 and br.stats.c["lt_cmd_sent_flood"] == 1
+    assert br.stats.c["lt_cmd_timed_sent"] == 1 and br.stats.c["lt_cmd_sent_direct"] == 1
     assert br.stats.c["lt_mailbox_added_timed"] == 1
 
 
@@ -731,7 +746,9 @@ def test_timed_entry_too_late_dropped_slightly_late_sent_at_once():
         br.clock_ref["t"] = now
         late = timed_event(command(331), xc(5), now - 61, p[:4], created_at=now - 100)
         await br.on_relay_event(late.to_dict(), "wss://a")
-        await br.on_relay_event(timed_event(pc, xc(6), now - 30, p[:4], created_at=now - 100).to_dict(), "wss://a")
+        await br.on_relay_event(timed_event(pc, xc(6), now - 10, p[:4], created_at=now - 100).to_dict(), "wss://a")
+        missed = timed_event(command(332), xc(7), now - 30, p[:4], created_at=now - 100)
+        await br.on_relay_event(missed.to_dict(), "wss://a")
         br.lt2.timed_tick(now)
         await br.drain()
         await br.stop()
@@ -740,7 +757,9 @@ def test_timed_entry_too_late_dropped_slightly_late_sent_at_once():
     br, late = run(go())
     assert br.stats.c["lt_mailbox_timed_late"] == 1
     assert br.ledger._all("SELECT 1 FROM mailbox WHERE event_id=?", (late.id,)) == []
+    # 10 s late: inside the retry window (at + 20 s), sent at once; 30 s late: missed ("late")
     assert [d.payload for d in br.radio.sent] == [pc] and br.radio.sent[0].path == []
+    assert br.stats.c["lt_miss_late"] == 1
 
 
 def test_timed_two_bridges_one_transmits():
@@ -815,7 +834,7 @@ def test_timed_siblings_survive_and_later_reports_still_answered():
     br, first = run(go())
     assert first == [c1]
     assert [d.payload for d in br.radio.sent] == [c1, c2, cq]
-    assert all(d.path is None for d in br.radio.sent)
+    assert [d.path for d in br.radio.sent] == [None, None, [b"\x20"]]  # p over 3 hops: floods; q over 1: path
 
 
 def test_timed_entries_leave_06_behaviour_alone():
@@ -1017,7 +1036,7 @@ def test_ble_console_command_goes_out_like_any_other():
         await br.start()
         await br.on_relay_event(mailbox_event(pc, [p[:4]], "flood").to_dict(), "wss://a")
         br.clock_ref["t"] += 1
-        await br.on_datagram(heard(p, 2))   # heard over two hops: flood
+        await br.on_datagram(heard(p, 3))   # heard over three hops: flood
         await br.on_datagram(heard(q, 3))
         await br.drain()
         br.clock_ref["t"] += 3600

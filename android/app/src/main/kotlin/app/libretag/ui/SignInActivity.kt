@@ -189,7 +189,7 @@ class SignInActivity : ScreenActivity() {
 
     companion object {
         /** relays for nostrconnect: ours first (its allowlist takes kind 24133 from anyone), then two public ones */
-        val CONNECT_RELAYS = listOf("wss://nostr.cypherpunk.today", "wss://nos.lol", "wss://relay.primal.net")
+        val CONNECT_RELAYS = listOf("wss://nostr.cypherpunk.today", "wss://relay.primal.net")
         const val CONNECT_TIMEOUT_MS = 10 * 60_000L
     }
 }

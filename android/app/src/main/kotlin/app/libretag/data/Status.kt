@@ -120,9 +120,13 @@ object Status {
         val p = t.last ?: return null
         // an approximate report was heard at the latest when the bridge drained it
         val at = p.approxUntil ?: p.receivedAt
-        p.nextInS?.let { return at + it * 1000 }
-        if (p.quiet) return at + HEARTBEAT_MS
-        return at + intervalS(t, p, now) * 1000L
+        val next = p.nextInS?.let { at + it * 1000 } ?: if (p.quiet) at + HEARTBEAT_MS else at + intervalS(t, p, now) * 1000L
+        // 0.14.0 (R15): Lost or Track ran out at the end time the app set; the tag went back to IDLE
+        // without a report of its own, so the next one comes on the IDLE schedule from then on
+        val until = t.modeUntil
+        if ((p.mode == "LOST" || p.mode == "TRACK") && until != null && now >= until)
+            return maxOf(next, until + t.reportPeriodMin * 60_000L)
+        return next
     }
 
     /**
@@ -135,7 +139,7 @@ object Status {
         val next = nextAt(t, now)
         val batt = p?.battery
         // checks run whatever the app shows on top (an old alarm, low battery): a command goes out at the next one
-        val plan0 = checkPlan(t)
+        val plan0 = checkPlan(t, now)
         val base = TagStatus(StatusKind.OK, heard, next, battery = batt, approx = p?.approx == true,
             nextCheckAt = plan0?.next(now)?.second?.takeIf { next == null || it < next },
             checkEveryS = plan0?.intervalMin?.times(60))
@@ -146,7 +150,8 @@ object Status {
         }
         if (t.guardAlarm) return base.copy(kind = StatusKind.ALARM, alarm = t.alarm)
         val missed = missed(t, now)
-        if (missed > allowedMissed(t, now)) {
+        // 0.14.0: the deadline by link (QuietPlan.silentDeadline): a NEAR tag may skip hellos until hold ran out
+        if (silentAt(t, now)?.let { now > it } == true) {
             return base.copy(kind = StatusKind.SILENT, nextAt = null, silentForMs = now - p.receivedAt,
                 intervalS = if (p.quiet) (HEARTBEAT_MS / 1000).toInt() else intervalS(t, p, now))
         }
@@ -168,7 +173,7 @@ object Status {
                 "parked" -> "parked"
                 else -> quietZoneName(t, p)
             }
-            val plan = checkPlan(t)
+            val plan = checkPlan(t, now)
             return base.copy(kind = StatusKind.QUIET, quietWhere = where,
                 nextCheckAt = plan?.next(now)?.second?.takeIf { next == null || it < next },
                 checkEveryS = plan?.intervalMin?.times(60))
@@ -176,7 +181,7 @@ object Status {
         // left a place a while ago and not at one again: an event, shown as a neutral state
         val left = if (t.leftRecently(now)) base.copy(kind = StatusKind.LEFT, leftPlace = t.leftPlace, leftAt = t.leftAt) else base
         // 0.7.3: reporting every n-th wake-up, it listens for commands at the wake-ups in between
-        checkPlan(t)?.let { plan ->
+        checkPlan(t, now)?.let { plan ->
             return left.copy(
                 nextCheckAt = plan.next(now)?.second?.takeIf { next == null || it < next },
                 checkEveryS = plan.intervalMin * 60)
@@ -210,11 +215,15 @@ object Status {
         return if (CounterGaps.lossRate(t, now) >= LOSSY_RATE) 2 else 1
     }
 
-    /** When the tag becomes silent (ms): the expected time plus the tolerated periods and the margin. */
+    /**
+     * When the tag becomes silent (ms): the expected time plus the tolerated periods and the margin,
+     * moved by the link (SPEC.md 3.2 "Silence", [QuietPlan.silentDeadline]).
+     */
     fun silentAt(t: Tracker, now: Long): Long? {
         val p = t.last ?: return null
         val next = nextAt(t, now) ?: return null
-        return next + allowedMissed(t, now) * intervalS(t, p, now) * 1000L + SILENT_MARGIN_MS
+        val base = next + allowedMissed(t, now) * intervalS(t, p, now) * 1000L + SILENT_MARGIN_MS
+        return QuietPlan.silentDeadline(t, base, now)
     }
 
     const val LOSSY_RATE = 0.25
@@ -243,16 +252,24 @@ object Status {
     }
 
     /**
-     * The checks of the current quiet stretch, when the last report was quiet with CHECKS and the
-     * app knows the interval (it computed the plan for that very report).
+     * The tag's listening slots (PROTOCOL.md 2.6): the confirmed grid of its anchor, while the tag is
+     * in IDLE, the app knows the interval and the schedule is known. Null: no time is shown ("schedule
+     * not known"); sends still go on every grid the app holds ([sendGrids]).
      */
-    fun checkPlan(t: Tracker): CheckPlan? {
-        val p = t.last ?: return null
-        // an approximate time can't anchor the checks: only the heartbeat counts then
-        if (!p.checks || !t.intervalKnown || p.approx) return null
-        if (!p.quiet && !(t.reportEvery > 1 && p.mode == "IDLE")) return null
-        return t.checkPlan?.takeIf { it.n == p.n }
+    fun checkPlan(t: Tracker, now: Long = System.currentTimeMillis()): CheckPlan? {
+        if (t.last == null || !t.intervalKnown || !t.anchor.known || modeNow(t, now) != "IDLE") return null
+        return t.anchor.a?.takeIf { it.intervalMin == t.intervalMin }
     }
+
+    /** Every grid a command or a timed ACK is sent on (the confirmed one and the candidates), IDLE only. */
+    fun sendGrids(t: Tracker, now: Long = System.currentTimeMillis()): List<CheckPlan> {
+        if (t.last == null || !t.intervalKnown || modeNow(t, now) != "IDLE") return emptyList()
+        return t.anchor.grids.filter { it.intervalMin == t.intervalMin }
+    }
+
+    /** The schedule is not known right now: the app shows no time for a waiting command. */
+    fun scheduleUnknown(t: Tracker, now: Long = System.currentTimeMillis()): Boolean =
+        t.last != null && t.intervalKnown && modeNow(t, now) == "IDLE" && (!t.anchor.known || t.anchor.a == null)
 
     /** The zone a position lies in (its fix or, without one, the last fix it carries). */
     fun zoneOf(t: Tracker, p: Position): Zone? {

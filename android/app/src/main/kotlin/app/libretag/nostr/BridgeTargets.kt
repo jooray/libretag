@@ -18,7 +18,27 @@ data class Announcement(
     val expires: Long,
     /** the relays it reads entries from (["relay", url] tags) */
     val relays: List<String> = emptyList(),
-)
+    /** 0.10.0: when it was published (s), and the radio's own state with its "since" (["radio", up|down, since]) */
+    val createdAt: Long = 0,
+    val radioUp: Boolean? = null,
+    val radioSince: Long? = null,
+    /** content.name, when the bridge gives one */
+    val name: String? = null,
+) {
+    /**
+     * The bridge is offline (SPEC.md 3.2 "Silence"): its announcement is older than 2 h (it
+     * announces hourly) or says the radio is down. Since when (s), else null.
+     */
+    fun offlineSince(nowS: Long): Long? = when {
+        radioUp == false -> radioSince ?: createdAt
+        createdAt > 0 && nowS - createdAt > OFFLINE_AFTER_S -> createdAt
+        else -> null
+    }
+
+    companion object {
+        const val OFFLINE_AFTER_S = 2 * 3600L
+    }
+}
 
 /** A receipt for a report the app has not opened: the counter it stands for and the bridge's announcement. */
 data class AheadHit(val receipt: Receipt, val n: Long, val announcement: Announcement)
@@ -47,9 +67,9 @@ object BridgeTargets {
     const val MAX_P_TAGS = 8
     /** reports of the tag whose receipts count as "recent" */
     const val RECENT_REPORTS = 10
-    /** the route the app asks for, every command (owner decision 2026-11-18) */
+    /** the route the app asks for by default (0.10.0: `both` for Lost and Track and after a missed slot) */
     const val ROUTE = "flood"
-    val ROUTES = listOf("near", "direct", "flood")
+    val ROUTES = listOf("near", "direct", "flood", "both")
     private val HOPS_RANK = mapOf("0" to 0, "1-3" to 1, "4+" to 2, "?" to 3)
     private val NETWORK = Regex("^[a-z0-9-]{1,32}$")
     private const val FUTURE_MAX_S = 60L
@@ -79,9 +99,9 @@ object BridgeTargets {
         return Targeting(2, route, ps.distinct().take(MAX_P), rs.firstOrNull())
     }
 
-    /** The format 2 tags of an entry: ["v","2"], ["route", flood], a ["p"] per target, ["r"] when known. */
-    fun entryTags(t: Targets): List<List<String>> =
-        listOf(listOf("v", "2"), listOf("route", ROUTE)) +
+    /** The format 2 tags of an entry: ["v","2"], ["route", route], a ["p"] per target, ["r"] when known. */
+    fun entryTags(t: Targets, route: String = ROUTE): List<List<String>> =
+        listOf(listOf("v", "2"), listOf("route", route)) +
             targetTags(t)
 
     /** ["p"] per target and ["r"] when known: an anchor (PROTOCOL.md 4.2) carries them without a route. */
@@ -100,7 +120,8 @@ object BridgeTargets {
         if (ev.createdAt > nowS + FUTURE_MAX_S) return null
         val m = tagMap(ev)
         val y = m["y"]?.get(1)?.takeIf { it.isNotEmpty() && it.length % 2 == 0 && it.all { c -> c in "0123456789abcdef" } } ?: return null
-        val hops = m["hops"]?.get(1)?.takeIf { it in HOPS_RANK } ?: "?"
+        // 0.10.0: a receipt with ["route","direct"] and no hops means "heard directly", as good as 0 hops
+        val hops = m["hops"]?.get(1)?.takeIf { it in HOPS_RANK } ?: if (m["route"]?.get(1) == "direct") "0" else "?"
         val exp = m["expiration"]?.get(1)?.toLongOrNull() ?: (ev.createdAt + RECEIPT_TTL_S)
         if (exp <= nowS || ev.createdAt + RECEIPT_TTL_S <= nowS) return null
         if (verify && !ev.verify()) return null
@@ -119,19 +140,25 @@ object BridgeTargets {
         if (verify && !ev.verify()) return null
         val relays = ev.tags.filter { it.size >= 2 && it[0] == "relay" && (it[1].startsWith("wss://") || it[1].startsWith("ws://")) }
             .map { it[1] }.distinct().take(8)
+        val radio = ev.tags.firstOrNull { it.size >= 2 && it[0] == "radio" }
+        val name = runCatching {
+            (kotlinx.serialization.json.Json.parseToJsonElement(ev.content) as? kotlinx.serialization.json.JsonObject)
+                ?.get("name")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+        }.getOrNull()?.take(40)?.filter { it.code >= 0x20 }?.ifBlank { null }
         return Announcement(ev.pubkey, d, open = (m["open"]?.get(1) ?: "1") == "1",
-            receipts = m["receipts"]?.get(1) == "1", expires = exp, relays = relays)
+            receipts = m["receipts"]?.get(1) == "1", expires = exp, relays = relays, createdAt = ev.createdAt,
+            radioUp = radio?.get(1)?.let { it == "up" }, radioSince = radio?.getOrNull(2)?.toLongOrNull(), name = name)
     }
 
     /**
-     * The tag's `x` values ([yOf] for j = 0 and 1) of its last [count] reports up to [lastN], plus
+     * The tag's `x` values ([yOf] for every copy on air) of its last [count] reports up to [lastN], plus
      * [extraN] (the report a quiet stretch's checks hang on), mapped to their report counter.
      */
     fun recentYs(lastN: Long, extraN: Long?, yOf: (Long, Int) -> String?, count: Int = RECENT_REPORTS): Map<String, Long> {
         val ns = ((maxOf(0L, lastN - count + 1))..lastN).toMutableSet()
         if (extraN != null && extraN >= 0) ns += extraN
         val out = LinkedHashMap<String, Long>()
-        for (n in ns.sorted()) for (j in 0..1) yOf(n, j)?.let { out[it] = n }
+        for (n in ns.sorted()) for (j in app.libretag.proto.QuietMesh.J_ON_AIR) yOf(n, j)?.let { out[it] = n }
         return out
     }
 
@@ -158,7 +185,7 @@ object BridgeTargets {
     /**
      * The counters a late tag may have sent that the app has not opened (docs/design/tag-diagnosis.md
      * 4.4): lastN+1 … lastN+4, the next two multiples of 16 above lastN (a restart lands on a state
-     * checkpoint) and the next multiple of 64 (an epoch skip). Their `x` for j = 0 and 1, at most 14.
+     * checkpoint) and the next multiple of 64 (an epoch skip). Their `x` for every copy on air, at most 35.
      */
     fun nextYs(lastN: Long, yOf: (Long, Int) -> String?): Map<String, Long> {
         if (lastN < 0) return emptyMap()
@@ -168,7 +195,7 @@ object BridgeTargets {
         ns += c16; ns += c16 + 16
         ns += (lastN / 64 + 1) * 64
         val out = LinkedHashMap<String, Long>()
-        for (n in ns) for (j in 0..1) yOf(n, j)?.let { out[it] = n }
+        for (n in ns) for (j in app.libretag.proto.QuietMesh.J_ON_AIR) yOf(n, j)?.let { out[it] = n }
         return out
     }
 

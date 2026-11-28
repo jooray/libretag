@@ -6,21 +6,24 @@
 // work. Mirrors LibreTagApp.publishMailbox / publishCheckSlots.
 import { finalizeEvent } from 'nostr-tools/pure';
 import { b64encode, bytesToHex } from './bytes.js';
-import { CHECK_OFF, Command, EPOCH_REPORTS, Mode, NOSTR_COMMAND_KIND, SEND_AFTER_S, commandTag, epoch, mailboxSk, reportTag, sealCommand } from './lt2.js';
-import { CHECK_S_DEFAULT, checkPlan, lastPos } from './status.js';
+import { CHECK_OFF, Command, EPOCH_REPORTS, J_ON_AIR, Mode, NOSTR_COMMAND_KIND, epoch, mailboxSk, reportTag, sealCommand } from './lt2.js';
+import { CHECK_S_DEFAULT, lastPos, sendGrids } from './status.js';
+import { commandSlots, pairFallback, sealSlotCommand, slotCommandTag, slotKey, slotSendAt } from './quietmesh.js';
 
-export const MAILBOX_AHEAD = 4;
+/** untimed entries reach at least 10 counters ahead (R34) */
+export const MAILBOX_AHEAD = 10;
 export const MAILBOX_CHECKS = 12;
 export const CHECK_SLOT_TTL_S = 600;
 export const LOST_MIN = 1440, TRACK_MIN = 60;
 export const COMMAND_KINDS = ['LOST', 'TRACK', 'BEEP', 'NORMAL'];
 /** every kind the app can queue: the buttons above, and the report interval (SET_IDLE) from the interval setting */
 export const QUEUE_KINDS = [...COMMAND_KINDS, 'INTERVAL'];
-/** anchors for this many counters after the last report (plus the next epoch's first counter) */
-export const ANCHOR_AHEAD = 8;
-export const ANCHOR_MIN_S = 2 * 3600, ANCHOR_MAX_S = 26 * 3600, ANCHOR_DEFAULT_S = 12 * 3600;
-/** the tag listens this long after a report (listen_s default); a late entry is published only inside it */
-export const LISTEN_S = 90;
+/** anchors for this many counters after the last report (P9: 16 in IDLE, 24 in TRACK and LOST), plus the two
+ *  checkpoints a reboot lands on and the next epoch's first counter */
+export const ANCHOR_AHEAD = 16, ANCHOR_AHEAD_MOVING = 24;
+export const ANCHOR_MIN_S = 2 * 3600, ANCHOR_MAX_S = 50 * 3600, ANCHOR_DEFAULT_S = 12 * 3600;
+/** a late entry only while the report is under 40 s old: bridges take one until then (late_max_s, P6) */
+export const LISTEN_S = 40;
 
 /** mailbox expiry: Beep 1 h, Track and Normal 12 h, Lost and the report interval 48 h */
 export const ttlS = (kind) => (kind === 'BEEP' ? 3600 : kind === 'LOST' || kind === 'INTERVAL' ? 48 * 3600 : 12 * 3600);
@@ -67,12 +70,18 @@ export function buildCommand(kind, seq, arg = 0, durationMin = 0, opts = {}) {
   }
 }
 
-/** 1..255, not equal to the sequence the tag last executed (it would only acknowledge it again). */
-export function nextSeq(tag) {
-  const last = lastPos(tag);
-  let seq = ((tag.cmdSeq ?? Math.floor(Math.random() * 254)) % 255) + 1;
-  while (last && last.cmdSeq !== 0 && (seq & 15) === last.cmdSeq) seq = (seq % 255) + 1;
-  return seq;
+/**
+ * R6: a random 1..255 whose low four bits differ from the tag's newest report's cmd_seq and from this
+ * browser's previous command, so a second or restored device never repeats the tag's last executed number.
+ */
+export function nextSeq(tag, rnd = () => crypto.getRandomValues(new Uint8Array(1))[0]) {
+  const avoid = new Set([lastPos(tag)?.cmdSeq, tag.cmdSeq ? tag.cmdSeq & 15 : null].filter((x) => x != null).map((x) => x & 15));
+  for (let i = 0; i < 64; i++) {
+    const s = 1 + (rnd() % 255);
+    if (!avoid.has(s & 15)) return s;
+  }
+  for (let s = 1; s < 256; s++) if (!avoid.has(s & 15)) return s;
+  return 1;
 }
 
 /** ["g", 16 lowercase hex]: one random group id per command, on every entry of it (bridges stop a group once one entry went out). */
@@ -113,7 +122,7 @@ export function cancelEvents(sent, chain, nowS = Math.floor(Date.now() / 1000)) 
 
 const ysOf = (chain, n) => {
   const ve = chain.view(epoch(n));
-  return [bytesToHex(reportTag(ve, n, 0)), bytesToHex(reportTag(ve, n, 1))];
+  return J_ON_AIR.map((j) => bytesToHex(reportTag(ve, n, j)));
 };
 
 /** The last report when it came in less than LISTEN_S ago (exact time only): a late entry can still reach the tag. */
@@ -145,28 +154,44 @@ export async function mailboxEntries(tag, pending, nowS = Math.floor(Date.now() 
     if (!keyFor(chain, n)) continue;
     const pc = await sealCommand(chain.cmd(epoch(n)), n, pt);
     const ys = ysOf(chain, n);
-    out.push({ n, at: null, ys, tags: [['v', '2'], ...ys.map((y) => ['y', y]), ['route', 'flood'], ...g, exp], content: b64encode(pc) });
+    const route = pending.kind === 'LOST' || pending.kind === 'TRACK' ? 'both' : 'flood';
+    out.push({ n, at: null, ys, tags: [['v', '2'], ...ys.map((y) => ['y', y]), ['route', route], ...g, exp], content: b64encode(pc) });
   }
-  const timed = await checkSlotEntries(tag, pt, nowS, g);
+  const timed = await checkSlotEntries(tag, pt, nowS, g, pending.kind, pending.queuedAt ? Math.floor(pending.queuedAt / 1000) + ttlS(pending.kind) : nowS + ttlS(pending.kind));
   return [...out, ...timed.sort((a, b) => a.at - b.at)];
 }
 
-/** 0.7 timed entries: y = the command's own tag, at = t_k + 3 s, via = x of report n (j = 0), signed by sk_n. */
-export async function checkSlotEntries(tag, pt, nowS, g = []) {
-  const plan = checkPlan(tag);
-  if (!plan || !keyFor(tag.chain, plan.n)) return [];
-  const e = epoch(plan.n);
-  const ce = tag.chain.cmd(e);
-  const via = bytesToHex(reportTag(tag.chain.view(e), plan.n, 0));
+/**
+ * Timed entries (PROTOCOL.md 2.6, 4): for every grid the browser holds, the next 3 slots, then every 3rd until
+ * the command's lifetime (LOST every slot for 6 h), at most 12 per grid, each sealed from the slot key of its
+ * anchor, signed by sk of the anchor, at = t_k + 1, via = x of the anchor copies, the first slot `flood` (both
+ * for Lost and Track) and the later ones `both`, and ["fb", "0"] on all but the latest grid of one try.
+ */
+export async function checkSlotEntries(tag, pt, nowS, g = [], kind = '', untilS = nowS + 12 * 3600) {
+  const grids = sendGrids(tag).filter((gr) => keyFor(tag.chain, gr.n));
+  if (!grids.length) return [];
+  const lt = kind === 'LOST' || kind === 'TRACK';
+  const per = grids.map((gr) => {
+    const fromK = gr.offsetsS.findIndex((o) => Math.floor(gr.t0 / 1000) + o + 1 > nowS + 5) + 1;
+    return [gr, fromK > 0 ? commandSlots(gr.offsetsS, fromK, untilS - Math.floor(gr.t0 / 1000), kind === 'LOST', MAILBOX_CHECKS) : []];
+  });
   const out = [];
-  for (let i = 0; i < plan.offsetsS.length && out.length < MAILBOX_CHECKS; i++) {
-    const atS = Math.floor(plan.t0 / 1000) + plan.offsetsS[i] + SEND_AFTER_S;
-    if (atS <= nowS + 5) continue;
-    const k = i + 1;
-    const pc = await sealCommand(ce, plan.n, pt, k);
-    const y = bytesToHex(commandTag(ce, plan.n, k));
-    out.push({ n: plan.n, at: atS, ys: [y], tags: [['v', '2'], ['y', y], ['route', 'flood'], ...g,
-      ['expiration', String(atS + CHECK_SLOT_TTL_S)], ['at', String(atS)], ['via', via]], content: b64encode(pc) });
+  const tries = Math.max(...per.map(([, ks]) => ks.length));
+  for (let i = 0; i < tries; i++) {
+    const sends = per.filter(([, ks]) => ks[i] != null).map(([gr, ks]) => [gr, ks[i]]);
+    const fbs = pairFallback(sends.map(([gr, k]) => Math.floor(gr.t0 / 1000) + gr.offsetsS[k - 1]), lt);
+    for (let si = 0; si < sends.length; si++) {
+      const [gr, k] = sends[si];
+      const e = epoch(gr.n);
+      const ks = slotKey(tag.chain.cmd(e), gr.n);
+      const atS = slotSendAt(Math.floor(gr.t0 / 1000), gr.offsetsS[k - 1]);
+      const y = bytesToHex(slotCommandTag(ks, k));
+      const vias = gr.vias?.length ? gr.vias : [bytesToHex(reportTag(tag.chain.view(e), gr.n, 0))];
+      const pc = await sealSlotCommand(ks, k, pt);
+      out.push({ n: gr.n, at: atS, ys: [y], tags: [['v', '2'], ['y', y], ['route', lt || i > 0 ? 'both' : 'flood'], ...g,
+        ['expiration', String(atS + CHECK_SLOT_TTL_S)], ['at', String(atS)], ...vias.map((v) => ['via', v]),
+        ...(fbs[si] ? [] : [['fb', '0']])], content: b64encode(pc) });
+    }
   }
   return out;
 }
@@ -187,19 +212,24 @@ export async function mailboxEvents(tag, pending, nowS = Math.floor(Date.now() /
 
 // ------------------------------------------------------------------ anchors (PROTOCOL.md 4.2)
 
-/** Anchor lifetime: three report intervals (next_in of the last report), 2 h to 26 h; unknown: 12 h. */
+const moving = (tag) => ['LOST', 'TRACK'].includes(lastPos(tag)?.mode);
+
+/** Anchor lifetime: covers the counters ahead at the report interval (next_in of the last report), 2 h to 50 h. */
 export function anchorTtlS(tag) {
   const next = lastPos(tag)?.nextInS;
   if (!next) return ANCHOR_DEFAULT_S;
-  return Math.min(ANCHOR_MAX_S, Math.max(ANCHOR_MIN_S, 3 * next));
+  return Math.min(ANCHOR_MAX_S, Math.max(ANCHOR_MIN_S, (moving(tag) ? ANCHOR_AHEAD_MOVING : ANCHOR_AHEAD) * next));
 }
 
-/** Counters that need an anchor: the next ANCHOR_AHEAD after the last report, and the next epoch's first one
- *  (a reboot or a long quiet stretch jumps there, PROTOCOL.md 2.1). */
+/** Counters that need an anchor: the next 16 (24 moving) after the last report, the next two multiples of 16
+ *  (a reboot lands there, firmware 0.10.0) and the next epoch's first one (a long quiet stretch). */
 export function anchorCounters(tag) {
   if (!Number.isInteger(tag.lastN) || tag.lastN < 0) return [];
   const out = [];
-  for (let k = 1; k <= ANCHOR_AHEAD; k++) out.push(tag.lastN + k);
+  const ahead = moving(tag) ? ANCHOR_AHEAD_MOVING : ANCHOR_AHEAD;
+  for (let k = 1; k <= ahead; k++) out.push(tag.lastN + k);
+  const c16 = (Math.floor(tag.lastN / 16) + 1) * 16;
+  for (const c of [c16, c16 + 16]) if (!out.includes(c)) out.push(c);
   const nextEpoch = (epoch(tag.lastN) + 1) * EPOCH_REPORTS;
   if (!out.includes(nextEpoch)) out.push(nextEpoch);
   return out;

@@ -46,8 +46,8 @@ data class Position(
     val quiet: Boolean = false,
     /** why: "zone", "owner" (owner's devices nearby) or "parked" (0.7, has not moved) */
     val quietReason: String? = null,
-    /** 0.7 CHECKS flag: while quiet the tag listens at checks on its configured interval */
-    val checks: Boolean = false,
+    /** 0.10.0 SYNC flag: the tag's schedule anchor was report n - 1 when it built this one */
+    val sync: Boolean = false,
     val energyMah: Int? = null,
     /** BLE summary: devices seen, how many with a stable address */
     val bleDevices: Int? = null,
@@ -69,7 +69,18 @@ data class Position(
     /** with [boot] and no fix: the reset cause word (`last_reset=`) and the resets in a row */
     val bootCause: String? = null,
     val bootResets: Int? = null,
+    // ---- 0.14.0 quiet mesh (PROTOCOL.md 2, 3.4) ----
+    /** the copy j the app opened first (0, 1, 10 floods; 9 zero-hop hello; 11 along a path), -1 unknown */
+    val j: Int = -1,
+    /** how the own node received it: flood, tflood, direct, tdirect (null: a relay copy or unknown) */
+    val route: String? = null,
+    /** the own node heard it directly (a hello, or a flood with 0 hops): an ACK from the node reaches the tag */
+    val nodeDirect: Boolean = false,
+    /** a second copy (other path or other j) arrived within 120 s: the relay and the own node both had it */
+    val alsoVia: String? = null,
 ) {
+    /** a flood copy (0, 1, 10) */
+    val flood: Boolean get() = j == 0 || j == 1 || j == 10
     /** the receive time is only a range ([receivedAt], [approxUntil]): never anchor a schedule on it */
     val approx: Boolean get() = approxUntil != null
 }
@@ -140,14 +151,29 @@ data class PendingCommand(
     val via: String = "",
     /** 0.11.2: when the tag should take it (ms), 0 when unknown */
     val expectAt: Long = 0,
+    // ---- 0.14.0 (P12) ----
+    /** the tag's newest report when the command was queued: only a later one can confirm it (R5) */
+    val queuedAtN: Long = -1,
+    /** the command's lifetime ends here (ms): the app stops and tells the owner (R7); 0 = none */
+    val expiresAt: Long = 0,
+    /** relays that accepted at least one of its entries; 0 = retried every 30 s (R10) */
+    val accepted: Int = 0,
+    /** the last slot a bridge said it could not send (miss note, R20), ms of its `at` */
+    val missAt: Long? = null,
+    /** why: radio, blocked, late, no_path */
+    val missWhy: String? = null,
+    /** sends the app saw (own node, bridge claims), for the log */
+    val tries: Int = 0,
 )
 
 /**
- * When the tag checks during the current quiet stretch (0.7, docs/design/checks-0.7.md
- * "Schedule"): after report [n], received at [t0] (ms), checks at t0 + offsetsS[k - 1] s.
+ * One grid of the tag's listening slots (PROTOCOL.md 2.6): the anchor report [n], its time [t0]
+ * (ms), the IDLE interval [intervalMin] the offsets were computed with, slot k at
+ * t0 + offsetsS[k - 1] s, and [vias] the x of every copy of report n the app has (the `via` tags
+ * of timed entries).
  */
 @Serializable
-data class CheckPlan(val n: Long, val t0: Long, val intervalMin: Int, val offsetsS: List<Long>) {
+data class CheckPlan(val n: Long, val t0: Long, val intervalMin: Int, val offsetsS: List<Long>, val vias: List<String> = emptyList()) {
     /** check k (1-based) and its time (ms) for the first check after [now], or null */
     fun next(now: Long): Pair<Int, Long>? {
         offsetsS.forEachIndexed { i, o -> val at = t0 + o * 1000; if (at > now) return (i + 1) to at }
@@ -155,6 +181,41 @@ data class CheckPlan(val n: Long, val t0: Long, val intervalMin: Int, val offset
     }
     fun at(k: Int): Long? = offsetsS.getOrNull(k - 1)?.let { t0 + it * 1000 }
 }
+
+/**
+ * The app's anchor of a tag (PROTOCOL.md 2.6, R1, R32): the confirmed grid [a], at most two
+ * candidates, the newest report counter and the first-copy times of the last reports. [known]
+ * false: the app shows "schedule not known" and still sends on the grids it has.
+ */
+@Serializable
+data class AnchorState(
+    val a: CheckPlan? = null,
+    val cands: List<CheckPlan> = emptyList(),
+    val lastN: Long = -1,
+    val seen: Map<Long, Long> = emptyMap(),
+    val known: Boolean = true,
+) {
+    val grids: List<CheckPlan> get() = listOfNotNull(a) + cands
+}
+
+/**
+ * The last ACK the app made for a tag (PROTOCOL.md 3.3, 4.3): for report [n] at [at] (ms) with
+ * [hold] (units of 3 h), in [form] (near, both, routed), by [path] (node or nostr), live or timed.
+ * [noteAt]: a bridge's "ack sent" note came; [settled]: sync, next_zero_hop or null.
+ */
+@Serializable
+data class AckRec(
+    val n: Long,
+    val at: Long,
+    val hold: Int,
+    val form: String,
+    val path: String,
+    val timed: Boolean = false,
+    val reportAt: Long = 0,
+    val noteAt: Long? = null,
+    val settled: String? = null,
+    val xa: String = "",
+)
 
 /** The last command that finished (for the slip "Beep · confirmed 14:32"). */
 @Serializable
@@ -274,8 +335,8 @@ data class Tracker(
     val stillHbH: Int = DEFAULT_STILL_HB_H,
     /** settings above (and the anchors for [useKind]) still have to be written over the cable */
     val cableDirty: Boolean = false,
-    /** checks of the current quiet stretch, from the last quiet report with CHECKS */
-    val checkPlan: CheckPlan? = null,
+    /** 0.14.0: the tag's schedule anchor as the app sees it (grids of listening slots) */
+    val anchor: AnchorState = AnchorState(),
     // ---- 0.7.3 ----
     /** report at every n-th wake-up ([intervalMin] apart), only listen for commands at the others */
     val reportEvery: Int = 1,
@@ -334,7 +395,27 @@ data class Tracker(
     val restartNotified: Long? = null,
     /** an UPDATE_UNFINISHED notice went out for [dfuStartedAt] */
     val dfuNotified: Boolean = false,
+    // ---- 0.14.0 quiet mesh (SPEC.md 3.2) ----
+    /** "Check in over the wider mesh after": ACK hold in units of 3 h (0, 2, 4, 8); 0 while guarding */
+    val holdUnits: Int = app.libretag.proto.QuietMesh.HOLD_DEFAULT,
+    /** "Report at once when it moves": ack_patience 2 (else 1, the default) */
+    val reportAtOnce: Boolean = false,
+    /** the last ACK this app made */
+    val lastAck: AckRec? = null,
+    /** live ACK entries in a row for which no bridge published an "ack sent" note */
+    val acksNoNote: Int = 0,
+    /** ROUTED tag: x of the path record the next entries name in `via`, and the bridge that sent the last routed ACK */
+    val routedVia: String? = null,
+    val routedBridge: String? = null,
+    /** the end time of a Lost or Track mode the owner was told about ("Lost mode ended") */
+    val modeEndNotified: Long? = null,
+    /** the "<command> did not reach <tag>" notice went out for this command seq */
+    val expiredNotified: Int? = null,
+    /** "heard but gets no answers" notice went out for this report counter */
+    val noAnswersNotified: Long? = null,
 ) {
+    /** the hold the next ACK carries: 0 while guarding (every report has to arrive) */
+    val holdNow: Int get() = if (guarding) 0 else holdUnits
     /** how often the tag reports in IDLE (min): the wake-up interval times [reportEvery] */
     val reportPeriodMin: Int get() = intervalMin * reportEvery.coerceAtLeast(1)
     val useKind: String get() = use.ifEmpty { defaultUse(type) }
@@ -399,8 +480,9 @@ data class Tracker(
         const val DEFAULT_CHECK_S = 30
         /** Reporting offers these (0 = off); firmware 0.7.2 takes 0..180, older 0..60 */
         val CHECK_CHOICES_S = listOf(0, 30, 60, 120)
-        const val DEFAULT_STILL_AFTER = 3
-        const val DEFAULT_STILL_HB_H = 6
+        const val DEFAULT_STILL_AFTER = 2
+        /** 0.14.0: parked heartbeat 24 h (SPEC.md 3.2 defaults) */
+        const val DEFAULT_STILL_HB_H = 24
         /** heartbeats of a quiet tag (firmware defaults, PROTOCOL.md 2.1) */
         const val HB_ZONE_H = 24
         const val HB_OWNER_H = 8
@@ -590,6 +672,7 @@ class TrackerStore(context: Context) : MeshSettings {
 
     companion object {
         const val MAX_HISTORY = 1000
-        val DEFAULT_RELAYS = listOf("wss://nostr.cypherpunk.today", "wss://relay.primal.net", "wss://nos.lol")
+        /** 0.14.0: the owner's relay and primal; nos.lol removed (SPEC.md 3.2 defaults) */
+        val DEFAULT_RELAYS = listOf("wss://nostr.cypherpunk.today", "wss://relay.primal.net")
     }
 }

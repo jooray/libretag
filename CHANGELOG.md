@@ -2,6 +2,26 @@
 
 LibreTag has four parts with their own version numbers. The first public release is a preview of all of them at once. The development history before it is not public; the main steps are summarised below. Details per version: `firmware/README.md` for the firmware, `docs/release-notes/` for each component.
 
+## 0.14.2: the quiet mesh
+
+| Part | Version |
+|---|---|
+| Tracker firmware | 0.10.2 (includes 0.9.7 and 0.9.8) |
+| Android app | 0.14.2 |
+| Android bridge ("Nostr bridge") | 0.6.0 |
+| Python bridge (`nostrmesh`) and tools (`libretag`) | 0.7.0 |
+| Web app | 0.5.0 |
+
+The tag relies on the community repeaters as little as it can. Its regular report is a zero-hop hello that your own node or a nearby Nostr bridge hears; your app confirms it with a short ACK that goes back zero-hop. A flood is the fallback, when a report has to arrive and nobody confirmed it, and it starts in the narrowest scope. Commands arrive in listening slots the app works out. Every part has to be updated together: none of them works with the 0.9 tags or the 0.13 apps (SPEC 3.2, PROTOCOL.md 2.6, 2.7, 3.3 to 3.5, 4.3, `docs/design/quiet-mesh.md`). Also: the app wakes before each expected report and reconnects relays that went quiet; the tag's Track interval runs from wake-up to wake-up; an expired Track or Lost says IDLE in its last report; the Python bridge no longer reboots the node for late answers by default; field-test logs on the tag, the bridges and the app (`libretag fieldlog`, `libretag fieldeval`). Release notes: `docs/release-notes/firmware-0.10.2.md`, `app-0.14.2.md`, `bridge-android-0.6.0.md`, `bridge-python-0.7.0.md`.
+
+## Firmware 0.9.7: reset records, an event log and a watchdog (released with 0.14.2)
+
+| Part | Version |
+|---|---|
+| Tracker firmware | 0.9.7 |
+
+After a tag went silent for 14 hours with nothing on it to say why, the tracker now writes a record at every boot (raw RESETREAS, cause, n, battery, and the previous run's breadcrumb from RAM the boot keeps: phase, activity, uptime, n, flags; a recorded fatal error with PC, LR and thread) and an event log (quiet, mode, network, still and moving, transmit floor, flood cap, clock, console window, commands, an hourly alive record). An nRF WDT (240 s) is reloaded only until a deadline tied to the main loop's phase, so a tag stuck in one phase resets as `watchdog` instead of staying silent. Fix: a packet the radio gave up on no longer leaves the wake-up waiting in `PH_TX` for good. Console `boots`, `events`, new lines in `status` (`firmware/README.md` 0.9.7). No wire format change. Fix: a press of the user button or the joystick no longer crashes the tracker (the button UI's display redraw was scheduled without the UI ever being set up; `crash: reason=35 pc=0x00000000 thread=sysworkq`). Release notes: `docs/release-notes/firmware-0.9.7.md`.
+
 ## Firmware 0.9.6: back across a border without a fix
 
 | Part | Version |

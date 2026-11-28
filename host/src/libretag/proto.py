@@ -29,9 +29,12 @@ def report_packet(keys: Keys, n: int, j: int, report: Report, stealth: bool = Fa
 
 
 def report_payload(pkt: Packet) -> bytes | None:
-    """Receiver side: the LT2 report P carried by a flood GRP_DATA (channel or stealth), or None."""
-    if pkt.payload_type != PAYLOAD_GRP_DATA or not pkt.is_flood or len(pkt.payload) != REPORT_GRP_LEN:
+    """Receiver side: the LT2 report P carried by a GRP_DATA (channel or stealth), or None. A flood, or
+    (0.10.0) a DIRECT packet that reached us (empty path): copies 9 and 11."""
+    if pkt.payload_type != PAYLOAD_GRP_DATA or len(pkt.payload) != REPORT_GRP_LEN:
         return None
+    if not pkt.is_flood and pkt.path:
+        return None  # a DIRECT packet still on its way
     inner = channel_unwrap(pkt.payload)
     if inner is not None:
         return inner if len(inner) == REPORT_P_LEN else None

@@ -53,12 +53,14 @@ class SignedMailboxTest {
         val m = FakeMesh(caps)
         val r = FakeRelays()
         val clock = { t0 + testScheduler.currentTime }
+        m.clock = clock
         return Rig(Bridge(this, m, r, cfg, emptyList(), clock = clock, random = Random(7), newKey = keySource()), m, r, clock)
     }
 
     private fun Rig.nowS() = clock() / 1000
     private fun Rig.counter(k: String) = b.status()["counters"]!!.jsonObject[k]?.jsonPrimitive?.longOrNull ?: 0L
-    private fun Rig.sent() = m.sent.map { it.payload.hex() }
+    /** First sends only (the 0xFF6C fallback flood after a path send is tested in QuietMeshTest). */
+    private fun Rig.sent() = m.sent.filter { it.dataType != 0xFF6C }.map { it.payload.hex() }
     private suspend fun Bridge.hear(p: ByteArray, meta: RxMeta = direct0) =
         onDatagram(Frames.CHANNEL_LIBRETAG, Frames.DATA_TYPE_LIBRETAG, p, meta)
 

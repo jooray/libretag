@@ -16,13 +16,14 @@ import re
 RECEIPT_KIND = 4245
 ANNOUNCE_KIND = 38244
 FORMAT2 = "2"
-ROUTES = ("near", "direct", "flood")
+ROUTES = ("near", "direct", "flood", "both")  # "both" (0.10.0): flood, and the fallback after a zero-hop send
 MAX_P = 4            # bridges named per entry that count
 MAX_P_TAGS = 8       # more p tags than this: the entry is invalid
 NETWORK = re.compile(r"^[a-z0-9-]{1,32}$")
 RECEIPT_TTL_S = 48 * 3600
 ANNOUNCE_TTL_S = 7 * 86400
-DIRECT_MAX_HOPS = 3
+DIRECT_MAX_HOPS = 2
+RADIO_STATES = ("up", "down")
 
 
 def is_network(s) -> bool:
@@ -83,16 +84,22 @@ def hops_class(hops: int | None) -> str:
     return "1-3" if hops <= 3 else "4+"
 
 
-def receipt_tags(x: str, hops: int | None, heard_at: int) -> list[list[str]]:
-    return [["y", x], ["hops", hops_class(hops)], ["expiration", str(heard_at + RECEIPT_TTL_S)]]
+def receipt_tags(x: str, direct: bool, heard_at: int) -> list[list[str]]:
+    """A receipt is only for a report heard directly (PROTOCOL.md 4.1, 0.10.0): on a DIRECT route, where the
+    hop count is unknown (["route", "direct"]), or as a flood with 0 hops (["hops", "0"])."""
+    how = ["route", "direct"] if direct else ["hops", "0"]
+    return [["y", x], how, ["expiration", str(heard_at + RECEIPT_TTL_S)]]
 
 
-def announce_tags(network: str, now: int, *, region: str | None = None, preset=None, relays=(),
-                  accept_open: bool = True, receipts: bool = False, anchor_lead_s: float = 60,
-                  late_max_s: float = 60) -> list:
+def announce_tags(network: str, now: int, *, regions=(), preset=None, relays=(),
+                  accept_open: bool = True, receipts: bool = True, anchor_lead_s: float = 60,
+                  late_max_s: float = 40, radio: tuple[str, int] | None = None) -> list:
+    """Kind 38244 tags: one ["region", …] per scope served, narrow first; ["radio", up|down, since] the
+    state of the radio itself (SPEC 3.2 "Radio health")."""
     tags = [["d", network], ["k", "4244"]]
-    if region:
-        tags.append(["region", region])
+    tags += [["region", r] for r in regions if r]
+    if radio is not None:
+        tags.append(["radio", radio[0], str(int(radio[1]))])
     if preset:
         tags.append(["preset", *[str(int(v)) for v in preset]])
     tags += [["relay", u] for u in relays]
@@ -120,7 +127,10 @@ def parse_announcement(ev, now: float) -> dict | None:
         return None
     sg = get.get("signed", [])
     signed = [int(v) for v in sg[1:3] if v.isdigit() and len(v) <= 6] if sg else []
+    rd = get.get("radio", [])
+    radio = (rd[1], int(rd[2])) if len(rd) >= 3 and rd[1] in RADIO_STATES and rd[2].isdigit() else None
     return {"pubkey": ev.pubkey, "network": d, "region": get.get("region", [None, None])[1],
+            "regions": [t[1] for t in tags if t[0] == "region"], "radio": radio,
             "signed": signed if len(signed) == 2 else None, "open": get.get("open", ["", "1"])[1] == "1",
             "receipts": get.get("receipts", ["", "0"])[1] == "1", "expires": int(exp)}
 

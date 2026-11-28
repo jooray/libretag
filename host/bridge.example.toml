@@ -6,16 +6,18 @@ adapter = "companion_serial"      # or "kiss" (node flashed with the KISS modem 
 port = "/dev/cu.usbmodem1101"     # Linux: /dev/ttyACM0
 channels = ["#nostr", "#roadstr", "#libretag"]
 add_channels = false              # true: add missing hashtag channels to free slots on the node
-# region = "sk"                   # local_api: the flood scope for commands, a name from the node's region
-                                  # catalogue (regions.list; "sk" in Slovakia). Checked at start; without it
-                                  # commands flood in the node's default scope. KISS and companion serial floods are unscoped.
+# regions = ["sk-test", "sk"]     # flood scopes this bridge serves, narrow first (the bridge area, then the
+                                  # country; the last is the country scope of blind LOST entries). Replies go
+                                  # in the scope of the report they answer. local_api: names from the node's
+                                  # catalogue (regions.list), checked at start. KISS scopes its floods itself;
+                                  # companion serial floods in the node's own scope.
 
 [bridge]                          # stable identity (PROTOCOL.md 4.1): signs claims, receipts, announcements
 # key = "bridge.key"              # make it with: uv run nostrmesh bridge-key -o bridge.key (mode 600)
 # name = "my bridge"              # shown in the announcement
 
 [relays]
-publish = ["wss://nostr.cypherpunk.today", "wss://nos.lol", "wss://relay.primal.net"]  # same set as the app and the Android bridge
+publish = ["wss://nostr.cypherpunk.today", "wss://relay.primal.net"]  # same set as the app and the Android bridge
 # subscribe = [...]               # defaults to publish
 # auth_key = "bridge.nsec"        # NIP-42: answer AUTH challenges with this key (nsec/hex or a file); unset = never
 
@@ -43,42 +45,57 @@ min_gap_s = 20
 geofence = { lat = 48.70, lon = 21.25, radius_km = 40 }
 profiles = { "road.report" = false, "road.vote" = false, "dm4.ref" = false }
 
-[libretag]                        # LT2 on #libretag (PROTOCOL.md 4); the bridge holds no tracker key
-uplink = true                     # heard reports -> kind 4243, fresh key per event, after 0-5 s
+[libretag]                        # LT2 on #libretag (PROTOCOL.md 4 to 4.3, SPEC 3.2); the bridge holds no tracker key
+uplink = true                     # heard reports -> kind 4243, fresh key per event
+publish_delay_min_s = 2           # reports that may trigger a command wait 2-5 s: above claim_wait_s, so
+publish_delay_max_s = 5           # only a bridge that heard a report can prove it in its claim
+fast_publish_min_s = 0.3          # heard directly, or over 1-2 hops with a path, nothing waiting: 0.3-0.8 s
+fast_publish_max_s = 0.8
+approx_after_s = 20               # frames older than this (or queued by the node) go out with ["approx", ...]
 dedup_min_relays = 2              # skip when the same y + content is already on this many relays
-mailbox = true                    # kind 4244 commands, sent once right after the matching report
-# commands go zero-hop when the report was heard directly, otherwise flood (0.7.3; max_hops is ignored)
+mailbox = true                    # kind 4244 entries: commands and ACKs
 claim = true                      # agree with other bridges over Nostr (kind 24244) who sends
-timed_commands = true             # 0.7 checks: entries with "at" + "via" go out at "at" (zero-hop or flood) if report "via" was caught
-report_path_ttl_s = 172800        # keep the path of each caught report (by x) for 48 h
+claim_wait_s = 1.5
+claim_routed_ack_s = 2            # claim round before the first routed ACK of a flood
+timed_commands = true             # entries with "at" + "via": sent at their slot, by the plan for "via"
+report_path_ttl_s = 172800        # path record per report x: 48 h from its last use
 timed_claim_lead_s = 5            # claim this long before "at", decide at "at"
-timed_max_late_s = 60             # drop entries whose "at" is further in the past than this
+timed_max_late_s = 60             # entries whose "at" is further in the past on arrival are dropped
+timed_retry_s = 2                 # a timed send the radio refused is tried again every 2 s ...
+timed_retry_until_s = 20          # ... until at + 20 s, then a "miss" note
 # abuse limits (PROTOCOL.md 4 "Limits"): anyone can publish a 4244, and "via" is public on the relays
 future_max_s = 60                 # created_at at most this far ahead
 timed_max_after_report_s = 90000  # "at" <= heard_at(via) + 25 h (heartbeat 24 h + 1 h)
 timed_per_via_max = 12            # timed entries kept per "via" (earlier seen first)
-timed_via_gap_s = 600             # one timed transmission per "via" per 10 min
-timed_per_hour = 20               # timed transmissions per rolling hour, all together
+timed_via_gap_s = 600             # one timed command per "via" per 10 min (not for ACKs)
+timed_per_hour = 20               # timed command transmissions per rolling hour, all together
 rx_per_min = 30                   # new #libretag packets per minute (own limit, not uplink.rate_global)
-rx_per_first_hop_per_min = 10     # of those, per first repeater of the path; heard directly = one key; no path = skipped
-airtime_pct = 0.1                 # #libretag downlink airtime per rolling hour, separate from [airtime]
+rx_per_first_hop_per_min = 10     # of those, per first repeater of the path; heard directly = one key
+airtime_pct = 0.1                 # #libretag command airtime per rolling hour, separate from [airtime]
 mailbox_relay_share = 0.34        # one relay fills at most a third of the mailbox
-# signed mailbox (PROTOCOL.md 4.2): a heard report commits to its mailbox key; only entries signed by a key
-# that matches and was here before the report count. No proof of work.
+mailbox_cap = 200000              # tags in all
+# signed mailbox (PROTOCOL.md 4.2): only entries signed by a key the heard report commits to, known before it
 anchor_lead_s = 60                # a key must have been here this long before the report to lock
-late_max_s = 60                   # an entry from a locked key up to 60 s after the report goes out at once
+late_max_s = 40                   # an entry from a locked key up to 40 s after the report goes out at once
 keys_per_y = 8                    # keys kept per report tag (first seen stay)
 group_ack = true                  # drop the rest of a command group ["g"] once the tracker answered
-ack_window_s = 180                # a report this soon after our timed transmission may be its answer
-mailbox_cap = 200000              # tags in all (was 10,000: one GPU minute filled it)
-publish_delay_min_s = 2           # reports wait 2-5 s before publishing: above claim_wait_s, so only a bridge
-publish_delay_max_s = 5           # that heard a report can prove it in its claim
+# quiet mesh (PROTOCOL.md 4.3)
+acks = true                       # ACK entries: near form zero-hop, routed form along a path, never a flood
+acks_per_hour = 120
+ack_jitter_min_s = 0.1            # a near ACK waits 100-600 ms and is skipped if the same ACK was heard
+ack_jitter_max_s = 0.6
+ack_before_cmd_s = 0.3            # a command for the same report goes this long after its ACK
+fallback_after_s = 12             # no answer 12 s after a zero-hop ("both") or path send: one 0xFF6C flood
+direct_max_hops = 2               # paths of at most 2 repeaters; 0 = no path sends and no routed ACKs
+blind_per_via_24h = 3             # blind LOST entries (["blind","1"], naming this bridge): per "via" ...
+blind_per_24h = 6                 # ... and in all, per 24 h
 # targeting, cost and identity (PROTOCOL.md 4.1)
 # networks = ["sk"]               # networks served: announcement "d", and entries with another "r" are skipped
 # peers = []                      # bridge keys (hex or npub) whose claims always count
-receipts = false                  # publish "heard" receipts (kind 4245) so apps can pick this bridge
-announce = true                   # kind 38244 at start and daily (needs [bridge] key)
-accept_open = true                # entries that name no bridge
+receipts = true                   # kind 4245 receipts for reports heard directly (the app addresses ACKs with them)
+announce = true                   # kind 38244 at start, hourly and on a radio state change (needs [bridge] key)
+announce_interval_s = 3600
+accept_open = true                # command entries that name no bridge (ACK entries and anchors are always taken)
 timed_airtime_share = 0.5         # timed entries use at most half of airtime_pct; the rest answers reports
 open_floods_per_hour = 6          # floods for entries that name no bridge
 
@@ -93,8 +110,17 @@ cr = 5
 retention_days = 30
 outbox_ttl_s = 1209600            # events no relay took are retried this long (14 d, capped by their expiration)
 
-[watchdog]
-rx_silence_s = 1800               # nothing from the radio for 30 min: exit 3, launchd/systemd restarts us (0 = off)
+[watchdog]                        # radio health (SPEC 3.2): "node service up, radio down" is down; never exits
+rx_silence_s = 1800               # nothing from the radio itself (a packet, a probe answer) for 30 min: down
+probe_s = 300                     # radio.stats probe (local_api) or a node request (companion serial); 0 = off
+send_failures = 2                 # sends that time out in a row before the radio counts as down
+degraded_reboot_s = 0             # late answers this long while the node still answers: reboot it by command (0 = never;
+                                  # field test 2026-11-27: the stalls came back within 30 min of every reboot)
+recover_backoff_s = [300, 900, 3600]  # recovery rounds 5, 15, 60 min after down, then hourly
+step_wait_s = 30                  # wait after each recovery step
+# alert_cmd = "~/bin/notify-operator"     # on radio down, up and "power-cycle needed"; env NOSTRMESH_RADIO_STATE,
+                                          # NOSTRMESH_RADIO_REASON, NOSTRMESH_BRIDGE
+# recover_cmd = "uhubctl -l 1-1 -p 2 -a cycle"  # a recovery step: switch the node's USB port power (if the hub can)
 
 [status]
 # path = "status.json"            # default ~/.config/nostrmesh/status.json; `nostrmesh status` reads it

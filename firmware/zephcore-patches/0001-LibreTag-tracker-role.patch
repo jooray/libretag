@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Mon, 16 Nov 2026 00:07:53 +0100
-Subject: [PATCH 01/42] LibreTag tracker role
+Subject: [PATCH 01/50] LibreTag tracker role
 
 Tracker main loop (src/main_tracker.cpp), platform hooks for lt_core, tracker.conf,
 USB PID 0x0007 "LibreTag Tracker", GPS manager gps_stop_acquiring(), LoRa radio

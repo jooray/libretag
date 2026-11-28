@@ -75,12 +75,12 @@ describe('LT2 reports', () => {
 });
 
 describe('0.7 report flags in the vectors', () => {
-  it('every vector report decodes and re-reads the CHECKS / quiet bits like the plaintext says', () => {
+  it('every vector report decodes and re-reads the SYNC (0.7: CHECKS) / quiet bits like the plaintext says', () => {
     for (const r of V.reports) {
       const pt = unhex(r.pt);
       const d = L.decodeReport(pt);
       expect(d).not.toBeNull();
-      expect(d.checks).toBe(!!(pt[1] & 0x80));
+      expect(d.sync).toBe(!!(pt[1] & 0x80));
       expect(d.quiet).toBe(!!(pt[1] & 0x10));
       if (d.quiet && !(pt[1] & 0x20) && pt[2] & 0x08) expect(d.quietReason).toBe('parked');
       expect(d.nextInS).toBe(L.nextInDecode(pt[31]));
@@ -115,21 +115,9 @@ describe('LT2 commands', () => {
   });
 });
 
-describe('0.7 checks', () => {
-  for (const c of V.checks) {
-    it(`schedule for n=${c.n} base ${c.base_s} s`, () => {
-      const ce = chain.cmd(L.epoch(c.n));
-      const offs = L.checkOffsets(ce, c.n, c.base_s, 6);
-      expect(offs).toEqual(c.offsets);
-      for (let i = 0; i < 6; i++) {
-        expect(L.checkJitter(ce, c.n, i + 1, c.base_s)).toBe(c.jitter[i]);
-        expect(L.checkGuardMs(c.offsets[i])).toBe(c.guard_ms[i]);
-      }
-      expect(L.checkOffsets(ce, c.n, c.base_s, 64, c.heartbeat_s)).toEqual(c.before_heartbeat);
-    });
-  }
+describe('commands with u16(k) (the 0.7 derivation, kept for k = 0xFFFF adverts)', () => {
   for (const c of V.check_commands) {
-    it(`command n=${c.n} at check ${c.k}`, async () => {
+    it(`command n=${c.n} at k ${c.k}`, async () => {
       const ce = chain.cmd(L.epoch(c.n));
       expect(hex(L.commandTag(ce, c.n, c.k))).toBe(c.tag);
       expect(hex(await L.sealCommand(ce, c.n, unhex(c.pt), c.k))).toBe(c.p);
@@ -168,7 +156,7 @@ describe('shared keys (V_e from an epoch)', () => {
     const w = new L.ReportWindow(share);
     const r = V.reports.find((x) => x.n === 130); // epoch 2
     expect((await w.open(unhex(r.p))).n).toBe(130);
-    expect(w.tagsRange(0, 200).length).toBe((200 - 128 + 1) * 2);
+    expect(w.tagsRange(0, 200).length).toBe((200 - 128 + 1) * 5); // every copy on air
   });
 });
 

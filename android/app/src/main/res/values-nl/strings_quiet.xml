@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Stil mesh, app 0.14.0 (SPEC.md 3.2): instellingen, de verbindingsregel, het commandobriefje, meldingen. Dezelfde sleutels in alle zes talen. -->
+<resources>
+    <!-- Trackerinstellingen, sectie Meldingen -->
+    <string name="ts_mesh_after">Via het bredere mesh melden na</string>
+    <string name="ts_mesh_after_every">Elke melding</string>
+    <string name="ts_mesh_after_sub">Antwoordt er zo lang geen brug of knooppunt in de buurt, dan stuurt de tracker één melding die repeaters verder dragen.</string>
+    <string name="ts_mesh_after_guard">Zolang de tracker bewaakt wordt, gaat elke melding via het bredere mesh.</string>
+    <string name="ts_at_once">Direct melden als hij beweegt</string>
+    <string name="ts_at_once_sub">Antwoordt niemand in de buurt, dan gaat de melding na een paar seconden via het bredere mesh in plaats van bij de volgende controle. Kost meer zendtijd.</string>
+
+    <!-- Trackerdetail, rij Route: hoe de tracker je nu bereikt -->
+    <string name="link_near_node">Binnen bereik van je knooppunt</string>
+    <string name="link_near_bridge">Binnen bereik van een brug</string>
+    <string name="link_routed">Bereikt een brug via een of twee repeaters</string>
+    <string name="link_far">Geen brug in de buurt, meldt via het bredere mesh</string>
+
+    <!-- Het commandobriefje. %1$s is het commando („Piepen“), %2$s een tijd zoals „18:40“ -->
+    <string name="slip2_next_try">%1$s · volgende poging om %2$s</string>
+    <string name="slip2_not_sent">%1$s · een brug kon het om %2$s niet versturen</string>
+    <string name="slip2_no_relay">%1$s · nog geen relay heeft het aangenomen, nieuwe poging volgt</string>
+    <!-- %1$s is de naam van de tracker -->
+    <string name="slip2_schedule_unknown">Wachten tot %1$s zich meldt. Zijn schema is nu niet bekend.</string>
+
+    <!-- Meldingen. %1$s is de naam van de tracker -->
+    <string name="notif_lost_ended_title">Verloren-modus voor %1$s is afgelopen</string>
+    <string name="notif_track_ended_title">Volgen van %1$s is afgelopen</string>
+    <string name="notif_mode_ended_text">Hij meldt weer zoals gewoonlijk. Open de tracker om het opnieuw aan te zetten.</string>
+    <!-- %1$s is het commando („Piepen“), %2$s de naam van de tracker -->
+    <string name="notif_not_delivered_title">%1$s heeft %2$s niet bereikt</string>
+    <!-- %1$s is een tijd zoals „18:40“ -->
+    <string name="notif_not_delivered_miss">Een brug kon het om %1$s niet versturen. Stuur het opnieuw als je het nog nodig hebt.</string>
+    <string name="notif_not_delivered_sent">Het is verstuurd, maar de tracker heeft het nooit bevestigd.</string>
+    <!-- %1$s is de naam van de tracker -->
+    <string name="notif_not_delivered_unheard">%1$s werd niet gehoord terwijl het commando wachtte.</string>
+
+    <string name="notif_no_answers_title">%1$s wordt gehoord, maar krijgt de antwoorden niet</string>
+
+    <!-- Diagnoserijen en -kaarten. %1$s is een tijd zoals „18:40“ of „gisteren 18:40“ -->
+    <string name="dg_row_bridge_offline">De brug die hem hoort is offline sinds %1$s</string>
+    <!-- %1$s is de naam van de brug, %2$s een tijd -->
+    <string name="dg_card_bridge_offline">Zijn laatste melding kwam via %1$s, en die brug is offline sinds %2$s. Met de tracker zelf is misschien niets mis: als niemand in de buurt antwoordt, meldt hij via het bredere mesh.</string>
+    <string name="dg_bridge_unnamed">een brug</string>
+    <string name="dg_row_reports_limited">Meldingen beperkt tot %1$s</string>
+    <string name="dg_card_reports_limited">De tracker heeft de meldingen van vandaag via het bredere mesh opgebruikt. Tot %1$s wordt hij alleen gehoord door een brug of knooppunt in zijn buurt.</string>
+    <string name="dg_row_node_off">Je MeshCore-knooppunt is uit · bredere mesh uiterlijk %1$s</string>
+    <!-- %1$s is de naam van de tracker, %2$s een tijd -->
+    <string name="dg_card_node_off">Je MeshCore-knooppunt is uit. %1$s meldt uiterlijk %2$s via het bredere mesh.</string>
+    <string name="dg_find_no_answers">Zijn meldingen komen aan, maar hij lijkt de antwoorden niet te krijgen.</string>
+</resources>

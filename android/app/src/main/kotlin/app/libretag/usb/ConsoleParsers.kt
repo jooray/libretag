@@ -481,6 +481,9 @@ object ConsoleCommands {
     /** 0.7: parked quiet after [after] reports in one place, heartbeat [hbH] hours; 0 = off */
     fun still(after: Int, hbH: Int) = if (after <= 0) "still off" else "still $after $hbH"
 
+    /** 0.10.0: 1 = a moved IDLE tag waits for the next check before it floods, 2 = it decides 12 s after the hello */
+    fun ackPatience(n: Int) = "ackpatience ${n.coerceIn(1, 2)}"
+
     fun history(fromN: Long? = null) = if (fromN == null) "history" else "history $fromN"
 
     fun log(count: Int? = null) = if (count == null) "log" else "log $count"

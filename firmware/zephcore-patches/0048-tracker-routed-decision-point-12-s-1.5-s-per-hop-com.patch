@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Thu, 26 Nov 2026 19:35:30 +0100
+Subject: [PATCH 48/50] tracker: routed decision point 12 s + 1.5 s per hop
+ (comment; LT_ACK_PER_HOP_MS in lt_core)
+
+---
+ zephcore/src/main_tracker.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/zephcore/src/main_tracker.cpp b/zephcore/src/main_tracker.cpp
+index c870b9a..aca5572 100644
+--- a/zephcore/src/main_tracker.cpp
++++ b/zephcore/src/main_tracker.cpp
+@@ -150,7 +150,7 @@ TIMER(listen_timer, EV_LISTEN_END);
+ TIMER(retry_timer, EV_TX_RETRY);
+ TIMER(scan_timer, EV_SCAN_END);
+ TIMER(retx_timer, EV_RETX);     /* 0.10.0: 8 s after copy 0, copy 10 when nothing repeated it */
+-TIMER(decide_tmr, EV_DECIDE);   /* 0.10.0: 12 s after a hello, 12 s + 1 s per hop after a routed copy */
++TIMER(decide_tmr, EV_DECIDE);   /* 0.10.0: 12 s after a hello, 12 s + 1.5 s per hop after a routed copy */
+ TIMER(phase_tmr, EV_PHASE);     /* 0.10.0: phase deadlines (a stall ends the phase, no reset) */
+ TIMER(scope_tmr, EV_SCOPE);     /* 0.10.0: scopetest */
+ TIMER(ble_tmr, EV_BLE); /* blescan / blesurvey / presence / BLE_SCAN, apart from the mesh scans */

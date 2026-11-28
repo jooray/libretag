@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LibreTag <dev@libretag.invalid>
+Date: Thu, 26 Nov 2026 08:57:10 +0100
+Subject: [PATCH 45/50] tracker: a button or joystick press no longer crashes
+ the tracker (ui_task's input callback and schedule_render return before
+ ui_init(); the tracker never calls it, render_work had a NULL handler: reason
+ 35, pc 0, sysworkq)
+
+---
+ zephcore/helpers/ui-button/ui_task.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/zephcore/helpers/ui-button/ui_task.c b/zephcore/helpers/ui-button/ui_task.c
+index bdcc875..502a31c 100644
+--- a/zephcore/helpers/ui-button/ui_task.c
++++ b/zephcore/helpers/ui-button/ui_task.c
+@@ -215,6 +215,12 @@ static void advert_defer_handler(struct k_work *work)
+ 
+ static void schedule_render(void)
+ {
++	/* LibreTag tracker: that role never calls ui_init(), so render_work is
++	 * zeroed .bss with a NULL handler; scheduling it made the system work
++	 * queue jump to address 0 (usage fault INVSTATE, reason 35). */
++	if (!ui_initialized) {
++		return;
++	}
+ #ifdef CONFIG_ZEPHCORE_UI_DISPLAY
+ 	uint32_t debounce = mc_display_is_epd() ? RENDER_DEBOUNCE_EPD_MS
+ 						 : RENDER_DEBOUNCE_MS;
+@@ -575,6 +581,16 @@ static void ui_input_cb(struct input_event *evt, void *user_data)
+ {
+ 	ARG_UNUSED(user_data);
+ 
++	/* LibreTag tracker: the callback is registered for every input device by
++	 * INPUT_CALLBACK_DEFINE, but the tracker role never calls ui_init(). A press
++	 * of the user button or the joystick then woke the display and scheduled the
++	 * uninitialised render_work (NULL handler): a crash in sysworkq, over and
++	 * over while something kept pressing the joystick. Without ui_init() the
++	 * buttons do nothing. */
++	if (!ui_initialized) {
++		return;
++	}
++
+ 	if (evt->type != INPUT_EV_KEY) {
+ 		return;
+ 	}

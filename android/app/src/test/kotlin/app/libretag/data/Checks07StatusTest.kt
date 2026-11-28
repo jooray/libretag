@@ -12,13 +12,13 @@ class Checks07StatusTest {
 
     private fun quiet(agoMin: Long, n: Long, checks: Boolean, reason: String = "owner") = Position(
         fixTime = 0, receivedAt = now - agoMin * min, hasFix = false, lat = 0.0, lon = 0.0, altM = 0, battery = 80,
-        mode = "IDLE", hops = 0, snrDb = 0.0, n = n, quiet = true, quietReason = reason, nextInS = 8 * 3600L, checks = checks)
+        mode = "IDLE", hops = 0, snrDb = 0.0, n = n, quiet = true, quietReason = reason, nextInS = 8 * 3600L, sync = checks)
 
     private fun plan(p: Position) = CheckPlan(p.n, p.receivedAt, 60, listOf(3500L, 7300L, 10700L))
 
     @Test fun quietWithChecksHasBothTimes() {
         val p = quiet(70, 12, true)
-        val t = Tracker(name = "Car", keyHex = "00", positions = listOf(p), checkPlan = plan(p))
+        val t = Tracker(name = "Car", keyHex = "00", positions = listOf(p), anchor = AnchorState(a = plan(p)))
         val s = Status.of(t, now)
         assertEquals(StatusKind.QUIET, s.kind)
         assertEquals("owner", s.quietWhere)
@@ -29,28 +29,38 @@ class Checks07StatusTest {
         assertEquals(s.nextCheckAt, s.commandAt)
     }
 
-    @Test fun firmware06HasOnlyTheReport() {
+    @Test fun noAnchorHasOnlyTheReport() {
         val p = quiet(70, 12, false)
-        val s = Status.of(Tracker(name = "Car", keyHex = "00", positions = listOf(p), checkPlan = plan(p)), now)
+        val s = Status.of(Tracker(name = "Car", keyHex = "00", positions = listOf(p)), now)
         assertNull(s.nextCheckAt)
         assertEquals(s.nextAt, s.commandAt)
     }
 
-    @Test fun planOfAnOlderReportIsIgnored() {
+    /** 0.10.0 (PROTOCOL.md 2.6): the grid is the anchor's, which may be an older report than the last one. */
+    @Test fun anchorOfAnOlderReportCounts() {
         val p = quiet(70, 12, true)
-        val s = Status.of(Tracker(name = "Car", keyHex = "00", positions = listOf(p), checkPlan = plan(p).copy(n = 11)), now)
-        assertNull(s.nextCheckAt)
+        val s = Status.of(Tracker(name = "Car", keyHex = "00", positions = listOf(p), anchor = AnchorState(a = plan(p).copy(n = 11))), now)
+        assertEquals(p.receivedAt + 7300_000L, s.nextCheckAt)
+    }
+
+    @Test fun unknownScheduleShowsNoSlot() {
+        val p = quiet(70, 12, true)
+        val t = Tracker(name = "Car", keyHex = "00", positions = listOf(p), anchor = AnchorState(a = plan(p), known = false))
+        assertNull(Status.of(t, now).nextCheckAt)
+        assertTrue(Status.scheduleUnknown(t, now))
+        // sends still go on the grids the app has
+        assertEquals(1, Status.sendGrids(t, now).size)
     }
 
     @Test fun sharedTagDoesNotKnowTheInterval() {
         val p = quiet(70, 12, true)
-        val s = Status.of(Tracker(name = "Car", keyHex = "", sharedBy = "x", positions = listOf(p), checkPlan = plan(p)), now)
+        val s = Status.of(Tracker(name = "Car", keyHex = "", sharedBy = "x", positions = listOf(p), anchor = AnchorState(a = plan(p))), now)
         assertNull(s.nextCheckAt)
     }
 
     @Test fun afterTheLastCheckOnlyTheHeartbeat() {
         val p = quiet(200, 12, true)
-        val s = Status.of(Tracker(name = "Car", keyHex = "00", positions = listOf(p), checkPlan = plan(p)), now)
+        val s = Status.of(Tracker(name = "Car", keyHex = "00", positions = listOf(p), anchor = AnchorState(a = plan(p))), now)
         assertNull(s.nextCheckAt)
         assertEquals(p.receivedAt + 8 * 3600_000L, s.nextAt)
     }
@@ -64,15 +74,13 @@ class Checks07StatusTest {
         // 0.7.3: wake every hour, report every 3 h; a normal IDLE report with CHECKS
         val p = quiet(70, 12, true).copy(quiet = false, quietReason = null, nextInS = 10_800L)
         val t = Tracker(name = "Car", keyHex = "00", positions = listOf(p), intervalMin = 60, reportEvery = 3,
-            checkPlan = CheckPlan(12, p.receivedAt, 60, listOf(3500L, 7300L)))
+            anchor = AnchorState(a = CheckPlan(12, p.receivedAt, 60, listOf(3500L, 7300L))))
         assertEquals(180, t.reportPeriodMin)
         val s = Status.of(t, now)
         assertEquals(StatusKind.OK, s.kind)
         assertEquals(p.receivedAt + 10_800_000L, s.nextAt)
         assertEquals(p.receivedAt + 7300_000L, s.nextCheckAt)
         assertEquals(3600, s.checkEveryS)
-        // reporting at every wake-up: no checks in between
-        assertNull(Status.of(t.copy(reportEvery = 1), now).nextCheckAt)
         assertEquals(180 * 60, Status.intervalS(t, null, now))
     }
 
@@ -109,7 +117,7 @@ class Checks07StatusTest {
         val child = thing.copy(type = "person")
         assertEquals(Tracker.USE_THINGS, thing.useKind)
         assertEquals(Tracker.USE_PEOPLE, child.useKind)
-        assertEquals(3, thing.stillAfterEff)
+        assertEquals(2, thing.stillAfterEff)
         assertEquals(0, child.stillAfterEff)
     }
 

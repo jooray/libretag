@@ -9,7 +9,7 @@ Status, 2026-11-18: the quick fixes (A.6) and step B are implemented in both bri
 | Q1 first-seen entry wins | Python, Android | |
 | Q2 stable bridge key, claims from known keys only | Python, Android, app | "Known" means a configured peer, or an announced bridge with a hearing proof. Timed claims count only from peers: a timed entry has no secret to prove hearing with, and an ignored claim costs at most a second identical packet. |
 | Q3 hearing proof on untimed claims | Python, Android | Report publish delay is now 2 to 5 s, above the 1.5 s claim wait. |
-| Q4 larger mailbox, relay policy | Python, Android; `host/deploy/strfry-mailbox-policy.py` | The cap is 200,000 tags. The relay policy is written and tested but not installed on the relay. |
+| Q4 larger mailbox, relay policy | Python, Android; `host/deploy/strfry-mailbox-policy.py` | The cap is 200,000 tags. The owner's relay runs a strfry write policy with the same rate limit (burst 120, then 60 a minute, anchors and ACK entries in their own bucket) since 2026-11-26. |
 | Q5 first hearing only | Python, Android | |
 | Q6 airtime share for untimed | Python, Android | Timed entries may use at most half of the `#libretag` budget. |
 | Q7 region on every bridge | Python (checked against the node's catalogue at start), example config, test bridge | |

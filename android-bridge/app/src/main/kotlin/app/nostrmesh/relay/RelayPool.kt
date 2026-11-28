@@ -159,6 +159,7 @@ class RelayPool(
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     isConnected = true
                     backoff = 2_000L
+                    app.nostrmesh.FieldLog.ev("relay_up", "url" to url)
                     emit()
                     if (subscriber) subs.forEach { (id, f) -> sendReq(id, f) }
                 }
@@ -171,6 +172,7 @@ class RelayPool(
         }
 
         private fun dropped(why: String) {
+            app.nostrmesh.FieldLog.ev("relay_down", "url" to url, "why" to why.take(160))
             isConnected = false
             ws = null
             emit()
@@ -219,8 +221,15 @@ class RelayPool(
             val socket = ws ?: return false to "error: not connected"
             val d = CompletableDeferred<Pair<Boolean, String>>()
             oks[id] = d
+            val t0 = System.currentTimeMillis()
             socket.send(buildJsonArray { add(JsonPrimitive("EVENT")); add(event) }.toString())
-            return withTimeoutOrNull(15_000) { d.await() } ?: (false to "error: timeout").also { oks.remove(id) }
+            val r = withTimeoutOrNull(15_000) { d.await() } ?: (false to "error: timeout").also { oks.remove(id) }
+            val tags = (event["tags"] as? JsonArray)?.mapNotNull { it as? JsonArray } ?: emptyList()
+            app.nostrmesh.FieldLog.ev("publish", "url" to url, "id" to id, "kind" to event["kind"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+                "ok" to r.first, "msg" to r.second.take(160).ifEmpty { null }, "ms" to System.currentTimeMillis() - t0,
+                "y" to tags.firstOrNull { it.size >= 2 && it[0].jsonPrimitive.contentOrNull == "y" }?.get(1)?.jsonPrimitive?.contentOrNull,
+                "created_at" to event["created_at"]?.jsonPrimitive?.contentOrNull?.toLongOrNull())
+            return r
         }
 
         private fun handle(text: String) {
@@ -241,6 +250,17 @@ class RelayPool(
                     if (q != null) {
                         if (q.first.size < 64) q.first.add(ev)
                         return
+                    }
+                    val kind = ev["kind"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                    if (kind == 4243 || kind == 4244 || kind == 24244) {
+                        val tags = (ev["tags"] as? JsonArray)?.mapNotNull { it as? JsonArray } ?: emptyList()
+                        fun tag(n: String) = tags.filter { it.size >= 2 && it[0].jsonPrimitive.contentOrNull == n }.map { it[1].jsonPrimitive.contentOrNull }
+                        app.nostrmesh.FieldLog.ev(if (kind == 4244) "mailbox" else if (kind == 24244) "claim" else "relay_report",
+                            "url" to url, "kind" to kind, "id" to ev["id"]?.jsonPrimitive?.contentOrNull,
+                            "pubkey" to ev["pubkey"]?.jsonPrimitive?.contentOrNull,
+                            "created_at" to ev["created_at"]?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+                            "y" to tag("y").ifEmpty { null }, "at" to tag("at").firstOrNull(), "via" to tag("via").firstOrNull(),
+                            "hops" to tag("hops").firstOrNull())
                     }
                     scope.launch { onEvent(ev, url) }
                 }

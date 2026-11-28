@@ -28,6 +28,8 @@ import app.libretag.data.Tracker
 import app.libretag.proto.BleCommand
 import app.libretag.proto.Command
 import app.libretag.proto.LibreTag
+import app.libretag.proto.QuietMesh
+import app.libretag.data.QuietPlan
 import app.libretag.ui.snack
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
@@ -118,10 +120,11 @@ class BleCommandBeacon(private val app: LibreTagApp) {
         return wakeAt
     }
 
-    /** the check offsets (s) of report [n] for a quiet stretch near the owner (its heartbeat), null when unknown */
+    /** the slot offsets (s) of a grid anchored on report [n] (it may have become the anchor by a flood we missed) */
     private fun offsetsFor(t: Tracker, n: Long): List<Long>? {
         val ce = app.chainFor(t)?.cmd(LibreTag.epoch(n)) ?: return null
-        return LibreTag.checkOffsets(ce, n, t.intervalMin, t.ownerHbH * 3600L)
+        return QuietMesh.slotOffsets(QuietMesh.slotKey(ce, n), t.intervalMin * 60L,
+            minOf(QuietPlan.slotCount(t.intervalMin), (t.ownerHbH * 60 / maxOf(1, t.intervalMin)) + 1))
     }
 
     private fun payloadFor(t: Tracker, target: BleTarget): ByteArray? {
@@ -156,6 +159,7 @@ class BleCommandBeacon(private val app: LibreTagApp) {
                 if (status == ADVERTISE_SUCCESS) {
                     r.set = set
                     DiagLog.i(TAG, "advertising a command for ${name(trackerId)}: ${hex.take(10)}…")
+                    DiagLog.ev("cmd_sent", "tag" to trackerId, "path" to "ble", "ok" to true)
                     return
                 }
                 running.remove(trackerId)

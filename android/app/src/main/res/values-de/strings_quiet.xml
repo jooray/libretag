@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Leises Mesh, App 0.14.0 (SPEC.md 3.2): Einstellungen, Verbindungszeile, Befehlszettel, Hinweise. Dieselben Schlüssel in allen sechs Sprachen. -->
+<resources>
+    <!-- Tracker-Einstellungen, Bereich Meldungen -->
+    <string name="ts_mesh_after">Über das weitere Mesh melden nach</string>
+    <string name="ts_mesh_after_every">Jede Meldung</string>
+    <string name="ts_mesh_after_sub">Antwortet so lange keine Brücke und kein Knoten in der Nähe, sendet der Tracker eine Meldung, die Repeater weitertragen.</string>
+    <string name="ts_mesh_after_guard">Solange der Tracker bewacht wird, geht jede Meldung über das weitere Mesh.</string>
+    <string name="ts_at_once">Sofort melden, wenn er sich bewegt</string>
+    <string name="ts_at_once_sub">Antwortet in der Nähe niemand, geht die Meldung nach wenigen Sekunden über das weitere Mesh statt erst bei der nächsten Prüfung. Braucht mehr Sendezeit.</string>
+
+    <!-- Tracker-Detail, Zeile Weg: wie der Tracker dich gerade erreicht -->
+    <string name="link_near_node">In Reichweite deines Knotens</string>
+    <string name="link_near_bridge">In Reichweite einer Brücke</string>
+    <string name="link_routed">Erreicht eine Brücke über ein oder zwei Repeater</string>
+    <string name="link_far">Keine Brücke in der Nähe, meldet über das weitere Mesh</string>
+
+    <!-- Der Befehlszettel. %1$s ist der Befehl („Piepen“), %2$s eine Uhrzeit wie „18:40“ -->
+    <string name="slip2_next_try">%1$s · nächster Versuch um %2$s</string>
+    <string name="slip2_not_sent">%1$s · eine Brücke konnte ihn um %2$s nicht senden</string>
+    <string name="slip2_no_relay">%1$s · noch kein Relay hat ihn genommen, neuer Versuch folgt</string>
+    <!-- %1$s ist der Name des Trackers -->
+    <string name="slip2_schedule_unknown">Warte darauf, dass sich %1$s meldet. Sein Takt ist gerade nicht bekannt.</string>
+
+    <!-- Benachrichtigungen. %1$s ist der Name des Trackers -->
+    <string name="notif_lost_ended_title">Modus Verloren für %1$s beendet</string>
+    <string name="notif_track_ended_title">Verfolgung von %1$s beendet</string>
+    <string name="notif_mode_ended_text">Er meldet wieder wie gewohnt. Öffne den Tracker, um den Modus erneut einzuschalten.</string>
+    <!-- %1$s ist der Befehl („Piepen“), %2$s der Name des Trackers -->
+    <string name="notif_not_delivered_title">%1$s hat %2$s nicht erreicht</string>
+    <!-- %1$s ist eine Uhrzeit wie „18:40“ -->
+    <string name="notif_not_delivered_miss">Eine Brücke konnte ihn um %1$s nicht senden. Sende ihn erneut, falls du ihn noch brauchst.</string>
+    <string name="notif_not_delivered_sent">Er wurde gesendet, aber der Tracker hat ihn nie bestätigt.</string>
+    <!-- %1$s ist der Name des Trackers -->
+    <string name="notif_not_delivered_unheard">%1$s hat sich nicht gemeldet, während der Befehl wartete.</string>
+
+    <string name="notif_no_answers_title">%1$s wird gehört, bekommt aber die Antworten nicht</string>
+
+    <!-- Diagnosezeilen und -karten. %1$s ist eine Uhrzeit wie „18:40“ oder „gestern 18:40“ -->
+    <string name="dg_row_bridge_offline">Die Brücke, die ihn hört, ist seit %1$s offline</string>
+    <!-- %1$s ist der Name der Brücke, %2$s eine Uhrzeit -->
+    <string name="dg_card_bridge_offline">Seine letzte Meldung kam über %1$s, und diese Brücke ist seit %2$s offline. Dem Tracker selbst geht es vielleicht gut: Antwortet in der Nähe niemand, meldet er über das weitere Mesh.</string>
+    <string name="dg_bridge_unnamed">eine Brücke</string>
+    <string name="dg_row_reports_limited">Meldungen begrenzt bis %1$s</string>
+    <string name="dg_card_reports_limited">Der Tracker hat die Meldungen über das weitere Mesh für heute aufgebraucht. Bis %1$s hört ihn nur eine Brücke oder ein Knoten in seiner Nähe.</string>
+    <string name="dg_row_node_off">Dein MeshCore-Knoten ist aus · weiteres Mesh bis %1$s</string>
+    <!-- %1$s ist der Name des Trackers, %2$s eine Uhrzeit -->
+    <string name="dg_card_node_off">Dein MeshCore-Knoten ist aus. %1$s meldet bis %2$s über das weitere Mesh.</string>
+    <string name="dg_find_no_answers">Seine Meldungen kommen an, aber die Antworten scheint er nicht zu bekommen.</string>
+</resources>

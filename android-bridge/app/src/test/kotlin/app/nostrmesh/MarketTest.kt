@@ -76,6 +76,7 @@ class MarketTest {
         val m = FakeMesh(caps)
         val r = FakeRelays()
         val clock = { start + testScheduler.currentTime }
+        m.clock = clock
         val b = Bridge(this, m, r, if (pow) cfg else cfg.legacyTiming(), emptyList(), clock = clock, random = Random(7),
             newKey = keySource(), bridgeKey = key)
         return Rig(b, m, r, clock)
@@ -181,12 +182,16 @@ class MarketTest {
         assertTrue("publish floor above the claim wait", c.reportHoldMinMs > c.electionMs)
         assertEquals(0.5, c.timedAirtimeShare, 0.0)
         assertEquals(6, c.openFloodsPerHour)
-        assertFalse(c.receipts)
+        assertTrue("receipts on by default (0.10.0)", c.receipts)
         assertEquals(120, c.receiptsPerHour)
+        assertEquals(2, c.directMaxHops)
+        assertEquals(3600_000L, c.announceIntervalMs)
+        assertEquals(120, c.acksPerHour)
+        assertEquals(12_000L, c.fallbackAfterMs)
         assertTrue(c.acceptOpen && c.announce)
         assertTrue(c.peers.isEmpty() && c.networks.isEmpty())
         assertEquals(60_000L, c.anchorLeadMs)
-        assertEquals(60_000L, c.lateMaxMs)
+        assertEquals(40_000L, c.lateMaxMs)
         assertEquals(8, c.keysPerY)
     }
 
@@ -228,19 +233,19 @@ class MarketTest {
     fun claimsSignedWithBridgeKeyWithProofAndReportAfterTwoSeconds() = runTest {
         val g = rig()
         val p = rep(3)
-        g.b.onRelayEvent(entry(13, g.nowS(), listOf(Lt2.tag(p))).toJson())
+        g.b.onRelayEvent(entry(13, g.nowS(), listOf(Lt2.tag(p)), listOf(listOf("g", "00112233445566ff"))).toJson())
         advanceTimeBy(1000)
-        g.b.hear(p)
+        g.b.hear(p, hops2) // a path send has a claim round (zero-hop has none)
         runCurrent()
         val claim = g.r.ofKind(Lt2.KIND_CLAIM).single()
         assertEquals(mePub, claim.pubkey)
-        assertEquals(listOf(listOf("y", Lt2.tag(p)), listOf("hops", "0"), listOf("proof", Market.claimProof(p, mePub))), claim.tags)
+        assertEquals(listOf(listOf("y", Lt2.tag(p)), listOf("hops", "2"), listOf("proof", Market.claimProof(p, mePub))), claim.tags)
         advanceTimeBy(1_999)
         assertEquals("no report before the 2 s floor", 0, g.r.ofKind(Lt2.KIND_REPORT).size)
         advanceUntilIdle()
         val report = g.r.ofKind(Lt2.KIND_REPORT).single()
         assertTrue("reports keep a fresh key", report.pubkey != mePub)
-        assertEquals(1, g.m.sent.size)
+        assertEquals("the path send, then its fallback flood", 2, g.m.sent.size)
     }
 
     @Test
@@ -301,7 +306,7 @@ class MarketTest {
             kotlinx.coroutines.runBlocking { g.b.onRelayEvent(a.copy(sig = announcement(me, g.nowS()).sig).toJson()) }
         }) { g, p -> claim(g, p) })
         // named in p: counts with a proof; the index in p comes before hops
-        assertFalse("named first, farther away", untimedWithRival(extra = fmt2("flood", otherPub, mePub), heard = direct0) { g, p -> claim(g, p, hops = 3) })
+        assertFalse("named first, farther away", untimedWithRival(extra = fmt2("flood", otherPub, mePub), heard = hops2) { g, p -> claim(g, p, hops = 3) })
         assertTrue("named second, nearer", untimedWithRival(extra = fmt2("flood", mePub, otherPub)) { g, p -> claim(g, p, hops = 0) })
         assertTrue("named, wrong proof", untimedWithRival(extra = fmt2("flood", otherPub, mePub)) { g, _ -> claim(g, rep(7)) })
     }
@@ -363,8 +368,8 @@ class MarketTest {
     }
 
     @Test
-    fun timedEntryTreatsDirectAsNear() = runTest {
-        for ((heard, want) in listOf(hops2 to null, direct0 to Route.ZeroHop)) {
+    fun timedEntryWithRouteDirectGoesAlongThePathOfVia() = runTest {
+        for ((heard, want) in listOf(hops2 to "direct bbaa", direct0 to "zero", hops4 to null)) {
             val g = rig()
             val via = rep(11)
             g.b.hear(via, heard)
@@ -373,9 +378,14 @@ class MarketTest {
             g.b.onRelayEvent(entry(20, n, listOf("c0de0003"), fmt2("direct", mePub), at = n + 900, via = Lt2.tag(via)).toJson())
             startAt(g, n + 900)
             advanceUntilIdle()
-            assertEquals("$heard", want, g.m.sent.singleOrNull()?.route)
+            val got = g.m.sent.map {
+                when (val r = it.route) { Route.ZeroHop -> "zero"; Route.Flood -> "flood"; is Route.Direct -> "direct " + r.path.hex() }
+            }
+            assertEquals("$heard: route direct never floods, no fallback", listOfNotNull(want), got)
             if (want == null) {
-                assertEquals(0, g.r.ofKind(Lt2.KIND_CLAIM).size)
+                // no claim; a miss note (no_path) because the entry names this bridge
+                val notes = g.r.ofKind(Lt2.KIND_CLAIM)
+                assertEquals(listOf("no_path"), notes.map { n -> n.tags.single { it[0] == "miss" }[1] })
                 assertEquals(0, g.b.mailbox.size)
                 // its y was not marked answered: an entry under the same y can still be added
                 g.b.onRelayEvent(entry(21, g.nowS(), listOf("c0de0003")).toJson())
@@ -443,7 +453,7 @@ class MarketTest {
         g.b.onRelayEvent(entry(33, n, listOf(Lt2.tag(ps[3])), fmt2("flood", mePub), pcN(3)).toJson()) // names this bridge
         g.b.onRelayEvent(entry(34, n, listOf(Lt2.tag(ps[4])), payload = pcN(4)).toJson()) // heard directly: zero-hop
         advanceTimeBy(1000)
-        for (i in 0 until 4) { g.b.hear(ps[i], hops2); advanceUntilIdle() }
+        for (i in 0 until 4) { g.b.hear(ps[i], hops4); advanceUntilIdle() } // 3+ hops: a flood
         g.b.hear(ps[4], direct0); advanceUntilIdle()
         assertEquals(listOf(0, 1, 3, 4).map { pcN(it).hex() }, g.m.sent.map { it.payload.hex() })
         assertEquals(listOf(Route.Flood, Route.Flood, Route.Flood, Route.ZeroHop), g.m.sent.map { it.route })
@@ -456,7 +466,7 @@ class MarketTest {
         val p5 = rep(25)
         g2.b.onRelayEvent(entry(35, g2.nowS(), listOf(Lt2.tag(p5)), payload = pcN(5)).toJson())
         advanceTimeBy(1000)
-        g2.b.hear(p5, hops2)
+        g2.b.hear(p5, hops4)
         advanceUntilIdle()
         assertEquals(0, g2.m.sent.size)
         // an hour later there is room again
@@ -464,7 +474,7 @@ class MarketTest {
         val p6 = rep(26)
         g2.b.onRelayEvent(entry(36, g2.nowS(), listOf(Lt2.tag(p6)), payload = pcN(6)).toJson())
         advanceTimeBy(1000)
-        g2.b.hear(p6, hops2)
+        g2.b.hear(p6, hops4)
         advanceUntilIdle()
         assertEquals(1, g2.m.sent.size)
     }
@@ -472,45 +482,52 @@ class MarketTest {
     // ------------------------------------------------------------------ receipts, announcements, subscriptions
 
     @Test
-    fun receiptsOnlyWhenTurnedOn() = runTest {
-        val off = rig()
+    fun receiptsOnlyForReportsHeardDirectly() = runTest {
+        val off = rig(BridgeConfig(receipts = false))
         off.b.hear(rep(40))
         advanceUntilIdle()
         assertEquals(0, off.r.ofKind(Market.RECEIPT_KIND).size)
 
-        val noKey = rig(BridgeConfig(receipts = true), key = null)
+        val noKey = rig(key = null)
         noKey.b.hear(rep(40))
         advanceUntilIdle()
         assertEquals(0, noKey.r.ofKind(Market.RECEIPT_KIND).size)
 
-        val g = rig(BridgeConfig(receipts = true, receiptsPerHour = 2))
+        val g = rig(BridgeConfig(receiptsPerHour = 3))
+        assertTrue("on by default", g.b.config.receipts)
+        g.b.hear(rep(39), hops2) // over two hops: no receipt (0.10.0)
         val p = rep(41)
         val heardS = g.nowS()
-        g.b.hear(p, hops2)
+        g.b.hear(p, direct0) // a flood with 0 hops
         runCurrent()
-        advanceTimeBy(1_999)
-        assertEquals("after the 2 s floor", 0, g.r.ofKind(Market.RECEIPT_KIND).size)
+        advanceTimeBy(250)
+        assertEquals("fast publish: not before 0.3 s", 0, g.r.ofKind(Market.RECEIPT_KIND).size)
         advanceUntilIdle()
         val rc = g.r.ofKind(Market.RECEIPT_KIND).single()
         assertTrue(rc.verify())
         assertEquals(mePub, rc.pubkey)
         assertEquals(heardS, rc.createdAt)
-        assertEquals(Market.receiptTags(Lt2.tag(p), 2, heardS), rc.tags)
+        assertEquals(Market.receiptTags(Lt2.tag(p), false, heardS), rc.tags)
+        assertEquals(listOf("hops", "0"), rc.tags[1])
         assertEquals("", rc.content)
         g.b.hear(p, direct0) // a copy
         g.b.hear(rep(42), direct0.copy(receivedAtMs = g.clock() - 600_000)) // a stale queued frame
+        g.b.hear(rep(45), direct0.copy(routeType = "flood", queued = true)) // marked queued by the node
         g.b.hear(ByteArray(Lt2.BLE_LEN) { 7 }) // not a 45 B report
         advanceUntilIdle()
         assertEquals(1, g.r.ofKind(Market.RECEIPT_KIND).size)
-        g.b.hear(rep(43)); g.b.hear(rep(44))
+        g.b.hear(rep(43), RxMeta(routeType = "direct", path = ByteArray(0), pathHashSize = 1)) // a hello or a routed copy
         advanceUntilIdle()
-        assertEquals("120 per hour (here 2)", 2, g.r.ofKind(Market.RECEIPT_KIND).size)
-        assertEquals(listOf("y", "hops", "expiration"), g.r.ofKind(Market.RECEIPT_KIND).last().tags.map { it[0] })
+        assertEquals(listOf("route", "direct"), g.r.ofKind(Market.RECEIPT_KIND).last().tags[1])
+        g.b.hear(rep(44)); g.b.hear(rep(46))
+        advanceUntilIdle()
+        assertEquals("120 per hour (here 3)", 3, g.r.ofKind(Market.RECEIPT_KIND).size)
     }
 
     @Test
-    fun announcementsPerNetworkAtStartAndDaily() = runTest {
-        val g = rig(BridgeConfig(networks = listOf("sk", "cz"), bridgeName = "test", appVersion = "9.9", regionName = "sk", region = true))
+    fun announcementsPerNetworkAtStartHourlyAndOnRadioChange() = runTest {
+        val g = rig(BridgeConfig(networks = listOf("sk", "cz"), bridgeName = "test", appVersion = "9.9",
+            regions = listOf("sk-test", "sk"), region = true))
         assertTrue(g.b.announceIfDue())
         assertFalse(g.b.announceIfDue())
         val evs = g.r.ofKind(Market.ANNOUNCE_KIND)
@@ -520,10 +537,12 @@ class MarketTest {
             assertEquals(mePub, ev.pubkey)
             val a = Market.parseAnnouncement(ev, g.nowS())!!
             assertEquals(net, a.network)
-            assertEquals("sk", a.region)
+            assertEquals("sk-test", a.region)
+            assertEquals(listOf("sk-test", "sk"), a.regions)
+            assertEquals("up" to g.nowS(), a.radio)
             assertTrue(a.open)
-            assertFalse(a.receipts)
-            assertEquals(listOf(0, 60), a.signed) // legacyTiming() rig: anchor lead 0
+            assertTrue(a.receipts)
+            assertEquals(listOf(0, 40), a.signed) // legacyTiming() rig: anchor lead 0; late_max_s 40
             assertTrue(ev.tags.none { it[0] == "pow" })
             assertEquals(g.nowS() + 7 * 86400, a.expires)
             assertTrue(listOf("relay", "wss://nostr.example.com") in ev.tags)
@@ -533,9 +552,15 @@ class MarketTest {
             assertEquals(Bridge.ADAPTER, c.s("adapter"))
             assertTrue(c["zero_hop"]!!.jsonPrimitive.boolean && c["direct"]!!.jsonPrimitive.boolean)
         }
-        advanceTimeBy(24 * 3600_000L)
-        assertTrue(g.b.announceIfDue())
+        advanceTimeBy(3600_000L)
+        assertTrue("hourly", g.b.announceIfDue())
         assertEquals(4, g.r.ofKind(Market.ANNOUNCE_KIND).size)
+        advanceTimeBy(60_000L)
+        g.b.onRadioApi(false) // MeshCore Open: no radio
+        runCurrent()
+        val down = Market.parseAnnouncement(g.r.ofKind(Market.ANNOUNCE_KIND).last(), g.nowS())!!
+        assertEquals("radio down at once, not at the next hour", "down" to g.nowS(), down.radio)
+        assertEquals(6, g.r.ofKind(Market.ANNOUNCE_KIND).size)
 
         val plain = rig()
         assertTrue(plain.b.announceIfDue())
@@ -564,12 +589,10 @@ class MarketTest {
         assertEquals("38244", ann["kinds"]!!.jsonArray[0].jsonPrimitive.content)
         assertEquals("4244", ann["#k"]!!.jsonArray[0].jsonPrimitive.content)
 
+        // accept_open off still reads every 4244: anchors carry no tag a filter could select, and without them
+        // no key locks and no ACK entry goes out (PROTOCOL.md 4.1, 4.3); open commands drop on arrival
         val closed = rig(BridgeConfig(acceptOpen = false, networks = listOf("sk"))).b.subscriptions()["nm-cmd"]!!
-        assertEquals(2, closed.size)
-        assertEquals(mePub, closed[0]["#p"]!!.jsonArray.single().jsonPrimitive.content)
-        assertEquals("sk", closed[1]["#r"]!!.jsonArray.single().jsonPrimitive.content)
-        assertTrue(closed.all { it["kinds"]!!.jsonArray.single().jsonPrimitive.int == Lt2.KIND_COMMAND })
-        assertEquals(1, rig(BridgeConfig(acceptOpen = false)).b.subscriptions()["nm-cmd"]!!.size)
+        assertEquals(setOf("kinds", "since"), closed.single().keys)
     }
 
     @Test

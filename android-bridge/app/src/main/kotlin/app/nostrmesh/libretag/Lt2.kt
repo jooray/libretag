@@ -202,7 +202,19 @@ data class StoredCommand(
     val route: String = "flood",
     val p: List<String> = emptyList(),
     val r: String? = null,
+    /** Every `via` of the entry (copies of the anchor, or the path record of a ROUTED tag). */
+    val vias: List<String> = emptyList(),
+    /** ACK entry (`["a", "1"]`, PROTOCOL.md 4.3). */
+    val ack: Boolean = false,
+    /** `["fb", "0"]`: no flood fallback. */
+    val fb: Boolean = true,
+    /** `["blind", "1"]`: a timed LOST entry flooded without `via` heard. */
+    val blind: Boolean = false,
 )
+
+/** Untimed entry [id] of group [g] named report tag [y] (R34: an answer is a y of another entry). */
+@Serializable
+data class StoredGroupY(val g: String, val y: String, val id: String, val atMs: Long)
 
 @Serializable
 data class StoredSent(val pubkey: String, val atMs: Long)
@@ -235,6 +247,9 @@ data class StoredMailbox(
     /** Signed mailbox (PROTOCOL.md 4.2): anchors and locked keys. */
     val anchors: List<StoredAnchor> = emptyList(),
     val locks: List<StoredLock> = emptyList(),
+    val groupYs: List<StoredGroupY> = emptyList(),
+    /** Blind LOST sends per `via` (at most [QuietMesh.BLIND_PER_DAY] in 24 h). */
+    val blindTx: List<StoredTimedTx> = emptyList(),
 )
 
 /**
@@ -280,6 +295,14 @@ class Mailbox(private val cap: Int = DEFAULT_CAP) {
         val p: List<String> = emptyList(),
         /** The tag's network. */
         val r: String? = null,
+        /** Every `via` tag: copies of the anchor for a timed entry, the path record of a ROUTED tag. */
+        val vias: List<String> = listOfNotNull(via),
+        /** ACK entry: [payload] is the near form (13 B), near || routed (26 B), or the routed form. */
+        val ack: Boolean = false,
+        /** `["fb", "0"]` turns the flood fallback off. */
+        val fb: Boolean = true,
+        /** Blind LOST: flood at `at` without having heard `via` (it names this bridge in `p`). */
+        val blind: Boolean = false,
     ) {
         val timed get() = at != null
         /** Any bridge may send it (no p). */
@@ -288,10 +311,16 @@ class Mailbox(private val cap: Int = DEFAULT_CAP) {
         val anchor get() = payload.isEmpty()
 
         fun withYs(ys: List<String>) = Command(id, ys, flood, payload, knownAtMs, expiresAtMs, createdAt, at, via, pubkey,
-            relay, group, fmt, route, p, r)
+            relay, group, fmt, route, p, r, vias, ack, fb, blind)
 
-        /** The `done` key of tag [y]: untimed entries are answered once per report and key, timed ones per tag. */
-        fun doneKey(y: String) = if (timed) y else "$y:$pubkey"
+        /**
+         * The `done` key of tag [y]: untimed entries are answered once per report and key, timed ones per tag;
+         * ACKs apart from commands (one live ACK per locked key and report, one per timed slot).
+         */
+        fun doneKey(y: String) = (if (ack) "a:" else "") + if (timed) y else "$y:$pubkey"
+
+        /** The forms of an ACK entry (near, both, routed), or null. */
+        val ackForms: String? get() = if (ack) QuietMesh.ackForms(payload.size, route) else null
     }
 
     enum class Cancel { CANCELLED, SENT, OTHER_KEY, UNKNOWN }
@@ -309,8 +338,11 @@ class Mailbox(private val cap: Int = DEFAULT_CAP) {
     private val doneGroups = LinkedHashMap<String, Long>()
     /** y -> (pubkey -> anchor), first seen first. */
     private val anchors = LinkedHashMap<String, LinkedHashMap<String, StoredAnchor>>()
-    /** x -> (pubkey -> when locked). */
+    /** x -> (pubkey -> when locked, or last used: R33). */
     private val locks = LinkedHashMap<String, LinkedHashMap<String, Long>>()
+    /** group -> (y -> untimed entry id): which entry of a group named which report tag (R34). */
+    private val groupYs = LinkedHashMap<String, LinkedHashMap<String, Pair<String, Long>>>()
+    private val blindTx = ArrayDeque<StoredTimedTx>()
     private var tags = 0
 
     val size: Int @Synchronized get() = byId.size
@@ -326,6 +358,7 @@ class Mailbox(private val cap: Int = DEFAULT_CAP) {
         byId[c.id] = c
         c.ys.forEach { byY.getOrPut(it) { mutableListOf() }.add(c) }
         tags += c.ys.size
+        if (!c.timed && !c.ack && c.group != null) noteGroupYs(c.group, c.ys, c.id, now)
         if (c.timed && perViaMax != null && perViaMax > 0) {
             byId.values.filter { it.timed && it.via == c.via }
                 .sortedWith(compareBy<Command>({ it.knownAtMs }, { it.id }))
@@ -400,13 +433,42 @@ class Mailbox(private val cap: Int = DEFAULT_CAP) {
         return true
     }
 
+    /** A use of the path record of [x] (an ACK or command along it) restarts the lifetime of its locks (R33). */
+    @Synchronized
+    fun touchLocks(x: String, now: Long) {
+        locks[x]?.let { m -> m.keys.toList().forEach { m[it] = maxOf(m[it] ?: 0L, now) } }
+    }
+
+    private fun noteGroupYs(g: String, ys: List<String>, id: String, now: Long) {
+        val m = groupYs.getOrPut(g) { LinkedHashMap() }
+        ys.forEach { y -> if (y !in m) m[y] = id to now }
+        while (groupYs.size > 20_000) groupYs.remove(groupYs.keys.first())
+    }
+
+    /** The untimed entry of group [g] that named report tag [y], or null. */
+    @Synchronized
+    fun groupEntryOf(g: String, y: String): String? = groupYs[g]?.get(y)?.first
+
+    /** Groups one of whose untimed entries named report tag [y] (sent or still waiting). */
+    @Synchronized
+    fun groupsNaming(y: String): List<String> = groupYs.filter { y in it.value }.keys.toList()
+
+    @Synchronized
+    fun addBlindTx(via: String, now: Long) {
+        blindTx.addLast(StoredTimedTx(via, now))
+        while (blindTx.size > 1000) blindTx.removeFirst()
+    }
+
+    @Synchronized
+    fun blindTxSince(via: String, sinceMs: Long) = blindTx.count { it.via == via && it.atMs >= sinceMs }
+
     @Synchronized
     fun locked(x: String): Set<String> = locks[x]?.keys?.toSet().orEmpty()
 
     /** After report [x] locked its keys: unsent entries for it from any key not in [keep] can never go out. */
     @Synchronized
     fun dropUnlocked(x: String, keep: Set<String>): Int {
-        val drop = byId.values.filter { c -> ((!c.timed && x in c.ys) || c.via == x) && c.pubkey !in keep }
+        val drop = byId.values.filter { c -> ((!c.timed && x in c.ys) || (c.timed && x in c.vias && !c.blind)) && c.pubkey !in keep }
         drop.forEach { remove(it) }
         return drop.size
     }
@@ -449,14 +511,14 @@ class Mailbox(private val cap: Int = DEFAULT_CAP) {
 
     /** Groups with an untimed entry for tag [y] (a report with this x is the tracker's own). */
     @Synchronized
-    fun groupsOfY(y: String): List<String> = byY[y].orEmpty().filter { !it.timed }.mapNotNull { it.group }.distinct()
+    fun groupsOfY(y: String): List<String> = byY[y].orEmpty().filter { !it.timed && !it.ack }.mapNotNull { it.group }.distinct()
 
     /** Timed entries of [g] still waiting (in the mailbox or in flight). */
     @Synchronized
     fun groupTimed(g: String): List<Command> = (byId.values + inFlight.values).filter { it.timed && it.group == g }.distinctBy { it.id }
 
     @Synchronized
-    fun groupHasUntimedY(g: String, y: String) = byId.values.any { !it.timed && it.group == g && y in it.ys }
+    fun groupHasUntimedY(g: String, y: String) = groupEntryOf(g, y) != null
 
     /**
      * Per key in [keys] (the keys report [y] locked), the command for tag [y] heard at [heardAtMs], known
@@ -464,23 +526,38 @@ class Mailbox(private val cap: Int = DEFAULT_CAP) {
      * A key already answered for [y] gets nothing. Timed entries never match.
      */
     @Synchronized
-    fun match(y: String, heardAtMs: Long, now: Long, keys: Set<String>, allowed: (Command) -> Boolean = { true }): List<Command> =
+    fun match(
+        y: String, heardAtMs: Long, now: Long, keys: Set<String>, ack: Boolean = false, allowed: (Command) -> Boolean = { true },
+    ): List<Command> =
         byY[y].orEmpty()
             .filter {
-                !it.timed && it.pubkey in keys && "$y:${it.pubkey}" !in done &&
-                    it.knownAtMs < heardAtMs && it.expiresAtMs > now && allowed(it)
+                !it.timed && it.ack == ack && it.pubkey in keys && it.doneKey(y) !in done &&
+                    (ack || it.knownAtMs < heardAtMs) && it.expiresAtMs > now && allowed(it)
             }
             .sortedWith(compareBy<Command>({ it.knownAtMs }, { it.id }))
             .distinctBy { it.pubkey }
 
     /** An untimed entry waits under tag [y]. */
     @Synchronized
-    fun hasUntimed(y: String) = byY[y].orEmpty().any { !it.timed }
+    fun hasUntimed(y: String) = byY[y].orEmpty().any { !it.timed && !it.ack }
 
     /** Drops [c] without closing its tags (an entry this bridge may not send: the y stays for a nearer bridge). */
     @Synchronized
     fun discard(c: Command) {
         remove(c)
+    }
+
+    /** The earliest `at` (ms) of an unexpired timed entry still waiting, or null. */
+    @Synchronized
+    fun nextTimedAtMs(now: Long): Long? =
+        byId.values.filter { c -> c.at != null && c.expiresAtMs > now && c.ys.none { c.doneKey(it) in done } }.minOfOrNull { it.at!! * 1000 }
+
+    /** How long before [t] the earliest of [keys] named [x] (field log `lead_s`), or null. */
+    @Synchronized
+    fun keyLeadMs(x: String, keys: Set<String>, t: Long): Long? {
+        val known = anchors[x].orEmpty().values.filter { it.pubkey in keys }.map { it.knownAtMs } +
+            (byY[x].orEmpty() + inFlight.values.filter { x in it.ys }).filter { !it.timed && it.pubkey in keys }.map { it.knownAtMs }
+        return known.minOrNull()?.let { t - it }
     }
 
     /** Unexpired timed entries with `at` <= [untilMs] none of whose tags were answered, earliest first. */
@@ -498,7 +575,7 @@ class Mailbox(private val cap: Int = DEFAULT_CAP) {
     fun take(c: Command, now: Long) {
         c.ys.forEach { done[c.doneKey(it)] = now }
         // other commands under the same tags from the same key are for the same report: one downlink per x and key
-        c.ys.flatMap { byY[it].orEmpty() }.distinct().filter { it.timed || it.pubkey == c.pubkey }.forEach { remove(it) }
+        c.ys.flatMap { byY[it].orEmpty() }.distinct().filter { it.ack == c.ack && (it.timed || it.pubkey == c.pubkey) }.forEach { remove(it) }
         remove(c)
         inFlight[c.id] = c
         while (inFlight.size > 1024) inFlight.remove(inFlight.keys.first())
@@ -581,13 +658,17 @@ class Mailbox(private val cap: Int = DEFAULT_CAP) {
         anchors.values.removeAll { it.isEmpty() }
         locks.values.forEach { m -> m.values.removeAll { now - it > LOCK_TTL_MS } }
         locks.values.removeAll { it.isEmpty() }
+        groupYs.values.forEach { m -> m.values.removeAll { now - it.second > Lt2.COMMAND_MAX_TTL_MS } }
+        groupYs.values.removeAll { it.isEmpty() }
+        while (blindTx.isNotEmpty() && now - blindTx.first().atMs > 86400_000L) blindTx.removeFirst()
     }
 
     @Synchronized
     fun export(): StoredMailbox = StoredMailbox(
         (byId.values + inFlight.values).map {
             StoredCommand(it.id, it.ys, it.flood, Base64.getEncoder().encodeToString(it.payload), it.knownAtMs,
-                it.expiresAtMs, it.createdAt, it.at, it.via, it.pubkey, 0, it.relay, it.group, it.fmt, it.route, it.p, it.r)
+                it.expiresAtMs, it.createdAt, it.at, it.via, it.pubkey, 0, it.relay, it.group, it.fmt, it.route, it.p, it.r,
+                it.vias, it.ack, it.fb, it.blind)
         },
         done.toMap(),
         cancelled.toMap(),
@@ -597,12 +678,16 @@ class Mailbox(private val cap: Int = DEFAULT_CAP) {
         doneGroups.toMap(),
         anchors.values.flatMap { it.values },
         locks.flatMap { (x, m) -> m.map { (pk, t) -> StoredLock(x, pk, t) } },
+        groupYs.flatMap { (g, m) -> m.map { (y, v) -> StoredGroupY(g, y, v.first, v.second) } },
+        blindTx.toList(),
     )
 
     @Synchronized
     fun restore(s: StoredMailbox, now: Long) {
         byId.clear(); byY.clear(); done.clear(); inFlight.clear(); sent.clear(); cancelled.clear(); tags = 0
-        sentPayloads.clear(); timedTx.clear(); doneGroups.clear(); anchors.clear(); locks.clear()
+        sentPayloads.clear(); timedTx.clear(); doneGroups.clear(); anchors.clear(); locks.clear(); groupYs.clear(); blindTx.clear()
+        s.groupYs.filter { now - it.atMs <= Lt2.COMMAND_MAX_TTL_MS }.sortedBy { it.atMs }.forEach { noteGroupYs(it.g, listOf(it.y), it.id, it.atMs) }
+        s.blindTx.filter { now - it.atMs <= 86400_000L }.sortedBy { it.atMs }.forEach { blindTx.addLast(it) }
         s.anchors.filter { it.expiresAtMs > now }.sortedBy { it.knownAtMs }
             .forEach { addAnchor(it.y, it.pubkey, it.id, it.knownAtMs, it.expiresAtMs) }
         s.locks.filter { now - it.atMs <= LOCK_TTL_MS }.sortedBy { it.atMs }.forEach { lock(it.x, it.pubkey, it.atMs) }
@@ -617,7 +702,7 @@ class Mailbox(private val cap: Int = DEFAULT_CAP) {
             // an entry in flight when the bridge stopped has its tags closed: add() drops it (as the Python ledger does)
             if (c.fmt != 2) continue // format 1 (before the signed mailbox) never goes out
             add(Command(c.id, c.ys, c.flood, p, c.knownAtMs, c.expiresAtMs, c.createdAt, c.at, c.via, c.pubkey, c.relay, c.group,
-                c.fmt, c.route, c.p, c.r), now)
+                c.fmt, c.route, c.p, c.r, c.vias.ifEmpty { listOfNotNull(c.via) }, c.ack, c.fb, c.blind), now)
         }
     }
 
@@ -660,54 +745,102 @@ class Mailbox(private val cap: Int = DEFAULT_CAP) {
             } catch (e: IllegalArgumentException) {
                 return null
             }
-            if (payload.size != Lt2.COMMAND_LEN && ev.content.isNotEmpty()) return null
+            val tag1 = { k: String -> ev.tags.firstOrNull { it.size >= 2 && it[0] == k }?.get(1) }
+            val ack = tag1("a") == "1"
             val t = Market.targeting(ev.tags) ?: return null
-            val flood = ev.tags.any { it.size >= 2 && it[0] == "route" && it[1] == "flood" }
-            val atS = ev.tags.firstOrNull { it.size >= 2 && it[0] == "at" }?.get(1)
+            when {
+                ack -> if (QuietMesh.ackForms(payload.size, t.route) == null) return null // 13 or 26 B, route near|direct
+                ev.content.isEmpty() -> {}
+                payload.size != Lt2.COMMAND_LEN -> return null
+            }
+            val flood = t.route == "flood" || t.route == "both"
+            val vias = ev.tags.filter { it.size >= 2 && it[0] == "via" }.map { it[1] }.distinct()
+            if (vias.size > MAX_TAGS_PER_EVENT || !vias.all { isLowerHex(it, Lt2.TAG_LEN) }) return null
+            if (payload.isEmpty() && vias.isNotEmpty()) return null // an anchor names reports, never a path or a check
+            val atS = tag1("at")
             var at: Long? = null
-            var via: String? = null
             if (atS != null) {
-                via = ev.tags.firstOrNull { it.size >= 2 && it[0] == "via" }?.get(1)
                 if (atS.isEmpty() || !atS.all { it in '0'..'9' } || atS.length > 12) return null
-                if (via == null || !isLowerHex(via, Lt2.TAG_LEN)) return null
+                if (vias.isEmpty()) return null
                 if (payload.isEmpty()) return null // an anchor names reports, never a check
                 if (!timed) return null
                 at = atS.toLong()
                 if (at * 1000 < nowMs - maxLateMs) return null
             }
-            return Command(ev.id, ys, flood, payload, nowMs, expiresAt, ev.createdAt, at, via, ev.pubkey,
-                relay?.takeIf { it.isNotEmpty() }, group, t.fmt, t.route, t.p, t.r)
+            val blind = tag1("blind") == "1"
+            if (blind && (at == null || ack || t.p.isEmpty())) return null // blind: a timed command naming bridges
+            return Command(ev.id, ys, flood, payload, nowMs, expiresAt, ev.createdAt, at, vias.firstOrNull(), ev.pubkey,
+                relay?.takeIf { it.isNotEmpty() }, group, t.fmt, t.route, t.p, t.r, vias, ack, tag1("fb") != "0", blind)
         }
     }
 }
 
 /**
- * How each caught LT2 report reached this radio, by its tag x (only the 4-byte tag, hop count and
- * path bytes), for timed mailbox entries. Of several copies the one with the fewest hops stays.
+ * How each caught LT2 report reached this radio, by its tag x: the route type, hop count (null for a
+ * DIRECT arrival, R36), the path (tag to bridge order, hex), the reply scope, and the report P itself
+ * (public, for claim proofs and late entries after a restart, R25). A path record of a DIRECT arrival
+ * gets the path the bridge used to answer it ([storePath]), so a later entry naming it as `via` finds it.
+ * Of several copies of one x the one with the fewest hops stays. A record lives [ttlMs] from its last
+ * use (R33), [touch].
  */
-class ReportPaths(private val ttlMs: Long = 48 * 3600_000L, private val cap: Int = 20_000) {
+class ReportPaths(private val ttlMs: Long = QuietMesh.PATH_RECORD_TTL_MS, private val cap: Int = 20_000) {
     @Serializable
-    data class Entry(val x: String, val hops: Int? = null, val path: String? = null, val hashSize: Int = 1, val heardAtMs: Long)
+    data class Entry(
+        val x: String, val hops: Int? = null, val path: String? = null, val hashSize: Int = 1, val heardAtMs: Long,
+        val route: String = "flood", val usedAtMs: Long = 0, val p: String? = null, val scope: String? = null,
+        /** Heard live (not a queued or replayed frame). */
+        val live: Boolean = true,
+    ) {
+        val isDirect get() = route == "direct" || route == "tdirect"
+        val lastUseMs get() = maxOf(heardAtMs, usedAtMs)
+        /** The path as hex hashes, first hop (the repeater next to the tag) first; null when unknown. */
+        val hashes: List<String>? get() = QuietMesh.hashes(path?.unhex(), hashSize)
+        /** How it was heard, as the plan sees it (a DIRECT record's path is the stored one, not the arrival's). */
+        val heard: QuietMesh.Heard get() = if (isDirect) QuietMesh.Heard(route, emptyList()) else QuietMesh.Heard(route, hashes, hops)
+    }
 
     private val byX = LinkedHashMap<String, Entry>()
 
     val size: Int @Synchronized get() = byX.size
 
     @Synchronized
-    fun put(x: String, hops: Int?, path: ByteArray?, hashSize: Int, heardAtMs: Long) {
+    fun put(
+        x: String, hops: Int?, path: ByteArray?, hashSize: Int, heardAtMs: Long, route: String = "flood",
+        p: ByteArray? = null, scope: String? = null, live: Boolean = true,
+    ) {
         val old = byX[x]
-        if (old?.hops != null && (hops == null || hops >= old.hops)) return
+        if (old != null) {
+            val better = !old.isDirect && route !in setOf("direct", "tdirect") && hops != null && (old.hops == null || hops < old.hops)
+            if (!better) {
+                if (old.p == null && p != null) byX[x] = old.copy(p = p.hex())
+                return
+            }
+        }
         byX.remove(x)
-        byX[x] = Entry(x, hops, path?.hex(), hashSize, heardAtMs)
+        byX[x] = Entry(x, hops, path?.hex(), hashSize, heardAtMs, route, old?.usedAtMs ?: 0, p?.hex() ?: old?.p,
+            scope ?: old?.scope, live)
         while (byX.size > cap) byX.remove(byX.keys.first())
     }
 
     @Synchronized
-    fun get(x: String, now: Long): Entry? = byX[x]?.takeIf { now - it.heardAtMs <= ttlMs }
+    fun get(x: String, now: Long): Entry? = byX[x]?.takeIf { now - it.lastUseMs <= ttlMs }
+
+    /** A use for an ACK or a command restarts the record's lifetime. */
+    @Synchronized
+    fun touch(x: String, now: Long) {
+        byX[x]?.let { byX[x] = it.copy(usedAtMs = maxOf(it.usedAtMs, now)) }
+    }
+
+    /** The path a routed ACK used to answer DIRECT arrival [x] (tag to bridge order) is kept under x. */
+    @Synchronized
+    fun storePath(x: String, hashes: List<String>, hashSize: Int, now: Long) {
+        val e = byX[x] ?: return
+        byX[x] = e.copy(path = QuietMesh.pathBytes(hashes).hex(), hashSize = hashSize, usedAtMs = maxOf(e.usedAtMs, now))
+    }
 
     @Synchronized
     fun prune(now: Long) {
-        byX.values.removeAll { now - it.heardAtMs > ttlMs }
+        byX.values.removeAll { now - it.lastUseMs > ttlMs }
     }
 
     @Synchronized
@@ -716,6 +849,6 @@ class ReportPaths(private val ttlMs: Long = 48 * 3600_000L, private val cap: Int
     @Synchronized
     fun restore(entries: List<Entry>, now: Long) {
         byX.clear()
-        entries.filter { now - it.heardAtMs <= ttlMs }.sortedBy { it.heardAtMs }.forEach { byX[it.x] = it }
+        entries.filter { now - it.lastUseMs <= ttlMs }.sortedBy { it.heardAtMs }.forEach { byX[it.x] = it }
     }
 }

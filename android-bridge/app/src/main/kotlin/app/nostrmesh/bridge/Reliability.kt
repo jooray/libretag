@@ -35,12 +35,18 @@ class Outbox(private val ttlMs: Long = TTL_MS, private val cap: Int = CAP) {
     @Synchronized
     fun contains(id: String) = id in entries
 
-    /** Keeps [event] until [done]; the first retry is [BACKOFF_MS] later. Returns the expiry used. */
+    /**
+     * Keeps [event] until [done]; the first retry is [BACKOFF_MS] later, or at [firstTryMs] (a report written
+     * at hearing time with its publish delay as the not-before time, R21). Returns the expiry used.
+     */
     @Synchronized
-    fun put(id: String, event: String, key: String, profile: String, now: Long, eventExpiresMs: Long?): Long {
+    fun put(
+        id: String, event: String, key: String, profile: String, now: Long, eventExpiresMs: Long?,
+        firstTryMs: Long = now + BACKOFF_MS[0],
+    ): Long {
         val exp = minOf(now + ttlMs, eventExpiresMs ?: Long.MAX_VALUE)
         if (id !in entries) {
-            entries[id] = OutboxEntry(id, event, key, profile, exp, now + BACKOFF_MS[0])
+            entries[id] = OutboxEntry(id, event, key, profile, exp, firstTryMs)
             while (entries.size > cap) entries.remove(entries.keys.first())
         }
         inFlight += id
@@ -65,6 +71,13 @@ class Outbox(private val ttlMs: Long = TTL_MS, private val cap: Int = CAP) {
     /** The first attempt failed: the entry waits for its first retry. */
     @Synchronized
     fun release(id: String) { inFlight -= id }
+
+    /** The delayed first attempt failed: the first retry [BACKOFF_MS] from now. */
+    @Synchronized
+    fun deferred(id: String, now: Long) {
+        inFlight -= id
+        entries[id]?.let { entries[id] = it.copy(nextTry = now + BACKOFF_MS[0]) }
+    }
 
     /** Drops expired entries (returned as the second value) and claims the due ones for a retry. */
     @Synchronized
@@ -130,5 +143,80 @@ class Watchdog(var silenceMs: Long = SILENCE_MS, startedAt: Long) {
 
     companion object {
         const val SILENCE_MS = 30 * 60_000L
+    }
+}
+
+/**
+ * The state of the radio itself (SPEC 3.2 "Radio health", R37): "node service up, radio down" counts as
+ * down. Down when MeshCore Open says its radio is not usable, when a send comes back `not_connected` or
+ * times out twice in a row, or when nothing came from the radio (a received packet, a probe answer) for
+ * [silenceMs]; up again on the next sign of it. Android has no recovery hooks: it announces and logs.
+ */
+class RadioHealth(var silenceMs: Long, startedAt: Long) {
+    data class Transition(val up: Boolean, val reason: String, val since: Long)
+
+    var up = true
+        private set
+    var since = startedAt
+        private set
+    var reason: String? = null
+        private set
+    private var lastRadio = startedAt
+    private var timeouts = 0
+    private var apiDown = false
+
+    @Synchronized
+    private fun set(nowUp: Boolean, why: String, now: Long): Transition? {
+        if (nowUp == up) return null
+        up = nowUp
+        since = now
+        reason = why
+        return Transition(nowUp, why, now)
+    }
+
+    /** A received packet (or the radio took a frame). */
+    @Synchronized
+    fun onRadio(now: Long): Transition? {
+        lastRadio = now
+        timeouts = 0
+        return if (apiDown) null else set(true, "rx", now)
+    }
+
+    @Synchronized
+    fun onApi(connected: Boolean, now: Long): Transition? {
+        apiDown = !connected
+        if (!connected) return set(false, "api_says_down", now)
+        lastRadio = maxOf(lastRadio, now) // a fresh connection: the silence counts from here
+        return null
+    }
+
+    @Synchronized
+    fun onProbe(answered: Boolean, now: Long): Transition? =
+        if (answered) onRadio(now) else set(false, "probe_timeout", now)
+
+    @Synchronized
+    fun onSend(ok: Boolean, error: String?, now: Long): Transition? {
+        if (ok) return onRadio(now)
+        return when (error) {
+            "not_connected", "disconnected", "radio_error" -> set(false, "send_failed", now)
+            "timeout" -> if (++timeouts >= 2) set(false, "send_failed", now) else null
+            else -> null
+        }
+    }
+
+    @Synchronized
+    fun tick(now: Long): Transition? {
+        if (silenceMs <= 0 || !up) return null
+        return if (now - lastRadio > silenceMs) set(false, "rx_silence", now) else null
+    }
+
+    /** ["radio", state, since] for the announcement. */
+    @Synchronized
+    fun announced(): Pair<String, Long> = (if (up) "up" else "down") to since / 1000
+
+    @Synchronized
+    fun restore(wasUp: Boolean, at: Long) {
+        up = wasUp
+        since = at
     }
 }

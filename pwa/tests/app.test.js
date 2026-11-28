@@ -26,6 +26,13 @@ describe('a bridge claim marks the command as sent', () => {
     expect(await app.cancelCommand(rec.id)).toBe(0);
     expect(rec.pending).not.toBeNull();
   });
+  it('ignores an "ack sent", miss or done note that shares the y', () => {
+    const { app, rec } = appWithTag();
+    for (const t of [['ack', '1'], ['miss', 'radio'], ['done', 'cc33dd44']]) {
+      expect(app.markSentFromClaim({ created_at: 1500, tags: [['y', 'cc33dd44'], t] })).toBeNull();
+    }
+    expect(rec.pending.sentAt).toBeUndefined();
+  });
   it('ignores a claim for something that is not ours', () => {
     const { app, rec } = appWithTag();
     expect(app.markSentFromClaim({ created_at: 1500, tags: [['y', 'ffffffff']] })).toBeNull();
@@ -74,10 +81,10 @@ describe('publishing a command entry by entry', () => {
     expect(r).toEqual({ ok: 1, events: 1 });
     await settle(app, rec.id);
     await new Promise((r2) => setTimeout(r2, 20));
-    // report 5 came 60 s ago: a late entry for it, then the next four counters
+    // report 5 came 60 s ago: too late for a late entry (P6, 40 s), so the next ten counters
     const cmds = commands(published);
-    expect(cmds).toHaveLength(5);
-    const ns = [5, 6, 7, 8, 9];
+    expect(cmds).toHaveLength(10);
+    const ns = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
     cmds.forEach((e, i) => {
       expect(e.pubkey).toBe(pkOf(rec, ns[i]));
       expect(e.tags).toContainEqual(['v', '2']);
@@ -86,12 +93,13 @@ describe('publishing a command entry by entry', () => {
     const gs = new Set(cmds.map((e) => e.tags.find((t) => t[0] === 'g')[1]));
     expect(gs.size).toBe(1);
     expect([...gs][0]).toBe(rec.pending.g);
-    expect(rec.pending.sent).toHaveLength(5);
+    expect(rec.pending.sent).toHaveLength(10);
     expect(rec.pending.sent.every((x) => !('sk' in x) && Number.isInteger(x.n))).toBe(true);
-    // anchors for 6..13 and the next epoch's first counter (64), each signed by its own sk_n
+    // anchors for 6..21, the reboot checkpoint 32 (16 is among them) and the next epoch's first counter (64)
+    const want = [...Array(16).keys()].map((i) => 6 + i).concat([32, 64]);
     const an = anchors(published);
-    expect(an.map((e) => e.pubkey).sort()).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 64].map((n) => pkOf(rec, n)).sort());
-    expect(Object.keys(rec.mbAnchors).map(Number).sort((a, b) => a - b)).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 64]);
+    expect(an.map((e) => e.pubkey).sort()).toEqual(want.map((n) => pkOf(rec, n)).sort());
+    expect(Object.keys(rec.mbAnchors).map(Number).sort((a, b) => a - b)).toEqual(want);
   });
   it('anchors are not published again while they live, and a view share publishes none', async () => {
     const { app, rec, published } = setup();

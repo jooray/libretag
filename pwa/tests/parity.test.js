@@ -180,6 +180,7 @@ describe('report interval as a command (SET_IDLE)', () => {
     app.persist = () => {};
     app.saveBackup = async () => ({});
     const t = mk([pos({ n: 1, receivedAt: NOW - 10 * 60_000, nextInS: 3600 })], { extra: { check_s: 20 } });
+    t.anchor = { a: { n: 1, t0: NOW - 10 * 60_000 }, cands: [], lastN: 1, seen: {}, known: true };
     app.tags.push(t);
     app.firstSyncDone.add(t.id);
     const out = await app.queueCommand(t.id, 'INTERVAL', 60, 0, { every: 2 });

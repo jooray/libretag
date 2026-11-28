@@ -64,23 +64,23 @@ class BleBootsTest {
         battery = 80, mode = "IDLE", hops = 0, snrDb = 0.0, n = 4)
 }
 
-/** The n + 1 sealings while a tag is late (tag-diagnosis 4.1), against the `checks` vectors. */
+/** The n + 1 sealings while a tag is late (tag-diagnosis 4.1), on the slot grid of n + 1 (quiet-mesh-v1.json `slots`). */
 class BleCommandAheadTest {
-    private val v = Json.parseToJsonElement(File("../../host/tests/vectors/lt2.json").readText()).jsonObject
+    private val v = Json.parseToJsonElement(File("../../docs/vectors/quiet-mesh-v1.json").readText()).jsonObject
     private val now = 1_800_000_000_000L
 
     @Test fun candidatesAroundNow() {
         val keys = Keys(LibreTag.hexToBytes(v["k0"]!!.jsonPrimitive.content)!!)
-        val c = v["checks"]!!.jsonArray.first().jsonObject
-        val n = c["n"]!!.jsonPrimitive.int.toLong()
+        val c = v["slots"]!!.jsonObject["keys"]!!.jsonArray.first().jsonObject
+        val n = c["n_a"]!!.jsonPrimitive.int.toLong()
         val baseMin = (c["base_s"]!!.jsonPrimitive.long / 60).toInt()
-        val hb = c["heartbeat_s"]!!.jsonPrimitive.long
-        val offs = LibreTag.checkOffsets(keys.cmd(LibreTag.epoch(n)), n, baseMin, hb)
-        assertEquals(c["before_heartbeat"]!!.jsonArray.map { it.jsonPrimitive.long }, offs)
+        val ks = app.libretag.proto.QuietMesh.slotKey(keys.cmd(LibreTag.epoch(n)), n)
+        val offs = app.libretag.proto.QuietMesh.slotOffsets(ks, baseMin * 60L, 6)
+        assertEquals(c["offsets"]!!.jsonArray.map { it.jsonPrimitive.long }, offs)
         val cmd = Command.buzz(9, 2)
         val t = Tracker(name = "Car", keyHex = "00", lastN = n - 1, intervalMin = baseMin, firmware = "0.9.4",
             pending = PendingCommand(9, "", LibreTag.bytesToHex(cmd.encode()), kind = "BEEP", queuedAt = now - 60_000L))
-        val t0 = now - offs[2] * 1000L // check 3 is now
+        val t0 = now - offs[2] * 1000L // slot 3 is now
         val list = BleBeaconPlan.ahead(t, t0, now) { if (it == n) offs else null }
         assertEquals(listOf(n to BleCommand.K_NEXT, n to 2, n to 3, n to 4), list.map { it.n to it.k })
         // without a known t0 only k = K_NEXT

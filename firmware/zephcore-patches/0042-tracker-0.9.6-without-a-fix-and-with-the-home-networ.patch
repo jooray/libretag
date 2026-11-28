@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: LibreTag <dev@libretag.invalid>
 Date: Sun, 22 Nov 2026 16:59:48 +0100
-Subject: [PATCH 42/42] tracker 0.9.6: without a fix and with the home network
+Subject: [PATCH 42/50] tracker 0.9.6: without a fix and with the home network
  silent for 3 listen windows, copy j=1 also goes to the previous network (the
  one before the last automatic switch;
  prev_preset/prev_country/prev_path_hash_size/prev_scope in the state, ext
